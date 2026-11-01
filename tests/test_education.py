@@ -19,6 +19,7 @@ from bot.education.daily import (
     note_target,
     optional_for,
     parse_month,
+    parse_months,
     parse_queue,
     pick_review,
     plan_daily,
@@ -126,9 +127,11 @@ def test_parse_queue_keeps_sections_links_and_done():
 
 
 def test_parse_month_strips_note_and_reads_certificate():
-    assert parse_month(GOALS, "2026-11") == NOV
+    nov = Month("2026-11", "시스템 전체 한 바퀴", "", "폭", "플랫폼 지도")
+    assert parse_month(GOALS, "2026-11") == nov
     assert parse_month(GOALS, "2027-03").certificate == "SQLD 응시"
-    assert parse_month(GOALS, "2026-10") == NOV  # 계획 시작 전 달은 다음 달 주제
+    assert parse_month(GOALS, "2026-10") == nov  # 계획 시작 전 달은 다음 달 주제
+    assert [m.key for m in parse_months(GOALS)] == ["2026-11", "2027-02", "2027-03"]
     with pytest.raises(DailyError):
         parse_month(GOALS, "2030-01")
 

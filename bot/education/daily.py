@@ -61,6 +61,8 @@ class Month:
     key: str  # 2026-11
     topic: str  # 괄호 설명을 뺀 주제
     certificate: str  # 자격증 칸. 없으면 ""
+    layer: str = ""  # 층 칸 (폭, 에이전트, AI, 정리)
+    note: str = ""  # 주제 뒤 괄호 설명 (플랫폼 지도 등)
 
 
 @dataclass(frozen=True)
@@ -145,21 +147,34 @@ def parse_queue(text: str) -> list[QueueItem]:
     return items
 
 
-def parse_month(goals: str, key: str) -> Month:
-    """월별 목표 `한눈에 보기` 표에서 그 달의 주제와 자격증 칸.
-
-    표가 시작되기 전 달(예: 계획이 11월부터인데 10월)이면 가장 가까운 다음 달을 쓴다.
-    """
+def parse_months(goals: str) -> list[Month]:
+    """월별 목표 `한눈에 보기` 표의 모든 달, 달 순."""
     rows = []
     for line in goals.splitlines():
         match = _GOAL_ROW.match(line.strip())
         if match:
-            topic = re.sub(r"\s*\(.*\)\s*$", "", match.group(2)).strip()
+            raw = match.group(2).strip()
+            note = re.search(r"\(([^()]*)\)\s*$", raw)
+            topic = re.sub(r"\s*\(.*\)\s*$", "", raw).strip()
             certificate = match.group(4).replace("*", "").strip()
             rows.append(
-                Month(match.group(1), topic, "" if certificate in ("", "—", "-") else certificate)
+                Month(
+                    match.group(1),
+                    topic,
+                    "" if certificate in ("", "—", "-") else certificate,
+                    match.group(3).strip(),
+                    note.group(1).strip() if note else "",
+                )
             )
-    for month in sorted(rows, key=lambda m: m.key):
+    return sorted(rows, key=lambda m: m.key)
+
+
+def parse_month(goals: str, key: str) -> Month:
+    """그 달의 주제와 자격증 칸.
+
+    표가 시작되기 전 달(예: 계획이 11월부터인데 10월)이면 가장 가까운 다음 달을 쓴다.
+    """
+    for month in parse_months(goals):
         if month.key >= key:
             return month
     raise DailyError(f"월별 목표 표에 {key} 이후의 달이 없다")

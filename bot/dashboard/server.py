@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from bot.dashboard import queries, views
+from bot.education.daily import QUEUE_FILE, DailyError, goals_file, parse_months, parse_queue
 from bot.org import DEFAULT_ORG, Org
 from bot.pipeline import Pipeline
 from bot.workflow.state import TaskState
@@ -31,7 +32,8 @@ class DashboardSettings:
     daily_calls: Mapping[str, int] = field(default_factory=dict)  # 에이전트별 하루 한도
     org: Org = DEFAULT_ORG  # 직원 화면 (인격 파일 포함)
     pipelines: Mapping[str, Pipeline] = field(default_factory=dict)  # 직원별 맡은 일
-    education_agent: str | None = None  # 교육 Daily 담당 (ADR-009)
+    education_agent: str | None = None  # 교육 담당 (ADR-009)
+    education_vault: Path | None = None  # 커리큘럼 화면이 읽는 학습 볼트 (읽기만)
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
 
     def discord_url(self, thread: str) -> str | None:
@@ -86,6 +88,8 @@ def _route(
                 now=now,
             )
         )
+    if parts == ["education"]:
+        return _education(settings, conn)
     if not parts:
         now = settings.now()
         today = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -144,6 +148,27 @@ def _route(
     if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
         return _log(settings, conn, parts[1])
     return _not_found("없는 주소다")
+
+
+def _education(settings: DashboardSettings, conn: sqlite3.Connection) -> Response:
+    root = settings.education_vault
+    if root is None or settings.education_agent is None:
+        return _ok(views.message_page("교육", "교육 설정(projects.yaml의 education)이 없다."))
+    try:
+        goals = goals_file(root).read_text(encoding="utf-8")
+        queue_path = root / QUEUE_FILE
+        queue = queue_path.read_text(encoding="utf-8") if queue_path.exists() else ""
+    except (DailyError, OSError) as error:
+        return _ok(views.message_page("교육", f"볼트를 읽지 못했다: {error}", "bad"))
+    return _ok(
+        views.education_page(
+            parse_months(goals),
+            parse_queue(queue),
+            queries.study_days(conn),
+            today=settings.now().astimezone().date(),
+            display=settings.org.display(settings.education_agent),
+        )
+    )
 
 
 def _log(settings: DashboardSettings, conn: sqlite3.Connection, run_id: str) -> Response:
