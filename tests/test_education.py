@@ -171,6 +171,13 @@ def test_queue_item_with_link_reuses_its_note():
     assert plan.target == "Learning/개념/2026-10-31 엣지"
 
 
+def test_queue_title_splits_on_colon_space_only():
+    item = parse_queue("- [ ] go:embed: 웹 화면을 바이너리에 넣기\n- [ ] 프로세스 감시\n")
+    assert (item[0].title, item[0].detail) == ("go:embed", "웹 화면을 바이너리에 넣기")
+    assert (item[1].title, item[1].detail) == ("프로세스 감시", "")
+    assert note_target(date(2026, 11, 1), item[0].title) == "Learning/개념/2026-11-01 go embed"
+
+
 def test_note_names_drop_characters_obsidian_cannot_link():
     assert note_target(date(2026, 11, 1), "SSE와 pull: [방식]") == (
         "Learning/개념/2026-11-01 SSE와 pull 방식"

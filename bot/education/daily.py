@@ -52,8 +52,17 @@ class QueueItem:
 
     @property
     def title(self) -> str:
-        """`주제: 설명`에서 주제. 개념 노트 제목과 파일 이름에 쓴다."""
-        return self.text.split(":", 1)[0].strip()
+        """`주제: 설명`에서 주제. 개념 노트 제목과 파일 이름에 쓴다.
+
+        구분은 `: `(콜론 뒤 공백)다. `go:embed`처럼 이름 안의 콜론은 주제에 남긴다.
+        """
+        return self.text.split(": ", 1)[0].strip()
+
+    @property
+    def detail(self) -> str:
+        """`주제: 설명`에서 설명. 없으면 ""."""
+        parts = self.text.split(": ", 1)
+        return parts[1].strip() if len(parts) == 2 else ""
 
 
 @dataclass(frozen=True)

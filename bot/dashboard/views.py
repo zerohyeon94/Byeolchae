@@ -792,7 +792,7 @@ def education_page(
             (
                 _e(item.section),
                 _e(item.title),
-                _e(item.text.split(":", 1)[1].strip()) if ":" in item.text else "",
+                _e(item.detail),
                 _queue_state(item, next_line),
             )
             for item in items
