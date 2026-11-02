@@ -1,13 +1,14 @@
 """교육 주간 보고의 결정론적 규칙 (ADR-009).
 
-이번 주(월~오늘) Daily와 학습 대기열에서 사실만 센다. 다음 주를 위한 한마디와
+이번 주(월~오늘) 학습 기록(DB)과 학습 대기열에서 사실만 센다. 다음 주를 위한 한마디와
 주간 문제는 교육팀장이 쓰고, 숫자와 목록은 여기서 만든다.
 """
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any
 
-from bot.education.daily import QueueItem, parse_today
+from bot.education.daily import QueueItem
 
 
 @dataclass(frozen=True)
@@ -21,7 +22,7 @@ class WeekConcept:
 class WeekFacts:
     start: date  # 이번 주 월요일
     end: date  # 보고하는 날
-    daily_days: int  # Daily를 만든 날 수
+    study_days: int  # 학습한 날 수 (아침에 개념을 낸 날)
     concepts: list[WeekConcept]  # 이번 주에 다룬 개념, 처음 나온 순서
     month: str
     month_done: int  # 이번 달 대기열에서 끝낸 항목
@@ -48,28 +49,24 @@ def week_start(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
-def week_facts(day: date, dailies: list[tuple[date, str]], queue: list[QueueItem]) -> WeekFacts:
-    """dailies는 (날짜, Daily 본문). 이번 주 월요일~day만 센다."""
+def week_facts(day: date, studies: list[dict[str, Any]], queue: list[QueueItem]) -> WeekFacts:
+    """studies는 study_days 행(day, target, label, done_at). 이번 주 월요일~day만 센다."""
     start = week_start(day)
     concepts: dict[str, WeekConcept] = {}
     days = 0
-    for when, text in sorted(dailies):
-        if not start <= when <= day:
+    for row in sorted(studies, key=lambda r: r["day"]):
+        if not start <= date.fromisoformat(row["day"]) <= day:
             continue
         days += 1
-        item = parse_today(text)
-        if item is None:
-            continue
-        seen = concepts.get(item.target)
-        concepts[item.target] = WeekConcept(
-            item.target, item.label, item.done or (seen is not None and seen.done)
-        )
+        seen = concepts.get(row["target"])
+        done = row["done_at"] is not None or (seen is not None and seen.done)
+        concepts[row["target"]] = WeekConcept(row["target"], row["label"], done)
     month = f"{day:%Y-%m}"
     items = [q for q in queue if q.month == month]
     return WeekFacts(
         start=start,
         end=day,
-        daily_days=days,
+        study_days=days,
         concepts=list(concepts.values()),
         month=month,
         month_done=sum(1 for q in items if q.done),
@@ -88,13 +85,13 @@ def render_weekly(
     total_days = (facts.end - facts.start).days + 1
     lines = [
         f"**주간 학습 보고** ({facts.start:%m-%d} ~ {facts.end:%m-%d})",
-        f"- Daily: {total_days}일 중 {facts.daily_days}일 · 끝낸 개념 {facts.done}개",
+        f"- 학습: {total_days}일 중 {facts.study_days}일 · 끝낸 개념 {facts.done}개",
     ]
     if facts.month_total:
         lines.append(f"- {facts.month} 대기열: {facts.month_total}개 중 {facts.month_done}개 완료")
     if daily is not None:
         lines.append(
-            f"- 이번 주 Daily 문제(복습 포함): {daily.total}문제 중 {daily.answered}개 풂, "
+            f"- 이번 주 매일 문제(복습 포함): {daily.total}문제 중 {daily.answered}개 풂, "
             f"{daily.correct}개 맞힘"
         )
     if last_quiz is not None:

@@ -576,6 +576,42 @@ class Repository:
         rows = await self._fetchall(sql + " ORDER BY id", params)
         return [{k: row[k] for k in row.keys()} for row in rows]
 
+    # 교육 학습 기록 (ADR-009). 하루에 개념 1개, 완료는 Zero가 Discord 버튼으로 표시한다
+
+    async def add_study_day(self, day: str, target: str, label: str, carried: bool) -> None:
+        async with self._transaction():
+            await self._conn.execute(
+                "INSERT INTO study_days (day, target, label, carried, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (day, target, label, int(carried), self._now()),
+            )
+
+    async def study_days(self, start: str = "", end: str = "9999") -> list[dict[str, Any]]:
+        """start <= day <= end, 날짜 순. 날짜는 YYYY-MM-DD 문자열."""
+        rows = await self._fetchall(
+            "SELECT * FROM study_days WHERE day >= ? AND day <= ? ORDER BY day", (start, end)
+        )
+        return [{k: row[k] for k in row.keys()} for row in rows]
+
+    async def mark_study_done(self, day: str) -> tuple[str, bool] | None:
+        """그날 개념을 완료로 표시한다. 같은 개념을 이어 한 날도 함께 표시한다.
+
+        (개념 이름, 이번에 새로 표시했는가). 그날 기록이 없으면 None.
+        """
+        row = await self._fetchone(
+            "SELECT target, label, done_at FROM study_days WHERE day = ?", (day,)
+        )
+        if row is None:
+            return None
+        if row["done_at"] is not None:
+            return str(row["label"]), False
+        async with self._transaction():
+            await self._conn.execute(
+                "UPDATE study_days SET done_at = ? WHERE target = ? AND done_at IS NULL",
+                (self._now(), row["target"]),
+            )
+        return str(row["label"]), True
+
     # 교육 문제 (ADR-009)
 
     async def add_quiz(self, kind: str, key: str, payload: str) -> int:

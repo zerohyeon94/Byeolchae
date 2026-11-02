@@ -1,6 +1,6 @@
-"""교육 Daily 규칙과 실행 테스트 (ADR-009, 볼트 AGENTS.md "아침").
+"""교육 아침 학습·주간 보고 규칙과 실행 테스트 (ADR-009, 볼트 AGENTS.md "아침").
 
-볼트는 tmp_path에 만들고, 교육팀장 호출과 커밋은 가짜로 바꾼다.
+볼트와 DB는 tmp_path에 만들고, 교육팀장 호출과 커밋은 가짜로 바꾼다.
 """
 
 import asyncio
@@ -12,18 +12,17 @@ import pytest
 from bot.clock import FixedClock
 from bot.education.daily import (
     DailyError,
+    LastStudy,
     Month,
     NoteQuiz,
     QueueItem,
-    TodayItem,
     note_target,
     optional_for,
     parse_month,
+    parse_months,
     parse_queue,
-    parse_today,
     pick_review,
     plan_daily,
-    render_daily,
     update_queue,
 )
 from bot.education.note import check_note
@@ -111,24 +110,7 @@ THREE = [_question(prompt=f"노트 {n}번 질문") for n in (1, 2, 3)]
 NOV = Month("2026-11", "시스템 전체 한 바퀴", "")
 
 
-def daily_text(target, label, done):
-    return (
-        f"# x\n\n> 머리말\n\n## 오늘 할 것\n\n- [{'x' if done else ' '}] "
-        f"[[{target}|{label}]] — 20~30분\n\n## 여유 있으면\n\n- [ ] 선택\n"
-    )
-
-
 # 읽기
-
-
-def test_parse_today_reads_first_check_and_link():
-    item = parse_today(daily_text("Learning/개념/2026-11-01 엣지", "엣지", done=True))
-    assert item == TodayItem("Learning/개념/2026-11-01 엣지", "엣지", True)
-    assert parse_today(daily_text("a/b", "b", done=False)).done is False
-
-
-def test_old_format_daily_counts_as_no_daily():
-    assert parse_today("# 2026-09-23\n\n## ✅ 오늘 수행 목록\n\n- [x] Mobile\n") is None
 
 
 def test_parse_queue_keeps_sections_links_and_done():
@@ -145,9 +127,11 @@ def test_parse_queue_keeps_sections_links_and_done():
 
 
 def test_parse_month_strips_note_and_reads_certificate():
-    assert parse_month(GOALS, "2026-11") == NOV
+    nov = Month("2026-11", "시스템 전체 한 바퀴", "", "폭", "플랫폼 지도")
+    assert parse_month(GOALS, "2026-11") == nov
     assert parse_month(GOALS, "2027-03").certificate == "SQLD 응시"
-    assert parse_month(GOALS, "2026-10") == NOV  # 계획 시작 전 달은 다음 달 주제
+    assert parse_month(GOALS, "2026-10") == nov  # 계획 시작 전 달은 다음 달 주제
+    assert [m.key for m in parse_months(GOALS)] == ["2026-11", "2027-02", "2027-03"]
     with pytest.raises(DailyError):
         parse_month(GOALS, "2030-01")
 
@@ -155,21 +139,21 @@ def test_parse_month_strips_note_and_reads_certificate():
 # 계획
 
 
-def test_unfinished_daily_is_carried_without_new_note():
-    latest = TodayItem("Learning/개념/2026-11-01 엣지", "엣지", False)
+def test_unfinished_study_is_carried_without_new_note():
+    latest = LastStudy("Learning/개념/2026-11-01 엣지", "엣지", False)
     plan = plan_daily(date(2026, 11, 2), latest, parse_queue(QUEUE), NOV, 0)
     assert plan.carried and plan.item is None
     assert plan.target == "Learning/개념/2026-11-01 엣지"
 
 
-def test_finished_or_missing_daily_takes_top_of_queue():
+def test_finished_or_missing_study_takes_top_of_queue():
     queue = parse_queue(QUEUE)
     first = plan_daily(date(2026, 11, 1), None, queue, NOV, 0)
     assert first.label == "엣지-중앙 서버 구조" and first.finished is None
     assert first.target == "Learning/개념/2026-11-01 엣지-중앙 서버 구조"
 
     linked = parse_queue(update_queue(QUEUE, first))
-    latest = TodayItem(first.target, first.label, True)
+    latest = LastStudy(first.target, first.label, True)
     second = plan_daily(date(2026, 11, 2), latest, linked, NOV, 1)
     assert second.label == "소리 이벤트 감지 기초"
     assert second.finished == first.target
@@ -185,6 +169,13 @@ def test_queue_item_with_link_reuses_its_note():
     item = QueueItem(3, "엣지: 설명", False, "Learning/개념/2026-10-31 엣지", "전체")
     plan = plan_daily(date(2026, 11, 1), None, [item], NOV, 0)
     assert plan.target == "Learning/개념/2026-10-31 엣지"
+
+
+def test_queue_title_splits_on_colon_space_only():
+    item = parse_queue("- [ ] go:embed: 웹 화면을 바이너리에 넣기\n- [ ] 프로세스 감시\n")
+    assert (item[0].title, item[0].detail) == ("go:embed", "웹 화면을 바이너리에 넣기")
+    assert (item[1].title, item[1].detail) == ("프로세스 감시", "")
+    assert note_target(date(2026, 11, 1), item[0].title) == "Learning/개념/2026-11-01 go embed"
 
 
 def test_note_names_drop_characters_obsidian_cannot_link():
@@ -234,26 +225,12 @@ def test_review_question_rotates_by_day():
 # 쓰기
 
 
-def test_render_daily_matches_template():
-    plan = plan_daily(date(2026, 11, 1), None, parse_queue(QUEUE), NOV, 0)
-    text = render_daily(plan, "Schedule/월별 목표 (2026-11 ~ 2027-10)", "플랫폼 지도: 칸")
-    assert text == (
-        "# 2026-11-01 (일)\n\n"
-        "> [[Schedule/월별 목표 (2026-11 ~ 2027-10)|이번 달]]: 시스템 전체 한 바퀴 · "
-        "이번 달 완료 0개\n\n"
-        "## 오늘 할 것\n\n"
-        "- [ ] [[Learning/개념/2026-11-01 엣지-중앙 서버 구조|엣지-중앙 서버 구조]] — 20~30분\n\n"
-        "## 여유 있으면\n\n"
-        "- [ ] 플랫폼 지도: 칸\n"
-    )
-
-
 def test_update_queue_marks_done_and_links_today_only():
     first = plan_daily(date(2026, 11, 1), None, parse_queue(QUEUE), NOV, 0)
     once = update_queue(QUEUE, first)
     assert "- [ ] 엣지-중앙 서버 구조: 장비와 서버의 역할 나누기 → [[" in once
     second = plan_daily(
-        date(2026, 11, 2), TodayItem(first.target, first.label, True), parse_queue(once), NOV, 1
+        date(2026, 11, 2), LastStudy(first.target, first.label, True), parse_queue(once), NOV, 1
     )
     twice = update_queue(once, second)
     lines = twice.splitlines()
@@ -289,7 +266,7 @@ def test_note_problems_are_reported(body, problem):
 
 @dataclass
 class FakeAnswer:
-    result: ConceptNote | None
+    result: object
     error: str = ""
     status: str = "ok"
 
@@ -334,176 +311,165 @@ def make_vault(tmp_path):
     return tmp_path
 
 
-def run_desk(tmp_path, day, engine, vault=None, db=None, posted=None):
-    """db를 주면 문제를 DB에 두고 posted에 (quiz_id, 제목, 번호들, 전체 수)를 모은다."""
-    from bot.store import Repository, connect
-
-    notes = []
-
-    async def notify(text, mention):
-        notes.append((text, mention))
-
-    async def post_quiz(quiz_id, title, items, total):
-        if posted is not None:
-            posted.append((quiz_id, title, [n for n, _ in items], total))
-
-    async def main():
-        clock = FixedClock(datetime(day.year, day.month, day.day, 7, 30).astimezone())
-        conn = await connect(db) if db is not None else None
-        try:
-            repo = Repository(conn, clock) if conn is not None else None
-            desk = EducationDesk(
-                engine,
-                vault,
-                tmp_path,
-                "eta",
-                "Eta · 교육팀장",
-                notify,
-                clock,
-                repo=repo,
-                post_quiz=post_quiz,
-            )
-            return await desk.run_daily()
-        finally:
-            if conn is not None:
-                await conn.close()
-
-    return asyncio.run(main()), notes
-
-
 NOTE = ConceptNote(body=BODY, questions=THREE, sources=["https://grpc.io/docs/"])
 
 
-def test_new_day_writes_note_daily_queue_and_commits(tmp_path):
-    root = make_vault(tmp_path)
-    engine, vault = FakeEngine(NOTE), FakeVault()
-    result, notes = run_desk(root, date(2026, 11, 2), engine, vault)
+class Desk:
+    """볼트와 DB를 유지하며 날짜를 바꿔 가며 교육 데스크를 돌린다."""
 
-    assert result.created
+    def __init__(self, tmp_path):
+        self.root = make_vault(tmp_path / "vault")
+        self.db = tmp_path / "z.db"
+        self.notes = []  # (text, mention)
+        self.posts = []  # (quiz_id, title, numbers, total)
+        self.dones = []  # (day, label)
+
+    def call(self, day, work, engine=None, vault=None, hour=7):
+        from bot.store import Repository, connect
+
+        async def notify(text, mention):
+            self.notes.append((text, mention))
+
+        async def post_quiz(quiz_id, title, items, total):
+            self.posts.append((quiz_id, title, [n for n, _ in items], total))
+
+        async def post_done(day, label):
+            self.dones.append((day, label))
+
+        async def main():
+            clock = FixedClock(datetime(day.year, day.month, day.day, hour, 30).astimezone())
+            conn = await connect(self.db)
+            try:
+                desk = EducationDesk(
+                    engine or FakeEngine(NOTE),
+                    vault,
+                    self.root,
+                    "eta",
+                    "Eta",
+                    notify,
+                    clock,
+                    repo=Repository(conn, clock),
+                    post_quiz=post_quiz,
+                    post_done=post_done,
+                )
+                return await work(desk)
+            finally:
+                await conn.close()
+
+        return asyncio.run(main())
+
+    def daily(self, day, engine=None, vault=None):
+        return self.call(day, lambda desk: desk.run_daily(), engine, vault)
+
+    def done(self, day, pressed=None):
+        return self.call(pressed or day, lambda desk: desk.mark_done(day.isoformat()), hour=21)
+
+    def weekly(self, day, engine):
+        return self.call(day, lambda desk: desk.run_weekly(), engine, hour=20)
+
+    def answer(self, day, quiz_id, number, choice):
+        return self.call(day, lambda desk: desk.answer(quiz_id, number, choice), hour=21)
+
+
+def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
+    desk, engine, vault = Desk(tmp_path), FakeEngine(NOTE), FakeVault()
+    result = desk.daily(date(2026, 11, 2), engine, vault)
+
+    assert result.created and result.label == "엣지-중앙 서버 구조"
     scope, agent, stage, prompt = engine.calls[0]
     assert (scope, agent, stage) == ("education", "eta", "concept_note")
     assert "주제: 엣지-중앙 서버 구조" in prompt and "구성 요소: 전체" in prompt
-    note = root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md"
-    text = note.read_text("utf-8")
-    assert text.startswith("# 엣지-중앙 서버 구조\n\n> Daily: [[2026-11-02]] · 이번 달 주제: ")
+    text = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
+    assert text.startswith("# 엣지-중앙 서버 구조\n\n> 2026-11-02 · 이번 달 주제: ")
     assert text.rstrip().endswith("- **엣지:** 현장에 있는 장비")  # 학습 내용만
-    assert "확인 문제" not in text and "내 말로 한 줄" not in text
-    daily = (root / "Daily/2026-11/2026-11-02.md").read_text("utf-8")
-    assert "# 2026-11-02 (월)" in daily and "플랫폼 지도: '전체'" in daily
+    assert "확인 문제" not in text
+    assert not (desk.root / "Daily").exists()  # Daily는 비서가 저녁에 만든다
     assert "→ [[Learning/개념/2026-11-02 엣지-중앙 서버 구조|" in (
-        root / "Schedule/학습 대기열.md"
+        desk.root / "Schedule/학습 대기열.md"
     ).read_text("utf-8")
     assert vault.commits == [
         (
-            [
-                "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md",
-                "Daily/2026-11/2026-11-02.md",
-                "Schedule/학습 대기열.md",
-            ],
-            "docs(daily): 2026-11-02 엣지-중앙 서버 구조",
+            ["Learning/개념/2026-11-02 엣지-중앙 서버 구조.md", "Schedule/학습 대기열.md"],
+            "docs(learning): 2026-11-02 엣지-중앙 서버 구조",
         )
     ]
-    assert notes[0][1] is False
-    assert "새 개념" in notes[0][0] and "<https://grpc.io/docs/>" in notes[0][0]
+    text, mention = desk.notes[0]
+    assert mention is False and "**오늘 개념** (11-02, 새 개념)" in text
+    assert "<https://grpc.io/docs/>" in text and "완료 버튼" in text
+    assert desk.dones == [("2026-11-02", "엣지-중앙 서버 구조")]
+    assert desk.posts == [(1, "오늘 문제", [1, 2, 3], 3)]
 
 
-def test_unfinished_yesterday_is_carried_without_calling_agent(tmp_path):
-    root = make_vault(tmp_path)
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE))
+def test_not_done_is_carried_with_unanswered_questions_only(tmp_path):
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))
+    desk.answer(date(2026, 11, 2), 1, 2, "B")
+    desk.posts.clear()
     engine = FakeEngine(NOTE)
-    result, notes = run_desk(root, date(2026, 11, 3), engine)
+    result = desk.daily(date(2026, 11, 3), engine)
     assert result.created and engine.calls == []
-    daily = (root / "Daily/2026-11/2026-11-03.md").read_text("utf-8")
-    assert "[[Learning/개념/2026-11-02 엣지-중앙 서버 구조|엣지-중앙 서버 구조]]" in daily
-    assert "어제 것 이어서" in notes[0][0]
+    assert "어제 것 이어서" in desk.notes[-1][0]
+    assert desk.posts == [(1, "이어 하는 문제", [1, 3], 3)]
+    assert desk.dones[-1] == ("2026-11-03", "엣지-중앙 서버 구조")
 
 
-def test_finished_yesterday_moves_on_and_counts(tmp_path):
-    root = make_vault(tmp_path)
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE))
-    path = root / "Daily/2026-11/2026-11-02.md"
-    path.write_text(path.read_text("utf-8").replace("- [ ] [[", "- [x] [["), "utf-8")
-    run_desk(root, date(2026, 11, 3), FakeEngine(NOTE))
-    daily = (root / "Daily/2026-11/2026-11-03.md").read_text("utf-8")
-    assert "소리 이벤트 감지 기초" in daily and "이번 달 완료 1개" in daily
-    queue = (root / "Schedule/학습 대기열.md").read_text("utf-8")
+def test_done_button_moves_on_and_counts(tmp_path):
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))
+    desk.daily(date(2026, 11, 3))  # 이어 하기
+    assert desk.done(date(2026, 11, 2), pressed=date(2026, 11, 3)).startswith(
+        "'엣지-중앙 서버 구조'을 완료로 기록했다"
+    )
+    assert "이미 완료" in desk.done(date(2026, 11, 3))  # 같은 개념의 이어 한 날도 완료
+    assert desk.done(date(2026, 11, 9)) == "그날 학습 기록이 없다."
+    desk.daily(date(2026, 11, 4))
+    assert "소리 이벤트 감지 기초" in desk.notes[-1][0] and "완료 1개" in desk.notes[-1][0]
+    queue = (desk.root / "Schedule/학습 대기열.md").read_text("utf-8")
     assert "- [x] 엣지-중앙 서버 구조" in queue
 
 
-def test_existing_daily_is_left_alone(tmp_path):
-    root = make_vault(tmp_path)
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE))
+def test_same_day_is_not_made_twice(tmp_path):
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))
     engine = FakeEngine(NOTE)
-    result, notes = run_desk(root, date(2026, 11, 2), engine)
+    result = desk.daily(date(2026, 11, 2), engine)
     assert not result.created and engine.calls == []
-    assert "이미 있다" in notes[0][0]
+    assert "이미 냈다" in desk.notes[-1][0] and desk.notes[-1][1] is True
+    assert len(desk.dones) == 1
 
 
 def test_agent_failure_writes_nothing_and_mentions(tmp_path):
-    root = make_vault(tmp_path)
-    vault = FakeVault()
-    result, notes = run_desk(root, date(2026, 11, 2), FakeEngine(None), vault)
-    assert not result.created and vault.commits == []
-    assert not (root / "Daily").exists()
-    assert notes == [("Eta · 교육팀장가 개념 노트를 쓰지 못했다.", True)]
+    desk, vault = Desk(tmp_path), FakeVault()
+    result = desk.daily(date(2026, 11, 2), FakeEngine(None), vault)
+    assert not result.created and vault.commits == [] and desk.dones == []
+    assert not (desk.root / "Learning").exists()
+    assert desk.notes == [("Eta가 개념 노트를 쓰지 못했다.", True)]
+    assert desk.daily(date(2026, 11, 2)).created  # 기록이 없으니 다시 낼 수 있다
 
 
 def test_first_day_of_month_reports_last_month_facts(tmp_path):
-    root = make_vault(tmp_path)
-    old = root / "Daily/2026-10/2026-10-31.md"
-    old.parent.mkdir(parents=True)
-    old.write_text(daily_text("Learning/개념/2026-10-31 준비", "준비", done=True), "utf-8")
-    result, notes = run_desk(root, date(2026, 11, 1), FakeEngine(NOTE))
-    text, mention = notes[0]
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 10, 31))
+    desk.done(date(2026, 10, 31))
+    desk.daily(date(2026, 11, 1))
+    text, mention = desk.notes[-1]
     assert mention is True
     assert "**2026-10 월말 확인**" in text and "완료한 개념: 1개" in text
     assert "완료 기준: 1 / 2" in text and "- [x] 운영 방식을 정했다" in text
-    assert "오늘 할 것" in text
-
-
-def test_daily_questions_go_to_discord_not_vault(tmp_path):
-    root, db = make_vault(tmp_path / "vault"), tmp_path / "z.db"
-    posted = []
-    result, notes = run_desk(root, date(2026, 11, 2), FakeEngine(NOTE), db=db, posted=posted)
-    assert posted == [(1, "오늘 문제", [1, 2, 3], 3)]
-    assert "- 문제: 오늘 문제 3개. 노트를 읽고 아래 버튼으로 푼다" in notes[0][0]
-    daily = (root / "Daily/2026-11/2026-11-02.md").read_text("utf-8")
-    assert "문제" not in daily.replace("오늘 할 것", "")
-
-    # 이어 하는 날은 아직 풀지 않은 문제만 다시 올린다
-    async def answer_one():
-        from bot.store import Repository, connect
-
-        conn = await connect(db)
-        try:
-            await Repository(
-                conn, FixedClock(datetime(2026, 11, 2, 9, 0).astimezone())
-            ).record_quiz_answer(1, 2, "B", True)
-        finally:
-            await conn.close()
-
-    asyncio.run(answer_one())
-    posted.clear()
-    run_desk(root, date(2026, 11, 3), FakeEngine(NOTE), db=db, posted=posted)
-    assert posted == [(1, "이어 하는 문제", [1, 3], 3)]
+    assert "오늘 개념" in text
 
 
 def test_review_question_is_posted_from_note_three_days_old(tmp_path):
-    root, db = make_vault(tmp_path / "vault"), tmp_path / "z.db"
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE), db=db)
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))
     for day in (2, 3):  # 11-04 노트는 끝내지 않아 11-05에 이어 한다
-        path = root / f"Daily/2026-11/2026-11-0{day}.md"
-        path.write_text(path.read_text("utf-8").replace("- [ ] [[", "- [x] [["), "utf-8")
-        run_desk(root, date(2026, 11, day + 1), FakeEngine(NOTE), db=db)
-    posted = []
-    result, notes = run_desk(root, date(2026, 11, 5), FakeEngine(NOTE), db=db, posted=posted)
-    review = [post for post in posted if post[1].startswith("복습")]
-    assert len(review) == 1 and review[0][1] == "복습 (3일 전 · 엣지-중앙 서버 구조)"
-    assert review[0][2:] == ([1], 1)
-    assert "복습 1개" in notes[0][0]
-    early = []
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE), db=db, posted=early)  # 이미 있음
-    assert early == []
+        desk.done(date(2026, 11, day))
+        desk.daily(date(2026, 11, day + 1))
+    desk.posts.clear()
+    desk.daily(date(2026, 11, 5))
+    review = [post for post in desk.posts if post[1].startswith("복습")]
+    assert review == [(4, "복습 (3일 전 · 엣지-중앙 서버 구조)", [1], 1)]
+    assert "복습 1개" in desk.notes[-1][0]
 
 
 # 주간 보고와 주간 문제
@@ -515,11 +481,18 @@ REVIEW = WeeklyReview(
 )
 
 
-def test_week_facts_counts_this_week_only():
-    def d(day, target, done):
-        return (date(2026, 11, day), daily_text(f"Learning/개념/{target}", target, done))
+def _study(day, target, done):
+    return {
+        "day": date(2026, 11, day).isoformat(),
+        "target": f"Learning/개념/{target}",
+        "label": target,
+        "done_at": "t" if done else None,
+    }
 
-    dailies = [
+
+def test_week_facts_counts_this_week_only():
+    d = _study
+    studies = [
         d(1, "지난주", True),  # 일요일: 지난주
         d(2, "엣지", False),
         d(3, "엣지", True),
@@ -527,8 +500,8 @@ def test_week_facts_counts_this_week_only():
         d(5, "gRPC", False),
     ]
     queue = parse_queue(QUEUE.replace("- [ ] 엣지-중앙", "- [x] 엣지-중앙"))
-    facts = week_facts(date(2026, 11, 8), dailies, queue)
-    assert facts.start == date(2026, 11, 2) and facts.daily_days == 4
+    facts = week_facts(date(2026, 11, 8), studies, queue)
+    assert facts.start == date(2026, 11, 2) and facts.study_days == 4
     assert [(c.label, c.done) for c in facts.concepts] == [
         ("엣지", True),
         ("소리", True),
@@ -541,13 +514,13 @@ def test_week_facts_counts_this_week_only():
 def test_render_weekly_lists_facts_score_and_comment():
     facts = week_facts(
         date(2026, 11, 8),
-        [(date(2026, 11, 2), daily_text("Learning/개념/a 엣지", "엣지", True))],
+        [_study(2, "엣지", True)],
         parse_queue(QUEUE),
     )
     text = render_weekly(facts, QuizScore(6, 5, 4), ["다음 주에 이어 간다"], "Eta · 교육팀장")
     assert text.splitlines()[:4] == [
         "**주간 학습 보고** (11-02 ~ 11-08)",
-        "- Daily: 7일 중 1일 · 끝낸 개념 1개",
+        "- 학습: 7일 중 1일 · 끝낸 개념 1개",
         "- 2026-11 대기열: 3개 중 0개 완료",
         "- 지난주 문제: 6문제 중 5개 풂, 4개 맞힘",
     ]
@@ -584,74 +557,45 @@ def test_check_questions_reports_marked_or_repeated_options_and_private_folder()
     assert check_questions(REVIEW.questions, REVIEW.comment) == []
 
 
-def run_weekly(root, day, engine, repo_path, posted):
-    from bot.store import Repository, connect
-
-    notes = []
-
-    async def notify(text, mention):
-        notes.append((text, mention))
-
-    async def post_quiz(quiz_id, title, items, total):
-        posted.append((quiz_id, len(items)))
-
-    async def main():
-        conn = await connect(repo_path)
-        try:
-            clock = FixedClock(datetime(day.year, day.month, day.day, 20, 0).astimezone())
-            repo = Repository(conn, clock)
-            desk = EducationDesk(
-                engine, None, root, "eta", "Eta", notify, clock, repo=repo, post_quiz=post_quiz
-            )
-            text = await desk.run_weekly()
-            answers = []
-            for quiz_id, _ in posted[-1:]:
-                answers.append(await desk.answer(quiz_id, 1, "B"))
-                answers.append(await desk.answer(quiz_id, 1, "A"))
-                answers.append(await desk.answer(quiz_id, 2, "C"))
-                answers.append(await desk.answer(quiz_id, 9, "C"))
-            return text, answers
-        finally:
-            await conn.close()
-
-    return asyncio.run(main()), notes
-
-
 def test_weekly_asks_eta_posts_quiz_and_scores_next_week(tmp_path):
-    root, db = make_vault(tmp_path / "vault"), tmp_path / "z.db"
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE), db=db)  # 오늘 문제 quiz 1
-    engine, posted = FakeEngine(review=REVIEW), []
-    (text, answers), notes = run_weekly(root, date(2026, 11, 8), engine, db, posted)
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))  # 오늘 문제 quiz 1
+    desk.answer(date(2026, 11, 2), 1, 1, "B")
+    desk.posts.clear()
+    engine = FakeEngine(review=REVIEW)
+    text = desk.weekly(date(2026, 11, 8), engine)
 
     scope, agent, stage, prompt = engine.calls[0]
     assert (scope, stage) == ("education", "weekly_quiz")
     assert "`Learning/개념/2026-11-02 엣지-중앙 서버 구조.md`" in prompt
     assert "끝낸 개념 0개" in prompt
-    assert posted == [(2, 5)]
-    assert notes == [(text, False)] and "Eta의 한마디" in text
-    assert "이번 주 Daily 문제(복습 포함): 3문제 중 0개 풂, 0개 맞힘" in text
-    assert answers[0].startswith("정답이다 (B).")
-    assert answers[0].endswith("5문제 중 1개 풂, 1개 맞힘")
-    assert answers[1].startswith("이미 B를 골랐다")
-    assert answers[2].startswith("오답이다") and answers[2].endswith("2개 풂, 1개 맞힘")
-    assert answers[3] == "없는 문제다."
+    assert desk.posts == [(2, "주간 문제", [1, 2, 3, 4, 5], 5)]
+    assert desk.notes[-1] == (text, False) and "Eta의 한마디" in text
+    assert "이번 주 매일 문제(복습 포함): 3문제 중 1개 풂, 1개 맞힘" in text
 
-    again_posted = []
-    (again, _), _ = run_weekly(root, date(2026, 11, 8), FakeEngine(review=REVIEW), db, again_posted)
-    assert again_posted == [] and again.endswith("이번 주 문제는 이미 냈다.")
+    day = date(2026, 11, 8)
+    first = desk.answer(day, 2, 1, "B")
+    assert first.startswith("정답이다 (B).") and first.endswith("5문제 중 1개 풂, 1개 맞힘")
+    assert desk.answer(day, 2, 1, "A").startswith("이미 B를 골랐다")
+    wrong = desk.answer(day, 2, 2, "C")
+    assert wrong.startswith("오답이다") and wrong.endswith("2개 풂, 1개 맞힘")
+    assert desk.answer(day, 2, 9, "C") == "없는 문제다."
 
-    (next_week, _), _ = run_weekly(root, date(2026, 11, 15), FakeEngine(review=REVIEW), db, [])
+    desk.posts.clear()
+    again = desk.weekly(day, FakeEngine(review=REVIEW))
+    assert desk.posts == [] and again.endswith("이번 주 문제는 이미 냈다.")
+    next_week = desk.weekly(date(2026, 11, 15), FakeEngine(review=REVIEW))
     assert "지난주 문제: 5문제 중 2개 풂, 1개 맞힘" in next_week
 
 
 def test_weekly_without_concepts_skips_eta_and_failure_mentions(tmp_path):
-    root = make_vault(tmp_path / "vault")
+    desk = Desk(tmp_path)
     engine = FakeEngine(review=REVIEW)
-    (text, _), notes = run_weekly(root, date(2026, 11, 8), engine, tmp_path / "a.db", [])
-    assert engine.calls == [] and "Daily: 7일 중 0일" in text and notes[0][1] is False
+    text = desk.weekly(date(2026, 11, 8), engine)
+    assert engine.calls == [] and "학습: 7일 중 0일" in text and desk.notes[-1][1] is False
 
-    run_desk(root, date(2026, 11, 2), FakeEngine(NOTE))
-    posted = []
-    (text, _), notes = run_weekly(root, date(2026, 11, 8), FakeEngine(), tmp_path / "b.db", posted)
-    assert posted == [] and text.endswith("Eta가 주간 문제를 만들지 못했다.")
-    assert notes[0][1] is True
+    desk.daily(date(2026, 11, 2))
+    desk.posts.clear()
+    text = desk.weekly(date(2026, 11, 8), FakeEngine())
+    assert desk.posts == [] and text.endswith("Eta가 주간 문제를 만들지 못했다.")
+    assert desk.notes[-1][1] is True

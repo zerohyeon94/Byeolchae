@@ -603,3 +603,28 @@ def test_quiz_button_round_trips_custom_id_and_only_zero_answers(bot):
     assert "Zero의 문제" in other.response.sent[0][0]
     assert zero.response.sent == [("정답이다 (B).", {"ephemeral": True})]
     assert answers == [(12, 3, "B")]
+
+
+def test_study_done_button_round_trips_and_only_zero_marks(bot):
+    from bot.discord_io.quiz import STUDY_DONE_ID, StudyDoneButton, study_done_view
+
+    view = study_done_view("2026-11-02")
+    assert [item.item.custom_id for item in view.children] == ["study:done:2026-11-02"]
+    match = STUDY_DONE_ID.fullmatch("study:done:2026-11-02")
+    assert run(StudyDoneButton.from_custom_id(None, None, match)).day == "2026-11-02"
+
+    marked = []
+
+    class Desk:
+        async def mark_done(self, day):
+            marked.append(day)
+            return "완료로 기록했다."
+
+    bot.education = Desk()
+    other = interaction(user_id=7)
+    run(bot.mark_study_done(other, "2026-11-02"))
+    zero = interaction()
+    run(bot.mark_study_done(zero, "2026-11-02"))
+    assert "Zero의 학습" in other.response.sent[0][0]
+    assert zero.response.sent == [("완료로 기록했다.", {"ephemeral": True})]
+    assert marked == ["2026-11-02"]

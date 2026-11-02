@@ -27,9 +27,9 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/` | 봇 본체 (워크플로, 상태, 에이전트 호출, GitHub·볼트 쓰기). `python -m bot`이 진입점 | 골격 |
 | `bot/schemas/` | 에이전트 출력 스키마(의견, 리뷰 판정, 설계 요약 일부)와 JSON 추출·검증 | 구현 |
 | `bot/agents/` | 에이전트 호출 인터페이스, 자식 프로세스 실행(타임아웃·취소·실행 로그), Claude·Codex CLI 러너, 테스트용 가짜 러너 | 구현 |
-| `bot/store/` | SQLite 연결·스키마 버전 관리, tasks·events·agent_runs·chat_turns·ideas·채용 제안·교육 문제 저장소 | 구현 |
-| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 Daily·주간 보고 실행(`education.py`). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
-| `bot/education/` | 교육 Daily 규칙(순수 함수: 최근 Daily 체크, 대기열, 월별 목표, 복습 문제 고르기, Daily·대기열 쓰기), 개념 노트 형식 검사, 문제 형식과 Discord 표시 문구, 주간 보고 숫자 (ADR-009) | 구현 |
+| `bot/store/` | SQLite 연결·스키마 버전 관리, tasks·events·agent_runs·chat_turns·ideas·채용 제안·교육 학습 기록과 문제 저장소 | 구현 |
+| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 아침 학습·주간 보고 실행(`education.py`). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
+| `bot/education/` | 교육 아침 학습 규칙(순수 함수: 이어 하기·다음 개념, 대기열, 월별 목표, 복습 문제 고르기, 대기열 쓰기), 개념 노트 형식 검사, 문제 형식과 Discord 표시 문구, 주간 보고 숫자 (ADR-009) | 구현 |
 | `bot/github/` | push 보호·커밋 메시지 규칙, git worktree 작업(`GitOps`), `gh` 연동(`GitHubClient`), 볼트 커밋(`VaultGit`), 테스트용 가짜 | 구현 |
 | `bot/testrun.py` | 앱 테스트 명령 실행(전역 락)과 xcodebuild 결과 요약 | 구현 |
 | `bot/prompts/` | 단계별 프롬프트 템플릿(`.md`)과 렌더링 함수 | 의견·반박·기획·화면 디자인·설계·구현·수정·리뷰·진단·출시 준비·문서 반영 구현 |
@@ -40,7 +40,7 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 파이프라인 schedule)와 `#대표실` 보고 만들기 | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
 | `bot/locks.py` | 단일 인스턴스 락 (`flock`) | 구현 (빌드 락은 Phase 2) |
-| `bot/dashboard/` | 로컬 웹 대시보드. `python -m bot.dashboard` → http://127.0.0.1:8765. DB 읽기 전용 | 구현 |
+| `bot/dashboard/` | 로컬 웹 대시보드. `python -m bot.dashboard` → http://127.0.0.1:8765. DB 읽기 전용. 교육 커리큘럼 화면(`/education`)은 학습 볼트의 월별 목표·대기열도 읽기만 한다 | 구현 |
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
 | `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모) | 사용 중 |

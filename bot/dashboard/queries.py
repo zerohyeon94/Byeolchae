@@ -280,6 +280,25 @@ def list_ideas(conn: sqlite3.Connection, *, project: str | None = None) -> list[
     return [IdeaRow(*tuple(row)) for row in rows]
 
 
+@dataclass(frozen=True)
+class StudyRow:
+    day: str
+    target: str
+    label: str
+    carried: bool
+    done_at: str | None
+
+
+def study_days(conn: sqlite3.Connection, *, limit: int = 30) -> list[StudyRow]:
+    """교육 학습 기록 (ADR-009). 최근 날짜부터. 스키마 v8 전이면 빈 목록."""
+    rows = _optional(
+        conn,
+        "SELECT day, target, label, carried, done_at FROM study_days ORDER BY day DESC LIMIT ?",
+        (limit,),
+    )
+    return [StudyRow(r[0], r[1], r[2], bool(r[3]), r[4]) for r in rows]
+
+
 def projects(conn: sqlite3.Connection) -> list[str]:
     return [row[0] for row in conn.execute("SELECT DISTINCT project FROM tasks ORDER BY 1")]
 

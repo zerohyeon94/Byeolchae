@@ -19,7 +19,7 @@ from bot.agents.base import AgentRunner, EngineName
 from bot.clock import Clock, SystemClock, from_iso, to_iso
 from bot.config import Config
 from bot.discord_io.chat import DiscordChat
-from bot.discord_io.quiz import QuizButton, quiz_view
+from bot.discord_io.quiz import QuizButton, StudyDoneButton, quiz_view, study_done_view
 from bot.discord_io.rules import (
     WEBHOOK_NAME,
     IncomingMessage,
@@ -149,6 +149,7 @@ class ZeroSyncBot(discord.Client):
                 self.clock,
                 repo=repo,
                 post_quiz=self._post_quiz,
+                post_done=self._post_done,
             )
         self._webhooks: dict[int, discord.Webhook] = {}
         self._background: set[asyncio.Task[None]] = set()
@@ -160,7 +161,7 @@ class ZeroSyncBot(discord.Client):
 
     async def setup_hook(self) -> None:
         # 주간 문제 버튼은 재시작 뒤에도 눌려야 한다
-        self.add_dynamic_items(QuizButton)
+        self.add_dynamic_items(QuizButton, StudyDoneButton)
         await self.tree.sync(guild=self.guild_ref)
 
     async def on_ready(self) -> None:
@@ -245,7 +246,7 @@ class ZeroSyncBot(discord.Client):
         education = self.config.education
         if self.education is not None and education is not None:
             jobs = (
-                (EDUCATION_DAILY, education.schedule, self.education.run_daily, "교육 Daily"),
+                (EDUCATION_DAILY, education.schedule, self.education.run_daily, "교육 아침 학습"),
                 (EDUCATION_WEEKLY, education.weekly, self.education.run_weekly, "교육 주간 보고"),
             )
             for job, cron, run, name in jobs:
@@ -304,6 +305,26 @@ class ZeroSyncBot(discord.Client):
                 silent=True,
             )
 
+    async def _post_done(self, day: str, label: str) -> None:
+        channel = await self._education_channel()
+        await channel.send(
+            f"**오늘 개념 완료**: {label}",
+            view=study_done_view(day),
+            allowed_mentions=discord.AllowedMentions.none(),
+            silent=True,
+        )
+
+    async def mark_study_done(self, interaction: discord.Interaction, day: str) -> None:
+        """완료 버튼. Zero만 누를 수 있고, 결과는 Zero에게만 보인다."""
+        if interaction.user.id != self.zero_user_id:
+            await interaction.response.send_message("Zero의 학습이다.", ephemeral=True)
+            return
+        if self.education is None:
+            await interaction.response.send_message("교육 설정이 없다.", ephemeral=True)
+            return
+        text = await self.education.mark_done(day)
+        await interaction.response.send_message(text, ephemeral=True)
+
     async def answer_quiz(
         self, interaction: discord.Interaction, quiz_id: int, number: int, choice: str
     ) -> None:
@@ -318,11 +339,11 @@ class ZeroSyncBot(discord.Client):
         await interaction.response.send_message(text, ephemeral=True)
 
     async def run_daily(self, interaction: discord.Interaction) -> None:
-        """오늘 Daily를 지금 만든다 (/daily). 이미 있으면 만들지 않는다."""
+        """오늘 개념 노트와 문제를 지금 낸다 (/daily). 이미 냈으면 다시 내지 않는다."""
         if await self._education_guard(interaction):
             assert self.education is not None
-            await interaction.response.send_message("오늘 Daily를 만든다.", ephemeral=True)
-            self.spawn(self.education.run_daily(), "교육 Daily")
+            await interaction.response.send_message("오늘 학습을 만든다.", ephemeral=True)
+            self.spawn(self.education.run_daily(), "교육 아침 학습")
 
     async def run_weekly(self, interaction: discord.Interaction) -> None:
         """이번 주 학습 보고와 주간 문제를 지금 만든다 (/weekly). 문제는 주마다 한 번."""
@@ -694,7 +715,7 @@ def _register_commands(bot: ZeroSyncBot) -> None:
     async def status(interaction: discord.Interaction) -> None:
         await bot.show_status(interaction)
 
-    @tree.command(name="daily", description="오늘 Daily와 개념 노트를 지금 만든다", guild=guild)
+    @tree.command(name="daily", description="오늘 개념 노트와 문제를 지금 낸다", guild=guild)
     async def daily(interaction: discord.Interaction) -> None:
         await bot.run_daily(interaction)
 

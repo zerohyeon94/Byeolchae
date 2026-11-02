@@ -308,3 +308,68 @@ def test_team_page_shows_status_jobs_and_persona(settings):
     assert "쉬는 중" in alpha and "기능 개발 · 구현 (확인)" in alpha
     assert "# Zeta &lt;성격&gt;" in body  # 인격 파일은 이스케이프해 보인다
     assert "7명 중 1명이 일하는 중" in body
+
+
+# 교육 커리큘럼 (ADR-009)
+
+GOALS = """\
+| 월 | 주제 | 층 | 자격증 |
+|---|---|---|---|
+| 2026-11 | 시스템 전체 한 바퀴 (플랫폼 지도) | 폭 | — |
+| 2027-02 | 데이터 계층 (PostgreSQL) | 폭 | SQLD 준비 |
+"""
+
+QUEUE = """\
+## 2026-11 · 시스템 전체 한 바퀴
+
+### 0. 전체
+- [x] 엣지-중앙 서버 구조: 역할 나누기 → [[Learning/개념/2026-11-01 엣지|엣지]]
+
+### 1. 장비 안
+- [ ] 소리 이벤트 <감지>: dB, EWMA → [[Learning/개념/2026-11-02 소리|소리]]
+- [ ] gRPC 스트리밍: keepalive
+- [ ] TFLite: 온디바이스 추론
+"""
+
+
+def test_education_page_shows_curriculum_queue_and_study(settings, tmp_path):
+    from dataclasses import replace
+
+    vault = tmp_path / "vault"
+    (vault / "Schedule").mkdir(parents=True)
+    (vault / "Schedule" / "월별 목표 (2026-11 ~ 2027-10).md").write_text(GOALS, "utf-8")
+    (vault / "Schedule" / "학습 대기열.md").write_text(QUEUE, "utf-8")
+
+    async def study():
+        conn = await connect(settings.db)
+        try:
+            repo = Repository(conn, FixedClock(T0))
+            await repo.add_study_day("2026-11-01", "Learning/개념/2026-11-01 엣지", "엣지", False)
+            await repo.mark_study_done("2026-11-01")
+            await repo.add_study_day("2026-11-02", "Learning/개념/2026-11-02 소리", "소리", False)
+        finally:
+            await conn.close()
+
+    asyncio.run(study())
+    education = replace(
+        settings,
+        education_agent="eta",
+        education_vault=vault,
+        now=lambda: datetime(2026, 11, 2, 3, 0, tzinfo=UTC),
+    )
+    status, body = get(education, "/education")
+    assert status == HTTPStatus.OK
+    assert "교육 커리큘럼" in body and "담당: Eta · 교육팀장" in body
+    assert "시스템 전체 한 바퀴" in body and "(플랫폼 지도)" in body and "이번 달" in body
+    assert "SQLD 준비" in body
+    assert "1 / 4" in body  # 이번 달 대기열
+    assert "소리 이벤트 &lt;감지&gt;" in body  # 볼트 내용도 이스케이프
+    assert body.count(">완료</span>") == 1 and "진행 중" in body
+    assert ">다음</td>" in body  # 다음에 꺼낼 항목
+    assert '소리 <span class="muted">(읽는 중)</span>' in body
+    assert 'href="/education" class="on"' in body
+
+
+def test_education_page_without_config_says_so(settings):
+    status, body = get(settings, "/education")
+    assert status == HTTPStatus.OK and "교육 설정" in body

@@ -4,7 +4,7 @@
 """
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -17,8 +17,10 @@ from bot.dashboard.queries import (
     ProjectSummary,
     RunRow,
     StageStat,
+    StudyRow,
     TaskRow,
 )
+from bot.education.daily import Month, QueueItem
 from bot.org import DEFAULT_ORG, Org
 from bot.pipeline import Pipeline
 from bot.render import render_opinion
@@ -163,6 +165,7 @@ def page(title: str, body: str, *, active: str = "") -> str:
             ("summary", "/", "요약"),
             ("tasks", "/tasks", "작업"),
             ("team", "/team", "직원"),
+            ("education", "/education", "교육"),
             ("runs", "/runs", "실행 기록"),
             ("ideas", "/ideas", "아이디어"),
         )
@@ -705,6 +708,108 @@ def ideas_page(ideas: Sequence[IdeaRow], *, projects: Sequence[str], project: st
     ]
     table = _table(["번호", "프로젝트", "내용", "상태", "작업", "남긴 때"], rows, {0})
     return page("아이디어", f"<h1>아이디어</h1>{filters}{table}", active="ideas")
+
+
+def _queue_state(item: QueueItem, next_line: int | None) -> str:
+    if item.done:
+        return '<span class="ok">완료</span>'
+    if item.target:
+        return '<span class="warn">진행 중</span>'
+    if item.line == next_line:
+        return "다음"
+    return '<span class="muted">대기</span>'
+
+
+def education_page(
+    months: Sequence[Month],
+    queue: Sequence[QueueItem],
+    studies: Sequence[StudyRow],
+    *,
+    today: date,
+    display: str,
+) -> str:
+    """교육 커리큘럼 (ADR-009): 월별 목표, 학습 대기열 진행, 최근 학습 기록.
+
+    월별 목표와 대기열은 볼트 파일을, 학습 기록은 DB를 읽는다. 쓰지 않는다.
+    """
+    key = f"{today:%Y-%m}"
+    current = next((m for m in months if m.key >= key), None)
+    by_month: dict[str, list[QueueItem]] = {}
+    for item in queue:
+        by_month.setdefault(item.month, []).append(item)
+    pending = [q for q in queue if not q.done and not q.target]
+    next_line = pending[0].line if pending else None
+
+    this_month = by_month.get(current.key, []) if current else []
+    done_month = len({s.target for s in studies if s.day.startswith(key) and s.done_at is not None})
+    latest = studies[0] if studies else None
+    today_text = "-"
+    if latest is not None and latest.day == today.isoformat():
+        state = "완료" if latest.done_at else ("이어 하는 중" if latest.carried else "읽는 중")
+        today_text = f'{_e(latest.label)} <span class="muted">({state})</span>'
+    cards = [
+        ("이번 달 주제", _e(current.topic) if current else "-"),
+        (
+            "이번 달 대기열",
+            f"{sum(1 for q in this_month if q.done)} / {len(this_month)}" if this_month else "-",
+        ),
+        ("이번 달 끝낸 개념", str(done_month)),
+        ("오늘 개념", today_text),
+    ]
+    body = [f'<h1>교육 커리큘럼</h1><p class="muted">담당: {_e(display)}</p>']
+    body.append(
+        '<div class="cards">'
+        + "".join(
+            f'<div class="card"><div class="muted">{_e(label)}</div><div class="big">{value}</div>'
+            "</div>"
+            for label, value in cards
+        )
+        + "</div>"
+    )
+
+    rows = []
+    for month in months:
+        items = by_month.get(month.key, [])
+        progress = f"{sum(1 for q in items if q.done)} / {len(items)}" if items else "-"
+        topic = _e(month.topic) + (
+            f' <span class="muted">({_e(month.note)})</span>' if month.note else ""
+        )
+        if current is not None and month.key == current.key:
+            topic += '<span class="badge working">이번 달</span>'
+        rows.append((_e(month.key), topic, _e(month.layer), _e(month.certificate), progress))
+    table = _table(["월", "주제", "층", "자격증", "대기열"], rows, {4})
+    body.append(f"<h2>월별 목표</h2>{table}")
+
+    body.append("<h2>학습 대기열</h2>")
+    if not queue:
+        body.append('<p class="muted">대기열이 비어 있다</p>')
+    topics = {m.key: m.topic for m in months}
+    for month_key, items in by_month.items():
+        title = (
+            f"{month_key} · {topics[month_key]}" if month_key in topics else (month_key or "기타")
+        )
+        rows = [
+            (
+                _e(item.section),
+                _e(item.title),
+                _e(item.detail),
+                _queue_state(item, next_line),
+            )
+            for item in items
+        ]
+        body.append(f"<h3>{_e(title)}</h3>" + _table(["구성 요소", "개념", "내용", "상태"], rows))
+
+    rows = [
+        (
+            _e(study.day),
+            _e(study.label),
+            "이어 하기" if study.carried else "새 개념",
+            local_time(study.done_at) if study.done_at else '<span class="muted">아직</span>',
+        )
+        for study in studies
+    ]
+    body.append("<h2>최근 학습</h2>" + _table(["날짜", "개념", "종류", "완료"], rows))
+    return page("교육", "".join(body), active="education")
 
 
 def message_page(title: str, message: str, status_class: str = "muted") -> str:

@@ -1,8 +1,9 @@
-"""교육 Daily의 결정론적 규칙 (ADR-009, 볼트 AGENTS.md "아침").
+"""교육 아침 학습의 결정론적 규칙 (ADR-009, 볼트 AGENTS.md "아침").
 
-볼트 파일을 읽고 오늘 할 것 1개를 정한다. 개념 노트 본문만 교육팀장이 쓰고,
-나머지(최근 Daily 체크 읽기, 대기열에서 고르기, Daily 만들기, 완료 개수, 대기열 표시)는 여기서 한다.
-파일을 읽고 쓰는 일과 계획 계산을 나눠 계산은 순수 함수로 두고 단위 테스트로 고정한다.
+마지막 학습 기록(DB)과 볼트의 대기열·월별 목표로 오늘 개념 1개를 정한다. 개념 노트 본문과
+문제만 교육팀장이 쓰고, 나머지(이어 하기·다음 항목 고르기, 선택 1개, 대기열 표시)는 여기서 한다.
+완료는 Zero가 Discord의 완료 버튼으로 표시한다. 하루 정리(Daily 파일)는 비서 부서가 저녁에 만든다.
+계산은 순수 함수로 두고 단위 테스트로 고정한다.
 """
 
 import re
@@ -12,18 +13,13 @@ from pathlib import Path
 
 from bot.schemas import QuizQuestion
 
-DAILY_DIR = "Daily"
 NOTE_DIR = "Learning/개념"
 QUEUE_FILE = "Schedule/학습 대기열.md"
 GOALS_GLOB = "Schedule/월별 목표*.md"
-TODAY_HEADING = "## 오늘 할 것"
-OPTIONAL_HEADING = "## 여유 있으면"
 # 복습할 노트: 이 날수 이상 지난 노트 중 가장 최근 것 (간격 두고 다시 꺼내 보기)
 REVIEW_DAYS = (3, 7)
 NOTE_MINUTES = "20~30분"
-WEEKDAYS = "월화수목금토일"
 
-_DAILY_NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.md$")
 _NOTE_NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2}) (.+)\.md$")
 _CHECK = re.compile(r"^- \[([ xX])\] (.*)$")
 _LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
@@ -37,10 +33,10 @@ class DailyError(ValueError):
 
 
 @dataclass(frozen=True)
-class TodayItem:
-    """Daily의 `오늘 할 것` 한 줄."""
+class LastStudy:
+    """가장 최근 학습한 날의 개념과 완료 여부 (DB의 study_days)."""
 
-    target: str  # 링크 대상 (Learning/개념/2026-11-01 주제)
+    target: str  # 개념 노트 링크 대상 (Learning/개념/2026-11-01 주제)
     label: str
     done: bool
 
@@ -56,8 +52,17 @@ class QueueItem:
 
     @property
     def title(self) -> str:
-        """`주제: 설명`에서 주제. 개념 노트 제목과 파일 이름에 쓴다."""
-        return self.text.split(":", 1)[0].strip()
+        """`주제: 설명`에서 주제. 개념 노트 제목과 파일 이름에 쓴다.
+
+        구분은 `: `(콜론 뒤 공백)다. `go:embed`처럼 이름 안의 콜론은 주제에 남긴다.
+        """
+        return self.text.split(": ", 1)[0].strip()
+
+    @property
+    def detail(self) -> str:
+        """`주제: 설명`에서 설명. 없으면 ""."""
+        parts = self.text.split(": ", 1)
+        return parts[1].strip() if len(parts) == 2 else ""
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,8 @@ class Month:
     key: str  # 2026-11
     topic: str  # 괄호 설명을 뺀 주제
     certificate: str  # 자격증 칸. 없으면 ""
+    layer: str = ""  # 층 칸 (폭, 에이전트, AI, 정리)
+    note: str = ""  # 주제 뒤 괄호 설명 (플랫폼 지도 등)
 
 
 @dataclass(frozen=True)
@@ -104,19 +111,11 @@ class DailyPlan:
     item: QueueItem | None  # 새로 꺼낸 대기열 항목. 이어 하기면 None
     month: Month
     done_this_month: int
-    finished: str | None  # 최근 Daily에서 완료된 노트 링크 (대기열에 [x]로 옮긴다)
+    finished: str | None  # 지난번에 완료된 노트 링크 (대기열에 [x]로 옮긴다)
 
     @property
     def note_path(self) -> str:
         return f"{self.target}.md"
-
-    @property
-    def daily_path(self) -> str:
-        return daily_path(self.day)
-
-
-def daily_path(day: date) -> str:
-    return f"{DAILY_DIR}/{day:%Y-%m}/{day.isoformat()}.md"
 
 
 def note_target(day: date, title: str) -> str:
@@ -127,24 +126,6 @@ def note_target(day: date, title: str) -> str:
 
 
 # 읽기
-
-
-def parse_today(text: str) -> TodayItem | None:
-    """`## 오늘 할 것` 섹션의 첫 체크 항목. 섹션이 없으면 예전 형식 Daily로 보고 None."""
-    section = _section(text, TODAY_HEADING)
-    if section is None:
-        return None
-    for line in section:
-        match = _CHECK.match(line.strip())
-        if match is None:
-            continue
-        link = _LINK.search(match.group(2))
-        if link is None:
-            return None
-        target = link.group(1).strip()
-        label = (link.group(2) or target.rsplit("/", 1)[-1]).strip()
-        return TodayItem(target, label, match.group(1) != " ")
-    return None
 
 
 def parse_queue(text: str) -> list[QueueItem]:
@@ -175,21 +156,34 @@ def parse_queue(text: str) -> list[QueueItem]:
     return items
 
 
-def parse_month(goals: str, key: str) -> Month:
-    """월별 목표 `한눈에 보기` 표에서 그 달의 주제와 자격증 칸.
-
-    표가 시작되기 전 달(예: 계획이 11월부터인데 10월)이면 가장 가까운 다음 달을 쓴다.
-    """
+def parse_months(goals: str) -> list[Month]:
+    """월별 목표 `한눈에 보기` 표의 모든 달, 달 순."""
     rows = []
     for line in goals.splitlines():
         match = _GOAL_ROW.match(line.strip())
         if match:
-            topic = re.sub(r"\s*\(.*\)\s*$", "", match.group(2)).strip()
+            raw = match.group(2).strip()
+            note = re.search(r"\(([^()]*)\)\s*$", raw)
+            topic = re.sub(r"\s*\(.*\)\s*$", "", raw).strip()
             certificate = match.group(4).replace("*", "").strip()
             rows.append(
-                Month(match.group(1), topic, "" if certificate in ("", "—", "-") else certificate)
+                Month(
+                    match.group(1),
+                    topic,
+                    "" if certificate in ("", "—", "-") else certificate,
+                    match.group(3).strip(),
+                    note.group(1).strip() if note else "",
+                )
             )
-    for month in sorted(rows, key=lambda m: m.key):
+    return sorted(rows, key=lambda m: m.key)
+
+
+def parse_month(goals: str, key: str) -> Month:
+    """그 달의 주제와 자격증 칸.
+
+    표가 시작되기 전 달(예: 계획이 11월부터인데 10월)이면 가장 가까운 다음 달을 쓴다.
+    """
+    for month in parse_months(goals):
         if month.key >= key:
             return month
     raise DailyError(f"월별 목표 표에 {key} 이후의 달이 없다")
@@ -225,14 +219,14 @@ def _section(text: str, heading: str, *, prefix: bool = False) -> list[str] | No
 
 def plan_daily(
     day: date,
-    latest: TodayItem | None,
+    latest: LastStudy | None,
     queue: list[QueueItem],
     month: Month,
     done_this_month: int,
 ) -> DailyPlan:
-    """볼트 AGENTS.md 아침 규칙 2·4·5.
+    """볼트 AGENTS.md 아침 규칙.
 
-    최근 Daily가 미완료면 같은 링크를 다시 넣고,
+    마지막 학습이 미완료면 같은 개념을 이어 하고,
     완료였거나 없으면 대기열 맨 위의 미완료 항목을 꺼낸다.
     """
     if latest is not None and not latest.done:
@@ -251,7 +245,7 @@ def plan_daily(
     if not remaining:
         raise DailyError("학습 대기열에 남은 항목이 없다")
     item = remaining[0]
-    # 이미 링크가 붙은 항목(노트를 만든 뒤 Daily가 없어진 경우)은 그 노트를 다시 쓴다
+    # 이미 링크가 붙은 항목(노트를 만든 뒤 학습 기록이 없어진 경우)은 그 노트를 다시 쓴다
     return DailyPlan(
         day=day,
         target=item.target or note_target(day, item.title),
@@ -262,10 +256,6 @@ def plan_daily(
         done_this_month=done_this_month,
         finished=finished,
     )
-
-
-def count_done(dailies: list[str]) -> int:
-    return sum(1 for text in dailies if (item := parse_today(text)) is not None and item.done)
 
 
 def optional_for(month: Month, section: str) -> str:
@@ -311,26 +301,10 @@ def section_of(queue: list[QueueItem], plan: DailyPlan) -> str:
 # 쓰기
 
 
-def render_daily(plan: DailyPlan, goals_link: str, optional: str) -> str:
-    weekday = WEEKDAYS[plan.day.weekday()]
-    lines = [
-        f"# {plan.day.isoformat()} ({weekday})",
-        "",
-        f"> [[{goals_link}|이번 달]]: {plan.month.topic} · 이번 달 완료 {plan.done_this_month}개",
-        "",
-        TODAY_HEADING,
-        "",
-        f"- [ ] [[{plan.target}|{plan.label}]] — {NOTE_MINUTES}",
-    ]
-    if optional.strip():
-        lines += ["", OPTIONAL_HEADING, "", f"- [ ] {optional.strip()}"]
-    return "\n".join(lines) + "\n"
-
-
 def note_header(plan: DailyPlan) -> str:
     return (
         f"# {plan.label}\n\n"
-        f"> Daily: [[{plan.day.isoformat()}]] · 이번 달 주제: {plan.month.topic} · "
+        f"> {plan.day.isoformat()} · 이번 달 주제: {plan.month.topic} · "
         f"예상 {NOTE_MINUTES}\n\n"
     )
 
@@ -357,16 +331,3 @@ def goals_file(root: Path) -> Path:
     if not found:
         raise DailyError("Schedule에 월별 목표 파일이 없다")
     return found[-1]
-
-
-def daily_files(root: Path, before: date) -> list[tuple[date, Path]]:
-    """`Daily/YYYY-MM/YYYY-MM-DD.md` 중 before보다 앞선 날짜, 날짜 순."""
-    found = []
-    for path in (root / DAILY_DIR).glob("*/*.md"):
-        match = _DAILY_NAME.match(path.name)
-        if match is None:
-            continue
-        day = date(*(int(part) for part in match.groups()))
-        if day < before:
-            found.append((day, path))
-    return sorted(found)
