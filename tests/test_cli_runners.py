@@ -21,7 +21,8 @@ from bot.agents import (
     Stage,
 )
 from bot.agents.claude import DENIED_TOOLS
-from bot.schemas import Opinion, parse_agent_output
+from bot.agents.codex import strict_schema
+from bot.schemas import Opinion, Review, parse_agent_output
 
 OPINION = {
     "stance": "agree",
@@ -252,7 +253,8 @@ args = sys.argv[1:]
 out = Path(args[args.index('--output-last-message') + 1])
 if '--output-schema' in args:
     schema = json.loads(Path(args[args.index('--output-schema') + 1]).read_text())
-    assert schema['title'] == 'Opinion'
+    assert schema['title'] in ('Opinion', 'Review')
+    assert schema['required'] == list(schema['properties'])
 print('진행 기록', file=sys.stderr)
 out.write_text(MESSAGE, encoding='utf-8')
 print(MESSAGE)
@@ -270,6 +272,33 @@ def test_codex_reads_last_message_and_writes_schema(tmp_path, process):
     assert "진행 기록" in result.stderr
     assert calls(tmp_path, "codex")["stdin"] == "의견을 말해라"
     assert (tmp_path / "runs" / "x2.schema.json").exists()
+
+
+def test_codex_schema_is_strict():
+    # OpenAI 구조화 출력은 모든 속성이 required에 있어야 받는다 (선택 필드는 null 허용)
+    schema = strict_schema(Review.model_json_schema())
+    assert schema["required"] == list(schema["properties"])
+    assert schema["additionalProperties"] is False
+    assert {"type": "null"} in schema["properties"]["findings"]["anyOf"]
+    finding = schema["$defs"]["Finding"]
+    assert set(finding["required"]) == set(finding["properties"])
+    assert "default" not in json.dumps(schema)
+    # 원래 스키마는 바꾸지 않는다
+    assert "findings" not in Review.model_json_schema()["required"]
+
+
+def test_codex_drops_nulls_of_optional_fields(tmp_path, process):
+    # strict 스키마로 받은 null은 지워서 pydantic 기본값을 쓴다 (findings: 기본값 [])
+    message = json.dumps(
+        {"verdict": "APPROVED", "summary": "문제 없음", "findings": None, "hiring_proposal": None}
+    )
+    exe = fake_cli(tmp_path, "codex", f"MESSAGE = {message!r}\n" + CODEX_BODY)
+    req = request(tmp_path, Stage.REVIEW, output_schema=Review.model_json_schema(), run_id="x4")
+    result = run(CodexCliRunner(process, exe).run(req))
+    review = parse_agent_output(result.stdout, Review)
+    assert review.findings == [] and review.hiring_proposal is None
+    written = json.loads((tmp_path / "runs" / "x4.schema.json").read_text(encoding="utf-8"))
+    assert "hiring_proposal" in written["required"]
 
 
 def test_codex_without_last_message_falls_back_to_stdout(tmp_path, process):
