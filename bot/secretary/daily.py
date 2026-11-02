@@ -67,7 +67,7 @@ def _percent(value: float | None) -> str:
 
 def _limit(usage: EngineUsage) -> str:
     if usage.limit is None:
-        return "확인 불가" if usage.engine == "claude" else "기록 없음"
+        return "기록 없음"
     today = usage.limit.today
     added = "" if today is None else f" (오늘 +{today:.0f}%p)"
     return f"{usage.limit.weekly:.0f}%{added}"
@@ -126,7 +126,7 @@ def render_facts(facts: DayFacts) -> str:
         "- 봇: ZeroSync 봇이 부른 것 (Claude `claude -p`, Codex 실행 로그)",
         "- Zero: 데스크톱 앱·터미널 등 직접 쓴 것 (모든 저장소)",
         "- 이번 주 중 오늘: 월요일부터 오늘까지 합계에서 오늘이 차지하는 비율",
-        "- 구독 주간 한도: Codex 기록의 주간 한도 사용 비율. Claude는 로컬 기록에 없어 확인 불가",
+        "- 구독 주간 한도: 계정의 주간 한도 사용 비율 (Claude는 봇 실행 로그, Codex는 세션 기록)",
     ]
     return "\n".join(lines)
 
