@@ -4,7 +4,7 @@
 - 학습: DB의 학습 기록과 문제 점수
 - 제품 부서: 작업 단계 변화와 PR 열림·merge
 - 결정할 것: 승인 대기 작업과 열린 채용 제안
-- 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)
+- 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
 
 비서는 그 사실로 요약 1~3줄만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
 요약을 받지 못해도 사실만으로 Daily를 쓴다. 같은 날 Daily가 이미 있으면 다시 쓰지 않는다.
@@ -12,7 +12,8 @@
 
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,10 @@ from bot.secretary.daily import (
 )
 from bot.secretary.tokens import (
     EngineUsage,
+    Limit,
+    LimitSample,
     Usage,
+    claude_run_limit,
     claude_usage,
     codex_run_tokens,
     codex_sessions,
@@ -96,6 +100,8 @@ class SecretaryDesk:
             return text
         facts = await self.facts(day)
         summary = await self._summary(facts)
+        # 비서 호출 자신의 한도 줄까지 넣는다. 그날 Zero만 Claude를 썼어도 값이 생긴다
+        facts = await self._with_claude_limit(facts)
         target = self._root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_daily(facts, summary, display=self._display), encoding="utf-8")
@@ -151,28 +157,52 @@ class SecretaryDesk:
         return Score(total, answered, correct)
 
     async def _tokens(self, start: datetime, end: datetime) -> list[EngineUsage]:
+        day = start.date()
         week_start = start - timedelta(days=start.weekday())
         claude = claude_usage(self._claude_dir, week_start)
         # 주간 한도는 그날 시작 전 마지막 값과 비교하므로 일주일 더 앞에서부터 읽는다
         codex, samples = codex_sessions(self._codex_dir, week_start - timedelta(days=7))
         codex += await self._codex_bot(week_start, end)
         return [
-            engine_usage("claude", claude, start, end, week_start),
+            engine_usage("claude", claude, start, end, week_start, await self._claude_limit(day)),
             engine_usage("codex", codex, start, end, week_start, weekly_limit(samples, start, end)),
         ]
 
+    async def _with_claude_limit(self, facts: DayFacts) -> DayFacts:
+        limit = await self._claude_limit(facts.day)
+        tokens = [
+            replace(usage, limit=limit) if usage.engine == "claude" else usage
+            for usage in facts.tokens
+        ]
+        return replace(facts, tokens=tokens)
+
+    async def _claude_limit(self, day: date) -> Limit | None:
+        start, end = day_bounds(day)
+        samples: list[LimitSample] = []
+        # 그날 증가분은 그날 시작 전 마지막 값과 비교하므로 일주일 앞에서부터 읽는다
+        async for at, text in self._run_logs("claude", start - timedelta(days=7), end):
+            if (sample := claude_run_limit(text, at)) is not None:
+                samples.append(sample)
+        return weekly_limit(samples, start, end)
+
     async def _codex_bot(self, start: datetime, end: datetime) -> list[Usage]:
         found = []
-        for row in await self._repo.runs_between("codex", to_iso(start), to_iso(end)):
+        async for at, text in self._run_logs("codex", start, end):
+            if tokens := codex_run_tokens(text):
+                found.append(Usage(at, tokens, bot=True))
+        return found
+
+    async def _run_logs(
+        self, engine: str, start: datetime, end: datetime
+    ) -> AsyncIterator[tuple[datetime, str]]:
+        """[start, end) 사이에 시작한 봇 실행의 시작 시각과 실행 로그."""
+        for row in await self._repo.runs_between(engine, to_iso(start), to_iso(end)):
             path = row.get("log_path")
             try:
                 text = Path(path).read_text(encoding="utf-8", errors="replace") if path else ""
             except OSError:
                 continue
-            tokens = codex_run_tokens(text)
-            if tokens:
-                found.append(Usage(datetime.fromisoformat(row["started_at"]), tokens, bot=True))
-        return found
+            yield datetime.fromisoformat(row["started_at"]), text
 
     async def _summary(self, facts: DayFacts) -> list[str] | None:
         self._workdir.mkdir(parents=True, exist_ok=True)

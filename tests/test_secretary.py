@@ -26,6 +26,7 @@ from bot.secretary.tokens import (
     Limit,
     LimitSample,
     Usage,
+    claude_run_limit,
     claude_usage,
     codex_run_tokens,
     codex_sessions,
@@ -142,6 +143,29 @@ def test_codex_run_log_tokens():
     assert codex_run_tokens("다른 내용") is None
 
 
+def limit_line(utilization, resets_at=1794240000):
+    """실제 `claude -p --output-format stream-json`의 한도 줄 모양."""
+    info = {
+        "status": "allowed",
+        "rateLimitType": "five_hour",
+        "unifiedWindows": {
+            "five_hour": {"utilization": 0.5, "resetsAt": 1793676600},
+            "seven_day": {"utilization": utilization, "resetsAt": resets_at},
+        },
+    }
+    return json.dumps({"type": "rate_limit_event", "rate_limit_info": info})
+
+
+def test_claude_run_log_weekly_limit():
+    moment = datetime(2026, 11, 3, 7, 30, tzinfo=UTC)
+    log = "\n".join(["run_id: r1", "=== stdout ===", limit_line(0.01), limit_line(0.02), "{}"])
+    found = claude_run_limit(log, moment)
+    assert found == LimitSample(moment, 2.0, datetime(2026, 11, 9, 16, 0, tzinfo=UTC))
+    assert claude_run_limit("=== stdout ===\n{}", moment) is None
+    # 모양이 바뀌면 값을 지어내지 않는다
+    assert claude_run_limit('{"type": "rate_limit_event", "rate_limit_info": {}}', moment) is None
+
+
 def sample(moment, used, resets):
     return LimitSample(moment, used, resets)
 
@@ -230,7 +254,7 @@ def test_render_daily_sections_and_numbers():
     assert "- 오늘 문제: 3문제 중 3문제 풂, 2개 정답" in text
     assert "- 복습: 1문제 중 안 풂" in text
     assert "PLANNING → AWAIT_PLAN_APPROVAL" in text and "PR #12 merge" in text
-    assert "| Claude | 1.20M | 30.50M | 31.70M | 19% | 확인 불가 |" in text
+    assert "| Claude | 1.20M | 30.50M | 31.70M | 19% | 기록 없음 |" in text
     assert "| Codex | 20.0K | 1.40M | 1.42M | 13% | 4% (오늘 +1%p) |" in text
 
 
@@ -379,6 +403,48 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     scope, agent, stage, prompt = engine.calls[0]
     assert (scope, agent, stage) == ("secretary", "theta", Stage.SECRETARY_DAILY)
     assert "PLANNING → AWAIT_PLAN_APPROVAL" in prompt and "Theta" in prompt
+
+
+class RecordingEngine(FakeEngine):
+    """비서 호출도 봇 Claude 실행처럼 한도 줄이 담긴 실행 로그를 남긴다."""
+
+    def __init__(self, summary, repo_box, log):
+        super().__init__(summary)
+        self.repo_box, self.log = repo_box, log
+
+    async def ask_outside_task(self, scope, agent, stage, build_prompt, *, model, cwd):
+        repo = self.repo_box[0]
+        await repo.start_agent_run(
+            "theta-1", task_id=None, agent=agent, stage=stage, engine="claude"
+        )
+        await repo.finish_agent_run("theta-1", status="ok", exit_code=0, log_path=str(self.log))
+        return await super().ask_outside_task(
+            scope, agent, stage, build_prompt, model=model, cwd=cwd
+        )
+
+
+def test_evening_reads_claude_weekly_limit_from_bot_run_logs(tmp_path):
+    before, theta = tmp_path / "before.log", tmp_path / "theta.log"
+    before.write_text(limit_line(0.03) + "\n", encoding="utf-8")
+    theta.write_text(limit_line(0.05) + "\n", encoding="utf-8")
+    repo_box = []
+    engine = RecordingEngine(DailySummary(summary=["요약"]), repo_box, theta)
+
+    async def work(desk, repo, clock):
+        repo_box.append(repo)
+        clock.advance(timedelta(hours=-38))  # 전날 09:30 (오늘 증가분을 셀 기준 표본)
+        await repo.start_agent_run(
+            "r0", task_id=None, agent="beta", stage=Stage.OPINION, engine="claude"
+        )
+        await repo.finish_agent_run("r0", status="ok", exit_code=0, log_path=str(before))
+        clock.advance(timedelta(hours=38))
+        return await desk.run_evening(DAY)
+
+    text, _ = run_desk(tmp_path, work, engine)
+    daily = (tmp_path / "vault" / daily_path(DAY)).read_text(encoding="utf-8")
+    # 비서 호출(23:30)의 한도 줄까지 넣어 전날 3%에서 오늘 5%
+    assert "| 5% (오늘 +2%p) |" in daily
+    assert "- Claude: " in text and "주간 한도 5% (오늘 +2%p)" in text
 
 
 def test_evening_writes_facts_when_summary_fails_and_never_twice(tmp_path):

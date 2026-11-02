@@ -1,6 +1,8 @@
 """Claude Code CLI 러너 (SPEC 5.2).
 
-`claude -p --output-format json`으로 실행하고, 결과 JSON에서 응답 본문과 세션 ID를 꺼낸다.
+`claude -p --output-format stream-json --verbose`로 실행하고, 마지막 `result` 줄에서
+응답 본문과 세션 ID를 꺼낸다. 스트림 형식을 쓰는 것은 실행 로그에 구독 한도 줄
+(`rate_limit_event`)이 남게 하려는 것이다. 비서가 그 줄로 Claude 주간 한도 비율을 센다 (ADR-010).
 프롬프트는 stdin으로 넘긴다 (실행 로그의 argv에 프롬프트가 남지 않게).
 
 권한은 단계별로 좁힌다 (운영 규약 1.3). `--permission-prompts none`이라
@@ -74,7 +76,8 @@ class ClaudeCliRunner:
             self._executable,
             "-p",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",  # -p에서 stream-json은 --verbose가 있어야 한다
             "--permission-prompts",
             "none",
             "--strict-mcp-config",
@@ -117,9 +120,14 @@ def _permission_args(request: AgentRequest) -> list[str]:
 
 
 def to_agent_result(result: ProcessResult) -> AgentResult:
-    """CLI 결과 JSON을 AgentResult로 옮긴다. JSON이 아니면 원문을 그대로 남긴다."""
+    """CLI 스트림의 `result` 줄을 AgentResult로 옮긴다.
+
+    그 줄이 없으면 스트림 줄(JSON)은 빼고 CLI의 평문 출력만 남긴다. 중간 대화 내용이
+    사용량 한도 판정(`is_usage_limited`)에 섞이지 않게 하려는 것이다.
+    스트림 전체는 실행 로그에 있다.
+    """
     status, stdout, session_id = result.status, result.stdout, None
-    data = _load_object(result.stdout)
+    data = _result_line(result.stdout)
     if data is not None:
         session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
         structured = data.get("structured_output")
@@ -129,9 +137,13 @@ def to_agent_result(result: ProcessResult) -> AgentResult:
             stdout = data.get("result") if isinstance(data.get("result"), str) else ""
         if status is RunStatus.OK and data.get("is_error"):
             status = RunStatus.ERROR
-    elif status is RunStatus.OK:
-        # 종료 코드는 0인데 결과 JSON이 없으면 CLI가 예상과 다르게 동작한 것이다
-        status = RunStatus.ERROR
+    else:
+        stdout = "".join(
+            line for line in result.stdout.splitlines(keepends=True) if _json_object(line) is None
+        )
+        if status is RunStatus.OK:
+            # 종료 코드는 0인데 result 줄이 없으면 CLI가 예상과 다르게 동작한 것이다
+            status = RunStatus.ERROR
     return AgentResult(
         status=status,
         exit_code=result.exit_code,
@@ -143,9 +155,18 @@ def to_agent_result(result: ProcessResult) -> AgentResult:
     )
 
 
-def _load_object(text: str) -> dict[str, Any] | None:
+def _result_line(text: str) -> dict[str, Any] | None:
+    """스트림(JSON 한 줄씩)에서 마지막 `result` 객체."""
+    for line in reversed(text.splitlines()):
+        data = _json_object(line)
+        if data is not None and data.get("type") == "result":
+            return data
+    return None
+
+
+def _json_object(line: str) -> dict[str, Any] | None:
     try:
-        data = json.loads(text)
+        data = json.loads(line)
     except json.JSONDecodeError:
         return None
     return data if isinstance(data, dict) else None

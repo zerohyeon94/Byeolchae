@@ -93,7 +93,8 @@ def process(tmp_path):
 def test_claude_read_only_args(tmp_path, process):
     argv = ClaudeCliRunner(process, "claude").build_argv(request(tmp_path))
     assert argv[:2] == ["claude", "-p"]
-    assert value_after(argv, "--output-format") == "json"
+    assert value_after(argv, "--output-format") == "stream-json"
+    assert "--verbose" in argv
     assert value_after(argv, "--permission-prompts") == "none"
     assert value_after(argv, "--permission-mode") == "plan"
     assert "--strict-mcp-config" in argv
@@ -175,6 +176,22 @@ def test_claude_uses_structured_output_and_session(tmp_path, process):
     assert result.log_path.exists()
 
 
+def test_claude_reads_last_result_line_of_stream(tmp_path, process):
+    # 실제 스트림처럼 초기화·한도·assistant 줄 뒤에 result 줄이 온다
+    lines = [
+        {"type": "system", "subtype": "init", "session_id": "sess-1"},
+        {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "중간"}]}},
+    ]
+    body = "".join(f"print({json.dumps(json.dumps(line))})\n" for line in lines)
+    exe = fake_cli(tmp_path, "claude", body + claude_output(structured_output=OPINION))
+    result = run(ClaudeCliRunner(process, exe).run(request(tmp_path)))
+    assert result.status is RunStatus.OK
+    assert parse_agent_output(result.stdout, Opinion).conclusion == "좋다"
+    # 실행 로그에는 스트림 전체가 남는다 (비서가 한도 줄을 읽는다)
+    assert "rate_limit_event" in result.log_path.read_text(encoding="utf-8")
+
+
 def test_claude_falls_back_to_result_text(tmp_path, process):
     text = "```json\n" + json.dumps(OPINION, ensure_ascii=False) + "\n```"
     exe = fake_cli(tmp_path, "claude", claude_output(result=text))
@@ -197,6 +214,17 @@ def test_claude_non_json_output_is_error_and_kept_raw(tmp_path, process):
     assert result.status is RunStatus.ERROR
     assert result.stdout == "충돌\n"
     assert result.session_id is None
+
+
+def test_claude_stream_without_result_keeps_only_plain_text(tmp_path, process):
+    # 시간 초과·충돌로 result 줄이 없으면 중간 대화(한도 판정에 섞일 수 있는 말)는 빼고 평문만
+    talk = {"type": "assistant", "message": {"content": [{"type": "text", "text": "rate limit"}]}}
+    body = f"print({json.dumps(json.dumps(talk))})\nprint('Error: 연결 끊김')\nsys.exit(1)"
+    exe = fake_cli(tmp_path, "claude", body)
+    result = run(ClaudeCliRunner(process, exe).run(request(tmp_path)))
+    assert result.status is RunStatus.ERROR
+    assert result.stdout == "Error: 연결 끊김\n"
+    assert "rate limit" in result.log_path.read_text(encoding="utf-8")
 
 
 def test_claude_nonzero_exit_stays_error(tmp_path, process):

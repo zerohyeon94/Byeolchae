@@ -9,9 +9,10 @@
   (`total_token_usage`)의 증가분을 그 이벤트 시각에 센다. 구독 한도 비율(`rate_limits`)도
   여기서 읽는다
 - Codex (봇): 봇은 세션 파일을 남기지 않는다(`--ephemeral`). 실행 로그의 `tokens used` 숫자를 센다
+- Claude 구독 한도 비율: 로컬 기록에는 없다. 봇 Claude 실행 로그(`stream-json`)의
+  `rate_limit_event` 줄에서 읽는다. 계정 전체(봇과 Zero) 기준 값이다
 
-토큰 수는 입력(캐시 읽기·쓰기 포함)과 출력의 합이다. Claude 구독 한도 비율은 로컬 기록에 없어
-보여 주지 않는다.
+토큰 수는 입력(캐시 읽기·쓰기 포함)과 출력의 합이다.
 """
 
 import json
@@ -175,6 +176,25 @@ def _weekly_sample(at: datetime, limits: Any) -> LimitSample | None:
             except (KeyError, TypeError, ValueError):
                 return None
     return None
+
+
+def claude_run_limit(log_text: str, at: datetime) -> LimitSample | None:
+    """봇 Claude 실행 로그의 마지막 `rate_limit_event`에서 주간 한도 비율. 시각은 그 실행의 시각.
+
+    공식으로 약속된 형식이 아니므로 모양이 다르면 None으로 둔다.
+    """
+    found = None
+    for line in log_text.splitlines():
+        if '"rate_limit_event"' not in line:
+            continue
+        try:
+            data = json.loads(line)
+            window = data["rate_limit_info"]["unifiedWindows"]["seven_day"]
+            resets = datetime.fromtimestamp(float(window["resetsAt"]), UTC)
+            found = LimitSample(at, float(window["utilization"]) * 100, resets)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+    return found
 
 
 def codex_run_tokens(log_text: str) -> int | None:

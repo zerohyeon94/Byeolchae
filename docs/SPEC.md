@@ -385,8 +385,9 @@ class AgentResult:
 | IMPLEMENT, FIX | Claude | `claude -p --permission-mode acceptEdits --allowedTools Read Glob Grep Edit Write <로컬 git>` (+ `--resume <세션ID>`) | 작업 worktree |
 | DOC_SYNC | Claude | `claude -p --permission-mode plan` | 읽기 전용 (수정안은 JSON으로만) |
 
-- Claude 공통: `--output-format json --permission-prompts none --strict-mcp-config --disallowedTools "Bash(git push:*)" "Bash(git pull:*)" "Bash(git fetch:*)" "Bash(git remote:*)" "Read(**/.env)" "Edit(**/.env)" "Write(**/.env)"`. `<로컬 git>`은 `Bash(git status|diff|log|show|add|commit:*)`
+- Claude 공통: `--output-format stream-json --verbose --permission-prompts none --strict-mcp-config --disallowedTools "Bash(git push:*)" "Bash(git pull:*)" "Bash(git fetch:*)" "Bash(git remote:*)" "Read(**/.env)" "Edit(**/.env)" "Write(**/.env)"`. `<로컬 git>`은 `Bash(git status|diff|log|show|add|commit:*)`
   - `--permission-prompts none`: 허용 목록에 없어 승인이 필요한 동작은 자동 거부되고 결과 JSON의 `permission_denials`에 남는다. `ls` 같은 읽기 전용 명령은 목록에 없어도 실행된다
+  - `stream-json`: 응답 본문·세션 ID는 마지막 `result` 줄에서 꺼낸다. 실행 로그에 구독 한도 줄(`rate_limit_event`)이 남아 비서가 Claude 주간 한도 비율을 읽는다 (ADR-010, 2026-11-03). `result` 줄이 없으면 스트림 줄은 빼고 평문 출력만 사용량 한도 판정에 쓴다
   - `--strict-mcp-config`: 사용자 MCP 서버(Notion, Slack 등)를 불러오지 않는다. `--bare`는 OAuth 로그인을 읽지 않아 구독 로그인과 함께 쓸 수 없다
 - 프롬프트는 두 CLI 모두 stdin으로 넘긴다. 실행 로그의 argv에 프롬프트가 남지 않는다
 - 단계별 모델은 지금 `projects.yaml`의 `cli.claude_models`·`cli.codex_models`로 정한다 (9.1, 2026-10-10 Zero 결정). Phase 3부터는 `org.yaml`의 에이전트별 `models`로 옮긴다 (Q12)
