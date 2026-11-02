@@ -53,6 +53,7 @@ class EventKind(StrEnum):
     REPORT = "report"
     COMMAND = "command"
     MERGE = "merge"
+    PR_OPENED = "pr_opened"  # 봇이 draft PR을 열었다 (ADR-010 하루 정리)
     ERROR = "error"
 
 
@@ -290,6 +291,12 @@ class Repository:
                     f"작업 {task_id}의 상태가 {expected_state}가 아니라 {current['state']}이다"
                 )
             await self._insert_event(task_id, event, now)
+            if new_state is not expected_state:
+                await self._conn.execute(
+                    "INSERT INTO task_transitions (task_id, from_state, to_state, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (task_id, expected_state.value, new_state.value, now),
+                )
         return await self.get_task(task_id)
 
     async def update_fields(self, task_id: int, updates: Mapping[str, object]) -> TaskRecord:
@@ -490,6 +497,38 @@ class Repository:
         for row in rows:
             stats.setdefault(row["agent"], {})[row["status"]] = row["n"]
         return stats
+
+    async def runs_between(self, engine: str, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 사이에 시작한 이 엔진의 실행 (시작 시각, 실행 로그 경로)."""
+        rows = await self._fetchall(
+            "SELECT started_at, log_path FROM agent_runs "
+            "WHERE engine = ? AND started_at >= ? AND started_at < ? ORDER BY started_at",
+            (engine, start, end),
+        )
+        return [dict(row) for row in rows]
+
+    async def transitions_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 사이의 작업 단계 변화. 작업의 제품·제목과 함께, 시각 순."""
+        rows = await self._fetchall(
+            "SELECT t.task_id, k.project, k.title, t.from_state, t.to_state, t.created_at "
+            "FROM task_transitions t JOIN tasks k ON k.id = t.task_id "
+            "WHERE t.created_at >= ? AND t.created_at < ? ORDER BY t.id",
+            (start, end),
+        )
+        return [dict(row) for row in rows]
+
+    async def events_between(
+        self, kinds: set[EventKind], start: str, end: str
+    ) -> list[dict[str, Any]]:
+        """[start, end) 사이의 이벤트 (kinds만). 작업의 제품·제목과 함께, 시각 순."""
+        marks = ", ".join("?" for _ in kinds)
+        rows = await self._fetchall(
+            "SELECT e.task_id, k.project, k.title, e.kind, e.payload, e.created_at "
+            "FROM events e JOIN tasks k ON k.id = e.task_id "
+            f"WHERE e.kind IN ({marks}) AND e.created_at >= ? AND e.created_at < ? ORDER BY e.id",
+            (*sorted(k.value for k in kinds), start, end),
+        )
+        return [dict(row) for row in rows]
 
     async def count_events_since(self, kind: EventKind, since: str) -> int:
         row = await self._fetchone(

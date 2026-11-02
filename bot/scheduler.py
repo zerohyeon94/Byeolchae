@@ -20,6 +20,8 @@ BUILTIN_SCHEDULES = {
 # 교육 Daily와 주간 보고 (ADR-009). 시각은 설정(education.schedule, weekly)이 정한다
 EDUCATION_DAILY = "education_daily"
 EDUCATION_WEEKLY = "education_weekly"
+# 비서 저녁 하루 정리 (ADR-010). 시각은 설정(secretary.schedule)이 정한다
+SECRETARY_EVENING = "secretary_evening"
 
 
 class CronError(ValueError):

@@ -176,7 +176,19 @@ CREATE TABLE study_days (
 );
 """
 
-MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8)
+# v9: 작업 단계 변화 기록 (ADR-010). 비서의 저녁 Daily가 하루의 단계 변화를 읽는다
+_V9 = """
+CREATE TABLE task_transitions (
+  id               INTEGER PRIMARY KEY,
+  task_id          INTEGER NOT NULL REFERENCES tasks(id),
+  from_state       TEXT NOT NULL,
+  to_state         TEXT NOT NULL,
+  created_at       TEXT NOT NULL
+);
+CREATE INDEX task_transitions_at ON task_transitions(created_at);
+"""
+
+MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8, _V9)
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

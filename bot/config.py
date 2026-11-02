@@ -183,10 +183,34 @@ class EducationConfig(_Model):
         return value
 
 
+class SecretaryConfig(_Model):
+    """비서 부서 저녁 Daily와 아침 보고 (ADR-010). 없으면 아침 보고는 #대표실에 그대로 간다."""
+
+    # Daily 파일을 쓰는 볼트 루트 (Daily/YYYY-MM/YYYY-MM-DD.md)
+    vault: ExpandedPath
+    agent: str = "theta"
+    schedule: str = "30 23 * * *"  # 매일 23:30. 놓치면 다음에 켜질 때(아침) 그날 것을 한 번 쓴다
+    # #비서 채널. 없으면 #대표실(없으면 운영 채널)
+    channel_id: DiscordId | None = None
+    # 토큰 사용량을 읽는 로컬 기록
+    claude_projects: ExpandedPath = Path("~/.claude/projects")
+    codex_sessions: ExpandedPath = Path("~/.codex/sessions")
+
+    @field_validator("schedule")
+    @classmethod
+    def _cron(cls, value: str) -> str:
+        try:
+            parse_cron(value)
+        except CronError as error:
+            raise ValueError(str(error)) from None
+        return value
+
+
 class ProjectsFile(_Model):
     projects: dict[str, ProjectConfig] = Field(min_length=1)
     paths: PathsConfig
     education: EducationConfig | None = None
+    secretary: SecretaryConfig | None = None
     cli: CliConfig = CliConfig()
     limits: LimitsConfig = LimitsConfig()
 
@@ -230,6 +254,7 @@ class Config(_Model):
     org: Org
     pipelines: dict[str, Pipeline]
     education: EducationConfig | None = None
+    secretary: SecretaryConfig | None = None
 
     def project_for_chat(self, channel_id: str) -> str | None:
         """제품 채팅 채널 ID로 프로젝트 키를 찾는다."""
@@ -315,6 +340,9 @@ def load_config(
     education = projects.education
     if education is not None and education.agent not in org.agents:
         raise ConfigError(f"education.agent {education.agent!r}가 조직(org.yaml)에 없다")
+    secretary = projects.secretary
+    if secretary is not None and secretary.agent not in org.agents:
+        raise ConfigError(f"secretary.agent {secretary.agent!r}가 조직(org.yaml)에 없다")
     return Config(
         projects=projects.projects,
         paths=projects.paths,
@@ -324,6 +352,7 @@ def load_config(
         org=org,
         pipelines=pipelines,
         education=education,
+        secretary=secretary,
     )
 
 

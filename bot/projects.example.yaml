@@ -34,6 +34,16 @@ education:
   weekly: "0 20 * * 0"      # 주간 학습 보고와 주간 문제, 일요일 20:00
   channel_id: "123456789012345684"   # #교육. 생략하면 #대표실에 알린다
 
+# 비서 부서 (ADR-010). 없으면 아침 보고는 #대표실에 그대로 간다
+secretary:
+  vault: ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/my-vault   # Daily/를 쓰는 볼트
+  agent: theta              # 비서팀장 (org.yaml의 에이전트)
+  schedule: "30 23 * * *"   # 매일 23:30 하루 정리. 놓치면 다음에 켜질 때 그날 몫을 쓴다
+  channel_id: "123456789012345685"   # #비서. 생략하면 #대표실에 알린다
+  # 토큰 기록 위치 (기본값)
+  # claude_projects: ~/.claude/projects
+  # codex_sessions: ~/.codex/sessions
+
 # 생략하면 기본값을 쓴다
 cli:
   claude: claude        # launchd PATH에서 못 찾으면 절대 경로 (예: /opt/homebrew/bin/claude)

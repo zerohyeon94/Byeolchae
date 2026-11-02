@@ -9,6 +9,8 @@ teams:
   qa: {name: QA, lead: delta}
   # 교육 부서 (ADR-009). Zero와 1대1, 팀장 한 명
   education: {name: 교육, lead: eta, department: education}
+  # 비서 부서 (ADR-010). 저녁 하루 정리와 아침 보고, 팀장 한 명
+  secretary: {name: 비서, lead: theta, department: secretary}
 
 agents:
   beta:
@@ -99,6 +101,19 @@ agents:
     daily_calls: 5             # 하루 개념 노트 1개 (형식 오류 재요청 포함)
     hired: 2026-10-29
     reason: 교육 부서 Daily 개념 노트 (ADR-009)
+  theta:
+    display: Theta
+    team: secretary
+    title: 팀장
+    engine: claude
+    mbti: ESTJ
+    perspective: 하루에 실제로 일어난 일, 숫자와 사실, Zero가 오늘 결정할 것, 짧게
+    basic_question: Zero가 이것만 읽고 하루를 알 수 있는가
+    persona: agents/theta.md
+    models: {secretary_daily: sonnet}
+    daily_calls: 3             # 하루 정리 요약 1개 (형식 오류 재요청 포함)
+    hired: 2026-11-02
+    reason: 비서 부서 저녁 Daily와 아침 보고 (ADR-010)
 
 # 기능 개발 흐름의 단계별 담당 (Phase 5에서 pipelines/*.yaml로 옮긴다)
 roles:

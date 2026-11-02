@@ -2,6 +2,7 @@
 
 보고는 봇이 DB에서 만든다. 에이전트를 부르지 않는다. `#대표실`에 게시하고,
 아침 보고는 Zero가 할 일(승인 대기)이 있을 때만 멘션한다.
+비서 부서가 있으면 아침 보고는 비서가 `#비서`에 짧게 한다 (`morning_brief`, ADR-010).
 """
 
 from collections.abc import Callable, Sequence
@@ -49,6 +50,40 @@ def _runs_line(org: Org, stats: dict[str, dict[str, int]]) -> str:
 
 def _local_midnight(now: datetime) -> datetime:
     return now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def pending_decisions(repo: Repository, org: Org, now: datetime, url: ThreadUrl) -> list[str]:
+    """Zero가 결정할 것: 승인 대기 작업과 열린 채용 제안. "- " 없이 한 줄씩."""
+    waiting = [t for t in await repo.list_tasks() if t.state.waits_for_zero]
+    proposals = await repo.list_hiring_proposals(status=HiringStatus.OPEN)
+    lines = [_task_line(t, url, f" (대기 {_hours(t.waiting_since, now)})")[2:] for t in waiting]
+    lines += [
+        f"채용 제안 #{p.id} ({org.display(p.proposed_by)}): /hire로 답한다" for p in proposals
+    ]
+    return lines
+
+
+async def morning_brief(
+    repo: Repository, org: Org, now: datetime, url: ThreadUrl, *, daily: str = "", paused: str = ""
+) -> Report:
+    """비서의 짧은 아침 보고. 오늘 결정할 것을 먼저, 나머지는 건수만 (ADR-010)."""
+    today = _local_midnight(now)
+    yesterday = today - timedelta(days=1)
+    decisions = await pending_decisions(repo, org, now, url)
+    tasks = await repo.list_tasks()
+    running = sum(1 for t in tasks if not t.state.is_terminal and not t.state.waits_for_zero)
+    finished = sum(
+        1 for t in tasks if t.state.is_terminal and yesterday <= from_iso(t.updated_at) < today
+    )
+    lines = [f"**아침 보고** ({now.astimezone():%m-%d})", ""]
+    lines.append(f"**오늘 결정할 것** ({len(decisions)})")
+    lines += [f"- {line}" for line in decisions] or ["- 없음"]
+    lines += ["", f"진행 중 {running}건 · 어제 끝난 일 {finished}건"]
+    if daily:
+        lines.append(f"어제 하루 정리: `{daily}`")
+    if paused:
+        lines.append(f"**사용량 한도 정지**: {paused}까지")
+    return Report("\n".join(lines), mention=bool(decisions))
 
 
 async def morning_report(

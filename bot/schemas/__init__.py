@@ -16,6 +16,7 @@ from bot.schemas.hiring import HiringKind, HiringProposal
 from bot.schemas.implementation import FindingResponse, ImplementationReport, ResponseAction
 from bot.schemas.opinion import Opinion, Stance
 from bot.schemas.review import Finding, Review, Severity, Verdict
+from bot.schemas.secretary import DailySummary
 from bot.schemas.stages import (
     CauseClass,
     CheckState,
@@ -37,6 +38,7 @@ __all__ = [
     "DocSyncProposal",
     "ChangeType",
     "ConceptNote",
+    "DailySummary",
     "LETTERS",
     "QuizQuestion",
     "WeeklyReview",

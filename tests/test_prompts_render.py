@@ -16,6 +16,7 @@ from bot.prompts import (
     lead_check_prompt,
     opinion_prompt,
     persona_for,
+    secretary_daily_prompt,
     weekly_quiz_prompt,
     with_format_error,
 )
@@ -244,3 +245,13 @@ def test_weekly_quiz_prompt_snapshot():
     )
     assert "5~8문제" in prompt and "`Learning/개념/2026-11-04 gRPC.md`" in prompt
     check_snapshot("weekly_quiz_eta", prompt)
+
+
+def test_secretary_daily_prompt_snapshot():
+    prompt = secretary_daily_prompt(
+        persona_for(DEFAULT_ORG, "theta"),
+        day="2026-11-02",
+        facts="## 결정할 것\n\n- [gagaessi] #19 카테고리 추가 — AWAIT_PLAN_APPROVAL (대기 9시간)",
+    )
+    assert "Theta" in prompt and "#19 카테고리 추가" in prompt and "1~3줄" in prompt
+    check_snapshot("secretary_daily_theta", prompt)

@@ -51,6 +51,7 @@ STAGE_LABELS = {
     "doc_sync": "문서 반영",
     "concept_note": "개념 노트",
     "weekly_quiz": "주간 문제",
+    "secretary_daily": "하루 정리",
 }
 KIND_LABELS = {
     "message": "메시지",

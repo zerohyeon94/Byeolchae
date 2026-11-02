@@ -925,6 +925,9 @@ class WorkStages:
             body=body,
         )
         task = await self._repo.update_fields(task.id, {"pr_number": number})
+        await self._repo.add_event(
+            task.id, NewEvent(Actor.BOT, EventKind.PR_OPENED, {"pr": number})
+        )
         await github.add_labels(number, ["zerosync", TYPE_LABELS[change.change_type]])
         await self._say(task, f"draft PR #{number}을 열었다: {self._web(task, f'pull/{number}')}")
 
