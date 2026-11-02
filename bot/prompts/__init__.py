@@ -18,6 +18,7 @@ from bot.org import Org
 from bot.schemas import (
     ChangeSummary,
     ConceptNote,
+    DailySummary,
     DesignSummary,
     DiagnosisReport,
     DocSyncProposal,
@@ -549,6 +550,16 @@ def concept_note_prompt(
         section=section.strip() or "-",
         month=month.strip(),
         schema=_schema(ConceptNote),
+    )
+
+
+def secretary_daily_prompt(persona: Persona, *, day: str, facts: str) -> str:
+    """비서의 저녁 하루 정리 요약 (ADR-010). facts는 봇이 센 Daily 본문."""
+    return _template("secretary_daily").substitute(
+        _persona(persona, hiring_guide=False),
+        day=day,
+        facts=facts.strip(),
+        schema=_schema(DailySummary),
     )
 
 

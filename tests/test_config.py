@@ -371,3 +371,23 @@ def test_education_section_is_optional_and_validated(tmp_path):
         load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  agent: omega\n"))
     with pytest.raises(ConfigError, match="schedule"):
         load(tmp_path, yaml_text(extra='education:\n  vault: ~/vault\n  schedule: "x"\n'))
+
+
+def test_secretary_section_is_optional_and_validated(tmp_path):
+    assert load(tmp_path).secretary is None
+    config = load(tmp_path, yaml_text(extra='secretary:\n  vault: ~/vault\n  channel_id: "777"\n'))
+    secretary = config.secretary
+    assert (secretary.vault, secretary.claude_projects, secretary.codex_sessions) == (
+        Path.home() / "vault",
+        Path.home() / ".claude" / "projects",
+        Path.home() / ".codex" / "sessions",
+    )
+    assert (secretary.agent, secretary.schedule, secretary.channel_id) == (
+        "theta",
+        "30 23 * * *",
+        "777",
+    )
+    with pytest.raises(ConfigError, match="omega"):
+        load(tmp_path, yaml_text(extra="secretary:\n  vault: ~/vault\n  agent: omega\n"))
+    with pytest.raises(ConfigError, match="schedule"):
+        load(tmp_path, yaml_text(extra='secretary:\n  vault: ~/vault\n  schedule: "x"\n'))

@@ -35,6 +35,7 @@ READ_ONLY_STAGES = frozenset(
         Stage.LEAD_CHECK,
         Stage.CONCEPT_NOTE,
         Stage.WEEKLY_QUIZ,
+        Stage.SECRETARY_DAILY,
     }
 )
 
@@ -172,7 +173,10 @@ class Org(_Model):
 
 
 def _default_org() -> Org:
-    """ADR-007·ADR-008의 제품 부서와 ADR-009의 교육 부서 기본 구성. org.yaml이 없을 때 쓴다."""
+    """ADR-007·ADR-008의 제품 부서, ADR-009의 교육 부서, ADR-010의 비서 부서 기본 구성.
+
+    org.yaml이 없을 때 쓴다.
+    """
     return Org(
         teams={
             "planning": TeamSpec(name="기획", lead="beta"),
@@ -180,6 +184,7 @@ def _default_org() -> Org:
             "dev": TeamSpec(name="개발", lead="alpha"),
             "qa": TeamSpec(name="QA", lead="delta"),
             "education": TeamSpec(name="교육", lead="eta", department="education"),
+            "secretary": TeamSpec(name="비서", lead="theta", department="secretary"),
         },
         agents={
             "beta": AgentSpec(
@@ -251,6 +256,15 @@ def _default_org() -> Org:
                 basic_question="오늘 이것 하나로 무엇을 알게 되는가",
                 hired="2026-10-29",
                 reason="교육 부서 Daily 개념 노트 (ADR-009)",
+            ),
+            "theta": AgentSpec(
+                display="Theta",
+                team="secretary",
+                mbti="ESTJ",
+                perspective="하루에 실제로 일어난 일, 숫자와 사실, Zero가 오늘 결정할 것, 짧게",
+                basic_question="Zero가 이것만 읽고 하루를 알 수 있는가",
+                hired="2026-11-02",
+                reason="비서 부서 저녁 Daily와 아침 보고 (ADR-010)",
             ),
         },
     )

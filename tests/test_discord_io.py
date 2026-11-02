@@ -449,7 +449,7 @@ def test_intents_include_message_content(bot):
     names = {command.name for command in bot.tree.get_commands(guild=bot.guild_ref)}
     assert names == {
         "task", "release", "debate", "idea", "approve", "revise", "skip", "fix",
-        "resume", "stop", "hire", "status", "ping", "daily", "weekly",
+        "resume", "stop", "hire", "status", "ping", "daily", "weekly", "evening",
     }  # fmt: skip
     project = project_contexts(bot.config)["gagaessi"]
     assert project.github.repo == "owner/GagaeSsi"
@@ -566,6 +566,65 @@ def test_education_daily_and_weekly_run_on_their_schedules_once(bot, tmp_path):
     # 주간(일요일 20:00)은 지난 일요일 몫을 한 번 따라잡는다
     assert "education_weekly" in first and "education_weekly" not in again
     assert sorted(runs) == ["daily", "weekly"]
+
+
+def test_secretary_catches_up_missed_evening_and_takes_morning_report(bot, tmp_path):
+    from bot.clock import FixedClock
+    from bot.config import SecretaryConfig
+    from bot.store import Repository, connect
+
+    bot.config = bot.config.model_copy(update={"secretary": SecretaryConfig(vault=tmp_path)})
+    days = []
+
+    class Desk:
+        async def run_evening(self, day):
+            days.append(day.isoformat())
+
+    bot.secretary = Desk()
+
+    async def main():
+        conn = await connect(":memory:")
+        try:
+            clock = FixedClock(datetime(2026, 11, 2, 22, 40, tzinfo=UTC))  # 한국 화 07:40
+            bot.clock = clock
+            bot.repo = Repository(conn, clock)
+            reports, sent = [], []
+
+            async def report(text, *, mention=False):
+                reports.append(text)
+
+            async def target():
+                return "#대표실"
+
+            async def send(channel, text, *, mention=False):
+                sent.append((channel, text.splitlines()[:2]))
+
+            bot.chat.report, bot.chat.report_target, bot.chat.send = report, target, send
+            # 지난 아침·주간 보고는 이미 냈다
+            await bot.repo.record_schedule_run("morning_report", "2026-11-02T00:00:00+00:00")
+            await bot.repo.record_schedule_run("weekly_report", "2026-11-02T00:00:00+00:00")
+            first = await bot.run_due_schedules()
+            await drain(bot)
+            clock.advance(timedelta(minutes=20))  # 08:00 아침 보고
+            morning = await bot.run_due_schedules()
+            return first, morning, reports, sent
+        finally:
+            await conn.close()
+
+    first, morning, reports, sent = run(main())
+    # 11-03 아침에 따라잡아도 11-02 하루 정리다
+    assert first == ["secretary_evening"] and days == ["2026-11-02"]
+    assert morning == ["morning_report"] and reports == []
+    assert sent == [("#대표실", ["**[Theta · 비서팀장]**", "**아침 보고** (11-03)"])]
+
+
+def test_evening_command_is_zero_only_and_needs_secretary(bot):
+    other = interaction(user_id=7)
+    run(bot.run_evening(other))
+    assert "Zero만" in other.response.sent[0][0]
+    zero = interaction()
+    run(bot.run_evening(zero))
+    assert "비서 설정" in zero.response.sent[0][0]
 
 
 @pytest.mark.parametrize("command", ["run_daily", "run_weekly"])

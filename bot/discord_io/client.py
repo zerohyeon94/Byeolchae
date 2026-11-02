@@ -31,21 +31,25 @@ from bot.discord_io.rules import (
 from bot.education.quiz import render_question
 from bot.github import GitHubClient, VaultGit
 from bot.render.status import render_ping, render_status
-from bot.reports import Report, morning_report, weekly_report
+from bot.reports import Report, morning_brief, morning_report, weekly_report
 from bot.scheduler import (
     BUILTIN_SCHEDULES,
     EDUCATION_DAILY,
     EDUCATION_WEEKLY,
     MORNING_REPORT,
+    SECRETARY_EVENING,
     is_due,
+    latest_due,
     parse_cron,
 )
 from bot.schemas import QuizQuestion
+from bot.secretary.daily import daily_path
 from bot.store import Repository
 from bot.workflow.education import EducationDesk
 from bot.workflow.engine import PAUSE_KEY, Engine, ProjectContext
 from bot.workflow.gate import AgentGate
 from bot.workflow.mentions import Moment, should_mention
+from bot.workflow.secretary import SecretaryDesk
 from bot.workflow.state import CommandName, Limits, TaskState
 
 log = logging.getLogger(__name__)
@@ -151,6 +155,21 @@ class ZeroSyncBot(discord.Client):
                 post_quiz=self._post_quiz,
                 post_done=self._post_done,
             )
+        self.secretary: SecretaryDesk | None = None
+        if config.secretary is not None:
+            self.secretary = SecretaryDesk(
+                self.engine,
+                VaultGit(),
+                config.secretary.vault,
+                config.secretary.agent,
+                config.org.display(config.secretary.agent),
+                self._secretary_notify,
+                repo=repo,
+                org=config.org,
+                claude_dir=config.secretary.claude_projects,
+                codex_dir=config.secretary.codex_sessions,
+                workdir=config.paths.runs.parent / "secretary",
+            )
         self._webhooks: dict[int, discord.Webhook] = {}
         self._background: set[asyncio.Task[None]] = set()
         self._started = False
@@ -241,8 +260,21 @@ class ZeroSyncBot(discord.Client):
             # 실행 전에 기록한다. 보고가 실패해도 1분마다 다시 보내지 않게 하기 위해서다
             await self.repo.record_schedule_run(job, to_iso(now))
             report = await self._build_report(job, now)
-            await self.chat.report(report.text, mention=report.mention)
+            if job == MORNING_REPORT and self.secretary is not None:
+                await self._secretary_notify(report.text, report.mention)
+            else:
+                await self.chat.report(report.text, mention=report.mention)
             ran.append(job)
+        secretary = self.config.secretary
+        if self.secretary is not None and secretary is not None:
+            cron = parse_cron(secretary.schedule)
+            previous = from_iso(last[SECRETARY_EVENING]) if SECRETARY_EVENING in last else None
+            due = latest_due(cron, local)
+            if due is not None and is_due(cron, local, previous):
+                # 놓친 저녁은 다음에 켜질 때(아침) 그날 것으로 쓴다
+                await self.repo.record_schedule_run(SECRETARY_EVENING, to_iso(now))
+                self.spawn(self.secretary.run_evening(due.date()), "비서 하루 정리")
+                ran.append(SECRETARY_EVENING)
         education = self.config.education
         if self.education is not None and education is not None:
             jobs = (
@@ -270,12 +302,54 @@ class ZeroSyncBot(discord.Client):
         return ran
 
     async def _build_report(self, job: str, now: datetime) -> Report:
+        if job == MORNING_REPORT and self.config.secretary is not None:
+            paused = await self.repo.get_state(PAUSE_KEY) or ""
+            yesterday = now.astimezone().date() - timedelta(days=1)
+            path = daily_path(yesterday)
+            daily = path if (self.config.secretary.vault / path).exists() else ""
+            return await morning_brief(
+                self.repo, self.config.org, now, self.thread_url, daily=daily, paused=paused
+            )
         if job == MORNING_REPORT:
             paused = await self.repo.get_state(PAUSE_KEY) or ""
             return await morning_report(
                 self.repo, self.config.org, now, self.thread_url, paused=paused
             )
         return await weekly_report(self.repo, self.config.org, now, list(self.config.projects))
+
+    async def _secretary_notify(self, text: str, mention: bool) -> None:
+        """비서 이름으로 #비서에 알린다. 채널이 없으면 #대표실(없으면 운영 채널)."""
+        secretary = self.config.secretary
+        assert secretary is not None
+        text = f"**[{self.config.org.display(secretary.agent)}]**\n{text}"
+        if secretary.channel_id is None:
+            channel = await self.chat.report_target()
+        else:
+            channel_id = int(secretary.channel_id)
+            channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+        await self.chat.send(channel, text, mention=mention)
+
+    async def run_evening(self, interaction: discord.Interaction) -> None:
+        """가장 최근 저녁 일정의 하루 정리를 지금 만든다 (/evening). 이미 있으면 쓰지 않는다."""
+        if interaction.user.id != self.zero_user_id:
+            await interaction.response.send_message(
+                "이 봇의 명령은 Zero만 쓸 수 있다.", ephemeral=True
+            )
+            return
+        secretary = self.config.secretary
+        if self.secretary is None or secretary is None:
+            await interaction.response.send_message(
+                "비서 설정(projects.yaml의 secretary)이 없다.", ephemeral=True
+            )
+            return
+        due = latest_due(parse_cron(secretary.schedule), self.clock.now().astimezone())
+        if due is None:
+            await interaction.response.send_message("저녁 일정을 찾지 못했다.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"{due.date().isoformat()} 하루 정리를 만든다.", ephemeral=True
+        )
+        self.spawn(self.secretary.run_evening(due.date()), "비서 하루 정리")
 
     async def _education_notify(self, text: str, mention: bool) -> None:
         """교육팀장 이름으로 #교육에 알린다. 채널이 없으면 #대표실(없으면 운영 채널)."""
@@ -724,6 +798,12 @@ def _register_commands(bot: ZeroSyncBot) -> None:
     )
     async def weekly(interaction: discord.Interaction) -> None:
         await bot.run_weekly(interaction)
+
+    @tree.command(
+        name="evening", description="가장 최근 하루 정리(Daily)를 지금 만든다", guild=guild
+    )
+    async def evening(interaction: discord.Interaction) -> None:
+        await bot.run_evening(interaction)
 
     @tree.command(name="ping", description="봇 생존과 실행 중인 CLI 수", guild=guild)
     async def ping(interaction: discord.Interaction) -> None:
