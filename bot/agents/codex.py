@@ -4,7 +4,9 @@
 - 프롬프트는 stdin으로 넘긴다 (`-` 인자)
 - 마지막 메시지는 `-o <runs_dir>/<run_id>.last.txt`로 받아 응답 본문으로 쓴다.
   진행 기록은 stderr로 나와 실행 로그에만 남는다
-- 응답 스키마는 `<runs_dir>/<run_id>.schema.json`에 써서 `--output-schema`로 넘긴다
+- 응답 스키마는 `<runs_dir>/<run_id>.schema.json`에 써서 `--output-schema`로 넘긴다.
+  OpenAI 구조화 출력은 모든 속성을 required에 넣어야 하므로(strict), 선택 필드는 null을 허용하는
+  필수 필드로 바꿔 넘기고, 응답에서 선택 필드의 null은 지워 pydantic 기본값이 쓰이게 한다
 - 세션 파일을 남기지 않고(`--ephemeral`), 사용자 설정(`~/.codex/config.toml`)은 읽지 않는다.
   로그인 정보는 그대로 쓴다
 2026-10-10 시험 호출로 확인 (SPEC 10장 V2).
@@ -13,6 +15,7 @@
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from bot.agents.base import AgentRequest, AgentResult, EngineName, Stage
 from bot.agents.process import ProcessRunner
@@ -68,7 +71,8 @@ class CodexCliRunner:
         last_message.unlink(missing_ok=True)
         if request.output_schema is not None:
             self.schema_path(request.run_id).write_text(
-                json.dumps(request.output_schema, ensure_ascii=False), encoding="utf-8"
+                json.dumps(strict_schema(request.output_schema), ensure_ascii=False),
+                encoding="utf-8",
             )
 
         result = await self._process.run(
@@ -82,6 +86,9 @@ class CodexCliRunner:
             stdout = last_message.read_text(encoding="utf-8")
         except FileNotFoundError:
             stdout = result.stdout
+        else:
+            if request.output_schema is not None:
+                stdout = _without_optional_nulls(stdout, request.output_schema)
         return AgentResult(
             status=result.status,
             exit_code=result.exit_code,
@@ -94,3 +101,89 @@ class CodexCliRunner:
 
     async def cancel(self, run_id: str) -> None:
         await self._process.cancel(run_id)
+
+
+# OpenAI strict 스키마 (2026-11-02 확인: 선택 필드가 있으면 400 invalid_json_schema)
+
+
+def strict_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """모든 객체의 속성을 required로 두고, 원래 선택이던 속성은 null도 받게 한다."""
+    return _strict(dict(schema))
+
+
+def _strict(node: Any) -> Any:
+    if isinstance(node, list):
+        return [_strict(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "default":
+            continue
+        if key in ("properties", "$defs") and isinstance(value, dict):
+            out[key] = {name: _strict(sub) for name, sub in value.items()}
+        else:
+            out[key] = _strict(value)
+    properties = out.get("properties")
+    if isinstance(properties, dict):
+        required = set(node.get("required", ()))
+        for name in properties:
+            if name not in required:
+                properties[name] = _nullable(properties[name])
+        out["required"] = list(properties)
+        out["additionalProperties"] = False
+    return out
+
+
+def _nullable(node: dict[str, Any]) -> dict[str, Any]:
+    branches = node.get("anyOf")
+    if isinstance(branches, list):
+        if any(branch.get("type") == "null" for branch in branches):
+            return node
+        return {**node, "anyOf": [*branches, {"type": "null"}]}
+    return {"anyOf": [node, {"type": "null"}]}
+
+
+def _without_optional_nulls(text: str, schema: Mapping[str, Any]) -> str:
+    """응답 JSON에서 원래 스키마의 선택 필드에 들어온 null을 지운다. JSON이 아니면 그대로 둔다."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    cleaned = _drop_nulls(data, schema, schema.get("$defs", {}))
+    return json.dumps(cleaned, ensure_ascii=False)
+
+
+def _drop_nulls(data: Any, node: Mapping[str, Any], defs: Mapping[str, Any]) -> Any:
+    if isinstance(data, dict):
+        branch = _branch(node, defs, "properties")
+        if branch is None:
+            return data
+        properties = branch["properties"]
+        required = set(branch.get("required", ()))
+        return {
+            key: _drop_nulls(value, properties.get(key, {}), defs)
+            for key, value in data.items()
+            if value is not None or key in required
+        }
+    if isinstance(data, list):
+        branch = _branch(node, defs, "items")
+        if branch is None:
+            return data
+        return [_drop_nulls(item, branch["items"], defs) for item in data]
+    return data
+
+
+def _branch(node: Mapping[str, Any], defs: Mapping[str, Any], key: str) -> Mapping[str, Any] | None:
+    """$ref와 anyOf를 따라가 key(properties·items)를 가진 스키마를 찾는다."""
+    ref = node.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        node = defs.get(ref.removeprefix("#/$defs/"), {})
+    if key in node:
+        return node
+    for group in ("anyOf", "oneOf", "allOf"):
+        for sub in node.get(group, ()):
+            found = _branch(sub, defs, key)
+            if found is not None:
+                return found
+    return None
