@@ -118,7 +118,9 @@ ModelName = Annotated[str, Field(min_length=1)]
 
 # 단계별 기본 모델을 둘 수 있는 단계 (SPEC 5.2). Codex는 읽기 전용 단계만 맡는다
 CLAUDE_STAGES = frozenset(Stage)
-CODEX_STAGES = frozenset({Stage.OPINION, Stage.DEBATE, Stage.REVIEW, Stage.DIAGNOSE})
+CODEX_STAGES = frozenset(
+    {Stage.OPINION, Stage.DEBATE, Stage.REVIEW, Stage.DIAGNOSE, Stage.CONCEPT_IMAGE}
+)
 
 
 class CliConfig(_Model):
@@ -172,6 +174,10 @@ class EducationConfig(_Model):
     weekly: str = "0 20 * * 0"  # 주간 학습 보고와 주간 문제. 일요일 20:00
     # #교육 채널. 없으면 #대표실(없으면 운영 채널)에 알린다
     channel_id: DiscordId | None = None
+    # 개념 노트 그림을 그리는 Codex 엔진 팀원. 없으면 그림 없이 낸다
+    illustrator: str | None = None
+    # Codex가 만든 그림이 저장되는 곳. 봇이 여기서 볼트 Assets/로 옮긴다
+    codex_images: ExpandedPath = Path("~/.codex/generated_images")
 
     @field_validator("schedule", "weekly")
     @classmethod
@@ -340,6 +346,12 @@ def load_config(
     education = projects.education
     if education is not None and education.agent not in org.agents:
         raise ConfigError(f"education.agent {education.agent!r}가 조직(org.yaml)에 없다")
+    illustrator = education.illustrator if education is not None else None
+    if illustrator is not None:
+        if illustrator not in org.agents:
+            raise ConfigError(f"education.illustrator {illustrator!r}가 조직(org.yaml)에 없다")
+        if org.engine(illustrator) != "codex":
+            raise ConfigError(f"education.illustrator {illustrator!r}는 Codex 엔진이어야 한다")
     secretary = projects.secretary
     if secretary is not None and secretary.agent not in org.agents:
         raise ConfigError(f"secretary.agent {secretary.agent!r}가 조직(org.yaml)에 없다")

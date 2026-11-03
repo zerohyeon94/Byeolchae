@@ -52,11 +52,13 @@ def test_default_org_is_product_education_and_secretary_departments():
         "Epsilon · 개발팀원",
         "Zeta · QA팀원",
         "Eta · 교육팀장",
+        "Iota · 교육팀원",
         "Theta · 비서팀장",
     ]
     assert org.teams["education"].department == "education"
     assert org.teams["secretary"].department == "secretary"
-    assert {org.engine(a) for a in org.agent_names} == {"claude"}
+    # 개념 노트 그림만 Codex가 그린다 (읽기 전용, 그림 파일은 봇이 옮긴다)
+    assert [a for a in org.agent_names if org.engine(a) == "codex"] == ["iota"]
     roles = org.roles
     assert (roles.design, roles.implement, roles.review, roles.doc_sync) == (
         "alpha",

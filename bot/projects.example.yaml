@@ -33,6 +33,7 @@ education:
   schedule: "30 7 * * *"    # 매일 07:30
   weekly: "0 20 * * 0"      # 주간 학습 보고와 주간 문제, 일요일 20:00
   channel_id: "123456789012345684"   # #교육. 생략하면 #대표실에 알린다
+  illustrator: iota         # 개념 노트 그림을 그리는 Codex 팀원. 생략하면 그림 없이 낸다
 
 # 비서 부서 (ADR-010). 없으면 아침 보고는 #대표실에 그대로 간다
 secretary:
@@ -50,7 +51,7 @@ cli:
   codex: codex
   # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다
   # Claude 단계: opinion, debate, plan, ui_design, design, implement, fix, review,
-  #   diagnose, lead_check, release_prep, doc_sync, concept_note, weekly_quiz
+  #   diagnose, lead_check, release_prep, doc_sync, concept_note, weekly_quiz, secretary_daily
   claude_models:
     opinion: sonnet
     debate: sonnet
@@ -58,7 +59,7 @@ cli:
     design: opus
     implement: opus
     fix: opus
-  # Codex 단계(읽기 전용): opinion, debate, review, diagnose
+  # Codex 단계(읽기 전용): opinion, debate, review, diagnose, concept_image
   codex_models: {}
 
 limits:

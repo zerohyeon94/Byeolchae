@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from bot.org import Org
 from bot.schemas import (
     ChangeSummary,
+    ConceptImage,
     ConceptNote,
     DailySummary,
     DesignSummary,
@@ -550,6 +551,17 @@ def concept_note_prompt(
         section=section.strip() or "-",
         month=month.strip(),
         schema=_schema(ConceptNote),
+    )
+
+
+def concept_image_prompt(persona: Persona, *, day: str, label: str, brief: str) -> str:
+    """교육팀원의 개념 노트 그림 (ADR-009). brief는 교육팀장이 쓴 그림 설명."""
+    return _template("concept_image").substitute(
+        _persona(persona, hiring_guide=False),
+        day=day,
+        label=label.strip(),
+        brief=brief.strip(),
+        schema=_schema(ConceptImage),
     )
 
 
