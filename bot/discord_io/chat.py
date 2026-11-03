@@ -7,6 +7,7 @@
 
 import io
 from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 from typing import Any, Protocol
 
 import discord
@@ -153,16 +154,25 @@ class DiscordChat:
         """#대표실(없으면 운영 채널). 교육 알림이 #교육 없이 쓸 곳이다."""
         return await self._report_channel()
 
-    async def send(self, channel: ChannelLike, text: str, *, mention: bool = False) -> None:
-        """설정에 등록된 다른 채널(#교육 등)에 봇 이름으로 보낸다."""
-        await self._send(channel, text, mention)
+    async def send(
+        self, channel: ChannelLike, text: str, *, mention: bool = False, files: Sequence[Path] = ()
+    ) -> None:
+        """설정에 등록된 다른 채널(#교육 등)에 봇 이름으로 보낸다. 파일은 마지막 조각에 붙인다."""
+        await self._send(channel, text, mention, files)
 
-    async def _send(self, channel: ChannelLike, text: str, mention: bool) -> None:
-        for index, chunk in enumerate(self._content(text, mention)):
+    async def _send(
+        self, channel: ChannelLike, text: str, mention: bool, files: Sequence[Path] = ()
+    ) -> None:
+        chunks = self._content(text, mention)
+        for index, chunk in enumerate(chunks):
+            extra: dict[str, Any] = {}
+            if files and index == len(chunks) - 1:
+                extra["files"] = [discord.File(path) for path in files]
             await channel.send(
                 chunk,
                 allowed_mentions=self._mentions(mention and index == 0),
                 silent=not mention,
+                **extra,
             )
 
 

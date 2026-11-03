@@ -8,8 +8,9 @@
 
 import asyncio
 import logging
-from collections.abc import Coroutine, Mapping
+from collections.abc import Coroutine, Mapping, Sequence
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import discord
@@ -160,6 +161,8 @@ class ZeroSyncBot(discord.Client):
                 repo=repo,
                 post_quiz=self._post_quiz,
                 post_done=self._post_done,
+                illustrator=config.education.illustrator,
+                images=config.education.codex_images,
             )
         self.secretary: SecretaryDesk | None = None
         if config.secretary is not None:
@@ -356,12 +359,12 @@ class ZeroSyncBot(discord.Client):
         )
         self.spawn(self.secretary.run_evening(due.date()), "비서 하루 정리")
 
-    async def _education_notify(self, text: str, mention: bool) -> None:
+    async def _education_notify(self, text: str, mention: bool, files: Sequence[Path] = ()) -> None:
         """교육팀장 이름으로 #교육에 알린다. 채널이 없으면 #대표실(없으면 운영 채널)."""
         education = self.config.education
         assert education is not None
         text = f"**[{self.config.org.display(education.agent)}]**\n{text}"
-        await self.chat.send(await self._education_channel(), text, mention=mention)
+        await self.chat.send(await self._education_channel(), text, mention=mention, files=files)
 
     async def _education_channel(self) -> Any:
         education = self.config.education
