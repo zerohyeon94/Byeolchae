@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from bot.agents.base import Stage
 from bot.clock import FixedClock
+from bot.github import VaultPush
 from bot.schemas import DailySummary
 from bot.secretary.daily import (
     DayFacts,
@@ -20,6 +21,7 @@ from bot.secretary.daily import (
     TaskEvent,
     curriculum_id,
     daily_path,
+    is_morning,
     render_daily,
     render_discord,
 )
@@ -365,12 +367,18 @@ class FakeEngine:
 
 
 class FakeVault:
-    def __init__(self):
+    def __init__(self, push=None):
         self.commits = []
+        self.pushes = 0
+        self.result = push or VaultPush(pushed=3)
 
     async def commit(self, root, paths, title, trailer):
         self.commits.append((list(paths), title, trailer))
         return True
+
+    async def push(self, root):
+        self.pushes += 1
+        return self.result
 
 
 def run_desk(tmp_path, work, engine, vault=None, now=None):
@@ -489,6 +497,7 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
         )
     ]
     assert notes == [(text, False)] and text.startswith("**하루 정리** (11-02)")
+    assert vault.pushes == 1 and text.endswith("\n볼트 GitHub 백업: 커밋 3개")
     scope, agent, stage, prompt = engine.calls[0]
     assert (scope, agent, stage) == ("secretary", "theta", Stage.SECRETARY_DAILY)
     assert "PLANNING → AWAIT_PLAN_APPROVAL" in prompt and "Theta" in prompt
@@ -534,6 +543,74 @@ def test_evening_reads_claude_weekly_limit_from_bot_run_logs(tmp_path):
     # 비서 호출(23:30)의 한도 줄까지 넣어 전날 3%에서 오늘 5%
     assert "- **구독 주간 한도:** Claude 5% (오늘 +2%p) · Codex 기록 없음" in daily
     assert "- Claude: " in text and "주간 한도 5% (오늘 +2%p)" in text
+
+
+def test_morning_writes_entry_daily_then_evening_replaces_it(tmp_path):
+    engine, vault = FakeEngine(DailySummary(summary="#1 기획 승인이 남았다.")), FakeVault()
+    write_vault(tmp_path / "vault")
+    path = tmp_path / "vault" / daily_path(DAY)
+    seen = {}
+
+    async def work(desk, repo, clock):
+        await seed(repo, clock)
+        seen["path"] = await desk.run_morning(DAY)
+        seen["morning"] = path.read_text(encoding="utf-8")
+        return await desk.run_evening(DAY)
+
+    _, notes = run_desk(tmp_path, work, engine, vault, now=at(DAY, 7, 31))
+    morning = seen["morning"]
+    assert seen["path"] == "Daily/2026-11/2026-11-02.md"
+    assert morning.startswith("# 2026-11-02 (월)\n\n> [[Schedule/월별 목표")
+    assert "- **개념:** [[Learning/개념/2026-11-02 SSE|SSE]] (SYS-07) — 오늘 읽기 (새 개념)" in (
+        morning
+    )
+    assert "- **문제:** 오늘 3개 · #교육에서 푼다" in morning and "- **복습:** 없음" in morning
+    assert morning.count("(저녁 23:30에 비서가 채운다)") == 4  # 오늘 한 일·토큰·결정할 것·요약
+    # 저녁에는 아침판을 하루 정리로 다시 쓴다
+    evening = path.read_text(encoding="utf-8")
+    assert "(저녁 23:30에 비서가 채운다)" not in evening
+    assert evening.endswith("## 한 줄 요약\n\n#1 기획 승인이 남았다.\n")
+    assert [title for _, title, _ in vault.commits] == [
+        "docs(daily): 2026-11-02 아침",
+        "docs(daily): 2026-11-02 하루 정리",
+    ]
+    assert len(notes) == 1  # 아침판은 #비서에 알리지 않는다
+
+
+def test_morning_keeps_evening_daily_and_obsidian_empty_file_is_filled(tmp_path):
+    engine = FakeEngine(DailySummary(summary="요약"))
+    path = tmp_path / "vault" / daily_path(DAY)
+
+    async def work(desk, repo, clock):
+        # Obsidian "오늘의 Daily 열기"가 07:30 전에 빈 파일을 만들었다
+        path.parent.mkdir(parents=True)
+        path.write_text("", encoding="utf-8")
+        await desk.run_morning(DAY)
+        assert "## 오늘 학습" in path.read_text(encoding="utf-8")
+        await desk.run_evening(DAY)
+        evening = path.read_text(encoding="utf-8")
+        await desk.run_morning(DAY)  # /daily를 다시 눌러도 저녁판은 그대로
+        return evening
+
+    evening, _ = run_desk(tmp_path, work, engine)
+    assert path.read_text(encoding="utf-8") == evening
+    assert is_morning("") and is_morning("(저녁 23:30에 비서가 채운다)")
+    assert not is_morning(evening)
+
+
+def test_failed_vault_push_is_told_and_daily_stays(tmp_path):
+    problem = VaultPush(problem="GitHub에 이 맥에 없는 커밋 1개가 있어 올리지 않았다")
+    vault = FakeVault(push=problem)
+
+    async def work(desk, repo, clock):
+        return await desk.run_evening(DAY)
+
+    text, _ = run_desk(tmp_path, work, FakeEngine(DailySummary(summary="요약")), vault)
+    assert (tmp_path / "vault" / daily_path(DAY)).exists() and len(vault.commits) == 1
+    assert text.endswith(
+        "볼트 GitHub 백업 못 함: GitHub에 이 맥에 없는 커밋 1개가 있어 올리지 않았다. "
+        "다음 저녁에 함께 올린다"
+    )
 
 
 def test_evening_writes_facts_when_summary_fails_and_never_twice(tmp_path):

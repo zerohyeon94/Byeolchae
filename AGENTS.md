@@ -28,9 +28,9 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/schemas/` | 에이전트 출력 스키마(의견, 리뷰 판정, 설계 요약 일부)와 JSON 추출·검증 | 구현 |
 | `bot/agents/` | 에이전트 호출 인터페이스, 자식 프로세스 실행(타임아웃·취소·실행 로그), Claude·Codex CLI 러너, 테스트용 가짜 러너 | 구현 |
 | `bot/store/` | SQLite 연결·스키마 버전 관리, tasks·events·agent_runs·chat_turns·ideas·채용 제안·교육 학습 기록과 문제·작업 단계 변화 저장소 | 구현 |
-| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 아침 학습·주간 보고 실행(`education.py`), 비서 저녁 하루 정리 실행(`secretary.py`). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
+| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 아침 학습·주간 보고 실행(`education.py`), 비서 아침판 Daily·저녁 하루 정리 실행(`secretary.py`). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
 | `bot/education/` | 교육 아침 학습 규칙(순수 함수: 이어 하기·다음 개념, 대기열, 월별 목표, 복습 문제 고르기, 대기열 쓰기), 개념 노트 형식 검사, 개념 노트 그림(새 PNG 확인, 줄이기, 노트에 넣기), 문제 형식과 Discord 표시 문구, 주간 보고 숫자 (ADR-009) | 구현 |
-| `bot/secretary/` | 비서 하루 정리 규칙: Claude·Codex 토큰 집계(봇·Zero, 주간 비율, 구독 주간 한도), Daily 파일과 `#비서` 문구 (ADR-010) | 구현 |
+| `bot/secretary/` | 비서 하루 정리 규칙: Claude·Codex 토큰 집계(봇·Zero, 주간 비율, 구독 주간 한도), Daily 파일(아침판·저녁판)과 `#비서` 문구 (ADR-010) | 구현 |
 | `bot/github/` | push 보호·커밋 메시지 규칙, git worktree 작업(`GitOps`), `gh` 연동(`GitHubClient`), 볼트 커밋(`VaultGit`), 테스트용 가짜 | 구현 |
 | `bot/testrun.py` | 앱 테스트 명령 실행(전역 락)과 xcodebuild 결과 요약 | 구현 |
 | `bot/prompts/` | 단계별 프롬프트 템플릿(`.md`)과 렌더링 함수 | 의견·반박·기획·화면 디자인·설계·구현·수정·리뷰·진단·출시 준비·문서 반영 구현 |
