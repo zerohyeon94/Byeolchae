@@ -19,7 +19,13 @@ from bot.agents.base import AgentRunner, EngineName
 from bot.clock import Clock, SystemClock, from_iso, to_iso
 from bot.config import Config
 from bot.discord_io.chat import DiscordChat
-from bot.discord_io.quiz import QuizButton, StudyDoneButton, quiz_view, study_done_view
+from bot.discord_io.quiz import (
+    OptionalDoneButton,
+    QuizButton,
+    StudyDoneButton,
+    quiz_view,
+    study_done_view,
+)
 from bot.discord_io.rules import (
     WEBHOOK_NAME,
     IncomingMessage,
@@ -162,7 +168,6 @@ class ZeroSyncBot(discord.Client):
                 VaultGit(),
                 config.secretary.vault,
                 config.secretary.agent,
-                config.org.display(config.secretary.agent),
                 self._secretary_notify,
                 repo=repo,
                 org=config.org,
@@ -180,7 +185,7 @@ class ZeroSyncBot(discord.Client):
 
     async def setup_hook(self) -> None:
         # 주간 문제 버튼은 재시작 뒤에도 눌려야 한다
-        self.add_dynamic_items(QuizButton, StudyDoneButton)
+        self.add_dynamic_items(QuizButton, StudyDoneButton, OptionalDoneButton)
         await self.tree.sync(guild=self.guild_ref)
 
     async def on_ready(self) -> None:
@@ -397,6 +402,17 @@ class ZeroSyncBot(discord.Client):
             await interaction.response.send_message("교육 설정이 없다.", ephemeral=True)
             return
         text = await self.education.mark_done(day)
+        await interaction.response.send_message(text, ephemeral=True)
+
+    async def mark_optional_done(self, interaction: discord.Interaction, day: str) -> None:
+        """선택 했음 버튼. Zero만 누를 수 있고, 결과는 Zero에게만 보인다."""
+        if interaction.user.id != self.zero_user_id:
+            await interaction.response.send_message("Zero의 학습이다.", ephemeral=True)
+            return
+        if self.education is None:
+            await interaction.response.send_message("교육 설정이 없다.", ephemeral=True)
+            return
+        text = await self.education.mark_optional(day)
         await interaction.response.send_message(text, ephemeral=True)
 
     async def answer_quiz(

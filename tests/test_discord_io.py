@@ -668,7 +668,7 @@ def test_study_done_button_round_trips_and_only_zero_marks(bot):
     from bot.discord_io.quiz import STUDY_DONE_ID, StudyDoneButton, study_done_view
 
     view = study_done_view("2026-11-02")
-    assert [item.item.custom_id for item in view.children] == ["study:done:2026-11-02"]
+    assert view.children[0].item.custom_id == "study:done:2026-11-02"
     match = STUDY_DONE_ID.fullmatch("study:done:2026-11-02")
     assert run(StudyDoneButton.from_custom_id(None, None, match)).day == "2026-11-02"
 
@@ -686,4 +686,32 @@ def test_study_done_button_round_trips_and_only_zero_marks(bot):
     run(bot.mark_study_done(zero, "2026-11-02"))
     assert "Zero의 학습" in other.response.sent[0][0]
     assert zero.response.sent == [("완료로 기록했다.", {"ephemeral": True})]
+    assert marked == ["2026-11-02"]
+
+
+def test_optional_done_button_round_trips_and_only_zero_marks(bot):
+    from bot.discord_io.quiz import OPTIONAL_DONE_ID, OptionalDoneButton, study_done_view
+
+    view = study_done_view("2026-11-02")
+    assert [item.item.custom_id for item in view.children] == [
+        "study:done:2026-11-02",
+        "study:optional:2026-11-02",
+    ]
+    match = OPTIONAL_DONE_ID.fullmatch("study:optional:2026-11-02")
+    assert run(OptionalDoneButton.from_custom_id(None, None, match)).day == "2026-11-02"
+
+    marked = []
+
+    class Desk:
+        async def mark_optional(self, day):
+            marked.append(day)
+            return "했음으로 기록했다."
+
+    bot.education = Desk()
+    other = interaction(user_id=7)
+    run(bot.mark_optional_done(other, "2026-11-02"))
+    zero = interaction()
+    run(bot.mark_optional_done(zero, "2026-11-02"))
+    assert "Zero의 학습" in other.response.sent[0][0]
+    assert zero.response.sent == [("했음으로 기록했다.", {"ephemeral": True})]
     assert marked == ["2026-11-02"]

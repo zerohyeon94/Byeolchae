@@ -730,6 +730,8 @@ CREATE TABLE study_days (           -- 교육 학습 기록 (ADR-009). 하루에
   label            TEXT NOT NULL,
   carried          INTEGER NOT NULL, -- 전날 개념을 이어 하는가
   done_at          TEXT,            -- 완료 버튼을 누른 시각
+  optional         TEXT NOT NULL DEFAULT '',  -- 그날 선택 항목 (v10, ADR-010)
+  optional_done_at TEXT,            -- '선택 했음' 버튼을 누른 시각 (v10). 비서 Daily가 했음·안 함으로 쓴다
   created_at       TEXT NOT NULL
 );
 

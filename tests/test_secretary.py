@@ -6,7 +6,7 @@
 import asyncio
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
 from bot.agents.base import Stage
@@ -14,9 +14,11 @@ from bot.clock import FixedClock
 from bot.schemas import DailySummary
 from bot.secretary.daily import (
     DayFacts,
+    MonthLine,
     Score,
     StudyFact,
     TaskEvent,
+    curriculum_id,
     daily_path,
     render_daily,
     render_discord,
@@ -184,6 +186,12 @@ def test_weekly_limit_compares_with_value_before_the_day():
     # 그날 사이에 주간 창이 바뀌면 마지막 값이 오늘 쓴 만큼이다
     moved = [sample(start - timedelta(hours=3), 80.0, start + timedelta(hours=1)), samples[2]]
     assert weekly_limit(moved, start, end) == Limit(17.5, 17.5)
+    # 같은 창의 초기화 시각이 1초 흔들려도 창이 바뀐 것이 아니다 (실제 Codex 기록)
+    jitter = [
+        sample(start - timedelta(days=4), 4.0, resets),
+        sample(start + timedelta(hours=8), 23.0, resets - timedelta(seconds=1)),
+    ]
+    assert weekly_limit(jitter, start, end) == Limit(23.0, 19.0)
     # 마지막 기록 뒤에 창이 이미 초기화됐으면 0%
     stale = [sample(start - timedelta(days=5), 40.0, start - timedelta(days=1))]
     assert weekly_limit(stale, start, end) == Limit(0.0, 0.0)
@@ -223,6 +231,9 @@ def facts(**changes):
             done=True,
             note=Score(3, 3, 2),
             review=Score(1, 0, 0),
+            concept_id="SYS-05",
+            optional="플랫폼 지도: '장비 안' 구성 요소 칸 하나 채우기 (5분)",
+            optional_done=True,
         ),
         transitions=[
             TaskEvent(
@@ -235,6 +246,7 @@ def facts(**changes):
             EngineUsage("claude", bot=1_200_000, zero=30_500_000, week=170_000_000),
             EngineUsage("codex", bot=20_000, zero=1_400_000, week=11_000_000, limit=Limit(4, 1)),
         ],
+        month=MonthLine("Schedule/월별 목표 (2026-11 ~ 2027-10)", "시스템 전체 한 바퀴", 1, 28),
     )
     base.update(changes)
     return DayFacts(**base)
@@ -244,33 +256,83 @@ def test_daily_path_keeps_vault_layout():
     assert daily_path(DAY) == "Daily/2026-11/2026-11-02.md"
 
 
-def test_render_daily_sections_and_numbers():
-    text = render_daily(facts(), ["#19 기획 승인을 기다린다."], display="Theta")
-    assert text.startswith("# 2026-11-02 (월) 하루 정리\n")
-    for heading in ("## 요약", "## 결정할 것", "## 학습", "## 제품 부서", "## 토큰"):
-        assert heading in text
-    assert "- #19 기획 승인을 기다린다." in text
-    assert "[[Learning/개념/2026-11-02 gRPC 스트리밍|gRPC 스트리밍]] (새 개념) · 완료" in text
-    assert "- 오늘 문제: 3문제 중 3문제 풂, 2개 정답" in text
-    assert "- 복습: 1문제 중 안 풂" in text
-    assert "PLANNING → AWAIT_PLAN_APPROVAL" in text and "PR #12 merge" in text
-    assert "| Claude | 1.20M | 30.50M | 31.70M | 19% | 기록 없음 |" in text
-    assert "| Codex | 20.0K | 1.40M | 1.42M | 13% | 4% (오늘 +1%p) |" in text
+def test_render_daily_follows_vault_template():
+    text = render_daily(facts(), "#19 기획 승인을 기다린다.")
+    assert text.startswith(
+        "# 2026-11-02 (월)\n\n"
+        "> [[Schedule/월별 목표 (2026-11 ~ 2027-10)|이번 달]]: 시스템 전체 한 바퀴 · "
+        "이번 달 완료 1개 · 대기열 남은 28개\n\n## 오늘 학습\n"
+    )
+    headings = [line for line in text.splitlines() if line.startswith("## ")]
+    assert headings == ["## 오늘 학습", "## 오늘 한 일", "## 토큰", "## 결정할 것", "## 한 줄 요약"]
+    assert (
+        "- **개념:** [[Learning/개념/2026-11-02 gRPC 스트리밍|gRPC 스트리밍]] (SYS-05) — 완료"
+        in text
+    )
+    assert "- **문제:** 오늘 3개 중 2개 맞힘 · 아직 안 푼 문제 0개" in text
+    assert "- **복습:** 안 풂" in text
+    assert "- **선택:** 플랫폼 지도: '장비 안' 구성 요소 칸 하나 채우기 (5분) — 했음" in text
+    # 오늘 한 일은 단계 변화와 PR을 시각 순으로
+    assert (
+        "- 14:02 [gagaessi] #19 카테고리 추가: PLANNING → AWAIT_PLAN_APPROVAL\n"
+        "- 16:00 [gagaessi] #18 통계 화면: PR #12 merge"
+    ) in text
+    assert "- **봇:** Claude 1.20M · Codex 20.0K" in text
+    assert "- **나:** Claude 30.50M · Codex 1.40M" in text
+    assert "- **이번 주 중 오늘:** Claude 19% · Codex 13%" in text
+    assert "- **구독 주간 한도:** Claude 기록 없음 · Codex 4% (오늘 +1%p)" in text
+    assert text.endswith("## 한 줄 요약\n\n#19 기획 승인을 기다린다.\n")
+    assert "|" not in text.replace("|이번 달]]", "").replace("|gRPC 스트리밍]]", "")  # 표 없음
 
 
-def test_render_daily_without_summary_or_study():
-    text = render_daily(facts(study=None, decisions=[]), None, display="Theta")
-    assert "- (요약을 만들지 못했다)" in text
+def test_render_daily_without_summary_study_or_month():
+    text = render_daily(facts(study=None, decisions=[], month=None, transitions=[], prs=[]), None)
+    assert text.startswith("# 2026-11-02 (월)\n\n## 오늘 학습\n")
     assert "- 오늘 학습 기록 없음" in text
-    assert "## 결정할 것\n\n- 없음" in text
+    assert "- 제품 부서 작업 변화 없음" in text
+    assert "## 결정할 것\n\n## 한 줄 요약\n\n(요약을 만들지 못했다)\n" in text
+
+
+def test_render_daily_review_and_unknown_scores():
+    study = facts().study
+    wrong = replace(study, review=Score(1, 1, 0), note=None, concept_id="", optional="")
+    text = render_daily(facts(study=wrong), "요약")
+    assert "gRPC 스트리밍]] — 완료" in text
+    assert "- **문제:** 기록 없음" in text and "- **복습:** 틀림" in text
+    assert "**선택:**" not in text
+    skipped = replace(study, optional_done=False)
+    assert "(5분) — 안 함" in render_daily(facts(study=skipped), "요약")
+
+
+def test_optional_done_is_recorded_once_per_day(tmp_path):
+    async def work(desk, repo, clock):
+        await repo.add_study_day(
+            DAY.isoformat(), "Learning/개념/2026-11-02 SSE", "SSE", False, "지도 칸"
+        )
+        await repo.add_study_day("2026-11-03", "Learning/개념/2026-11-02 SSE", "SSE", True, "")
+        first = await repo.mark_optional_done(DAY.isoformat())
+        again = await repo.mark_optional_done(DAY.isoformat())
+        empty = await repo.mark_optional_done("2026-11-03")
+        missing = await repo.mark_optional_done("2026-11-04")
+        return first, again, empty, missing, (await desk.facts(DAY)).study
+
+    (first, again, empty, missing, study), _ = run_desk(tmp_path, work, FakeEngine())
+    assert (first, again, empty, missing) == (("지도 칸", True), ("지도 칸", False), None, None)
+    assert (study.optional, study.optional_done) == ("지도 칸", True)
+
+
+def test_curriculum_id_from_heading():
+    curriculum = "## 2026-11\n\n### SYS-01 엣지-중앙 서버 구조\n- **먼저:** 없음\n### SYS-02 SSE\n"
+    assert curriculum_id(curriculum, "엣지-중앙 서버 구조") == "SYS-01"
+    assert curriculum_id(curriculum, "없는 개념") == ""
 
 
 def test_render_discord_is_short():
-    text = render_discord(facts(), ["요약 한 줄"], "Daily/2026-11/2026-11-02.md")
+    text = render_discord(facts(), "요약 한 줄", "Daily/2026-11/2026-11-02.md")
     assert text.splitlines()[0] == "**하루 정리** (11-02)"
     assert "> 요약 한 줄" in text
     assert "- 결정할 것: 1건" in text
-    assert "- 학습: gRPC 스트리밍 · 완료, 3문제 중 3문제 풂, 2개 정답" in text
+    assert "- 학습: gRPC 스트리밍 · 완료 · 오늘 3개 중 2개 맞힘 · 아직 안 푼 문제 0개" in text
     assert "- 제품: 단계 변화 1건, PR 1건" in text
     assert "- Codex: 1.42M (이번 주 중 13%, 주간 한도 4% (오늘 +1%p))" in text
     assert text.endswith("Daily: `Daily/2026-11/2026-11-02.md`")
@@ -330,7 +392,6 @@ def run_desk(tmp_path, work, engine, vault=None, now=None):
                 vault,
                 tmp_path / "vault",
                 "theta",
-                "Theta",
                 notify,
                 repo=repo,
                 org=DEFAULT_ORG,
@@ -370,10 +431,30 @@ async def seed(repo, clock):
     return task
 
 
+def write_vault(root):
+    """머리말·커리큘럼 ID·선택 항목을 읽는 볼트 파일."""
+    (root / "Schedule").mkdir(parents=True)
+    (root / "Schedule" / "월별 목표 (2026-11 ~ 2027-10).md").write_text(
+        "| 달 | 주제 | 층 | 자격증 |\n|---|---|---|---|\n"
+        "| 2026-11 | 시스템 전체 한 바퀴 | 폭 | — |\n",
+        encoding="utf-8",
+    )
+    (root / "Schedule" / "학습 대기열.md").write_text(
+        "## 2026-11 · 시스템 전체 한 바퀴\n\n### 2. 장비 ↔ 서버\n"
+        "- [x] 엣지: 설명 → [[Learning/개념/2026-11-01 엣지|엣지]]\n"
+        "- [ ] SSE: 설명 → [[Learning/개념/2026-11-02 SSE|SSE]]\n"
+        "- [ ] gRPC: 설명\n\n## 2026-12 · 다음 달\n- [ ] 다음: 설명\n",
+        encoding="utf-8",
+    )
+    (root / "Schedule" / "교육 커리큘럼.md").write_text("### SYS-07 SSE\n", encoding="utf-8")
+
+
 def test_evening_writes_daily_commits_and_posts(tmp_path):
-    engine, vault = FakeEngine(DailySummary(summary=["#1 기획 승인이 남았다."])), FakeVault()
+    engine, vault = FakeEngine(DailySummary(summary="#1 기획 승인이 남았다.")), FakeVault()
     log = tmp_path / "codex-run.log"
     log.write_text("codex\ntokens used\n2,500\n", encoding="utf-8")
+
+    write_vault(tmp_path / "vault")
 
     async def work(desk, repo, clock):
         await seed(repo, clock)
@@ -386,12 +467,20 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     text, notes = run_desk(tmp_path, work, engine, vault)
     path = tmp_path / "vault" / "Daily" / "2026-11" / "2026-11-02.md"
     daily = path.read_text(encoding="utf-8")
-    assert "- #1 기획 승인이 남았다." in daily
+    assert daily.endswith("## 한 줄 요약\n\n#1 기획 승인이 남았다.\n")
+    assert (
+        "> [[Schedule/월별 목표 (2026-11 ~ 2027-10)|이번 달]]: 시스템 전체 한 바퀴 · "
+        "이번 달 완료 1개 · 대기열 남은 2개"
+    ) in daily
+    assert "[[Learning/개념/2026-11-02 SSE|SSE]] (SYS-07) — 내일 이어 하기" in daily
+    assert "- **문제:** 오늘 3개 중 0개 맞힘 · 아직 안 푼 문제 3개" in daily
+    assert (
+        "- **선택:** 플랫폼 지도: '장비 ↔ 서버' 구성 요소 칸 하나 채우기 (5분) — 기록 없음" in daily
+    )
     assert "[gagaessi] #1 카테고리 추가: PLANNING → AWAIT_PLAN_APPROVAL" in daily
     assert "[gagaessi] #1 카테고리 추가: PR #7 열림" in daily
     assert "AWAIT_PLAN_APPROVAL (대기" in daily  # 결정할 것
-    assert "- 오늘 문제: 3문제 중 안 풂" in daily
-    assert "| Codex | 2,500 | 0 | 2,500 | 100% | 기록 없음 |" in daily
+    assert "- **봇:** Claude 0 · Codex 2,500" in daily
     assert vault.commits == [
         (
             ["Daily/2026-11/2026-11-02.md"],
@@ -428,7 +517,7 @@ def test_evening_reads_claude_weekly_limit_from_bot_run_logs(tmp_path):
     before.write_text(limit_line(0.03) + "\n", encoding="utf-8")
     theta.write_text(limit_line(0.05) + "\n", encoding="utf-8")
     repo_box = []
-    engine = RecordingEngine(DailySummary(summary=["요약"]), repo_box, theta)
+    engine = RecordingEngine(DailySummary(summary="요약"), repo_box, theta)
 
     async def work(desk, repo, clock):
         repo_box.append(repo)
@@ -443,7 +532,7 @@ def test_evening_reads_claude_weekly_limit_from_bot_run_logs(tmp_path):
     text, _ = run_desk(tmp_path, work, engine)
     daily = (tmp_path / "vault" / daily_path(DAY)).read_text(encoding="utf-8")
     # 비서 호출(23:30)의 한도 줄까지 넣어 전날 3%에서 오늘 5%
-    assert "| 5% (오늘 +2%p) |" in daily
+    assert "- **구독 주간 한도:** Claude 5% (오늘 +2%p) · Codex 기록 없음" in daily
     assert "- Claude: " in text and "주간 한도 5% (오늘 +2%p)" in text
 
 
@@ -456,14 +545,14 @@ def test_evening_writes_facts_when_summary_fails_and_never_twice(tmp_path):
 
     second, notes = run_desk(tmp_path, work, engine)
     daily = (tmp_path / "vault" / daily_path(DAY)).read_text(encoding="utf-8")
-    assert "- (요약을 만들지 못했다)" in daily
+    assert daily.endswith("## 한 줄 요약\n\n(요약을 만들지 못했다)\n")
     assert second == "2026-11-02 하루 정리는 이미 있다: `Daily/2026-11/2026-11-02.md`"
     assert len(engine.calls) == 1 and len(notes) == 2
 
 
 def test_missed_evening_next_morning_still_reports_that_day(tmp_path):
     # 11-03 아침에 따라잡아도 11-02 하루만 센다
-    engine = FakeEngine(DailySummary(summary=["요약"]))
+    engine = FakeEngine(DailySummary(summary="요약"))
 
     async def work(desk, repo, clock):
         await seed(repo, clock)

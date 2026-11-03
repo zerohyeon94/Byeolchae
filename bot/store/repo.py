@@ -617,12 +617,14 @@ class Repository:
 
     # 교육 학습 기록 (ADR-009). 하루에 개념 1개, 완료는 Zero가 Discord 버튼으로 표시한다
 
-    async def add_study_day(self, day: str, target: str, label: str, carried: bool) -> None:
+    async def add_study_day(
+        self, day: str, target: str, label: str, carried: bool, optional: str = ""
+    ) -> None:
         async with self._transaction():
             await self._conn.execute(
-                "INSERT INTO study_days (day, target, label, carried, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (day, target, label, int(carried), self._now()),
+                "INSERT INTO study_days (day, target, label, carried, optional, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (day, target, label, int(carried), optional, self._now()),
             )
 
     async def study_days(self, start: str = "", end: str = "9999") -> list[dict[str, Any]]:
@@ -650,6 +652,24 @@ class Repository:
                 (self._now(), row["target"]),
             )
         return str(row["label"]), True
+
+    async def mark_optional_done(self, day: str) -> tuple[str, bool] | None:
+        """그날 선택 항목을 했다고 표시한다. 이월하지 않으므로 그날만 표시한다.
+
+        (선택 항목, 이번에 새로 표시했는가). 그날 기록이나 선택 항목이 없으면 None.
+        """
+        row = await self._fetchone(
+            "SELECT optional, optional_done_at FROM study_days WHERE day = ?", (day,)
+        )
+        if row is None or not row["optional"]:
+            return None
+        if row["optional_done_at"] is not None:
+            return str(row["optional"]), False
+        async with self._transaction():
+            await self._conn.execute(
+                "UPDATE study_days SET optional_done_at = ? WHERE day = ?", (self._now(), day)
+            )
+        return str(row["optional"]), True
 
     # 교육 문제 (ADR-009)
 

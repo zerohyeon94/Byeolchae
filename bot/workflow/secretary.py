@@ -1,12 +1,13 @@
 """비서 부서: 매일 저녁 하루 정리(Daily)와 짧은 아침 보고 (ADR-010).
 
 저녁에는 그날의 사실을 봇이 모은다.
-- 학습: DB의 학습 기록과 문제 점수
+- 머리말: 볼트의 월별 목표(이번 달 주제)와 학습 대기열(이번 달 완료·남은 개수)
+- 학습: DB의 학습 기록과 문제 점수, 커리큘럼 ID, 그날 선택 항목
 - 제품 부서: 작업 단계 변화와 PR 열림·merge
 - 결정할 것: 승인 대기 작업과 열린 채용 제안
 - 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
 
-비서는 그 사실로 요약 1~3줄만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
+비서는 그 사실로 한 줄 요약만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
 요약을 받지 못해도 사실만으로 Daily를 쓴다. 같은 날 Daily가 이미 있으면 다시 쓰지 않는다.
 """
 
@@ -20,15 +21,26 @@ from typing import Any
 
 from bot.agents.base import AgentName, Stage
 from bot.clock import to_iso
+from bot.education.daily import (
+    QUEUE_FILE,
+    DailyError,
+    goals_file,
+    optional_for,
+    parse_month,
+    parse_queue,
+)
 from bot.org import Org
 from bot.prompts import secretary_daily_prompt
 from bot.reports import pending_decisions
 from bot.schemas import DailySummary
 from bot.secretary.daily import (
+    CURRICULUM_FILE,
     DayFacts,
+    MonthLine,
     Score,
     StudyFact,
     TaskEvent,
+    curriculum_id,
     daily_path,
     render_daily,
     render_discord,
@@ -70,7 +82,6 @@ class SecretaryDesk:
         vault: Any,
         root: Path,
         agent: AgentName,
-        display: str,
         notify: Notify,
         *,
         repo: Any,
@@ -83,7 +94,6 @@ class SecretaryDesk:
         self._vault = vault
         self._root = root
         self._agent = agent
-        self._display = display
         self._notify = notify
         self._repo = repo
         self._org = org
@@ -104,7 +114,7 @@ class SecretaryDesk:
         facts = await self._with_claude_limit(facts)
         target = self._root / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render_daily(facts, summary, display=self._display), encoding="utf-8")
+        target.write_text(render_daily(facts, summary), encoding="utf-8")
         if self._vault is not None:
             await self._vault.commit(
                 self._root, [path], f"docs(daily): {day.isoformat()} 하루 정리", COMMIT_TRAILER
@@ -131,7 +141,48 @@ class SecretaryDesk:
             ],
             decisions=await pending_decisions(self._repo, self._org, end, lambda _: None),
             tokens=await self._tokens(start, end),
+            month=self._month(day),
         )
+
+    def _month(self, day: date) -> MonthLine | None:
+        """머리말. 볼트의 월별 목표나 대기열을 못 읽으면 None (머리말을 빼고 쓴다)."""
+        key = f"{day:%Y-%m}"
+        try:
+            goals = goals_file(self._root)
+            month = parse_month(goals.read_text(encoding="utf-8"), key)
+            queue = parse_queue((self._root / QUEUE_FILE).read_text(encoding="utf-8"))
+        except (DailyError, OSError):
+            return None
+        items = [item for item in queue if item.month == key]
+        done = sum(1 for item in items if item.done)
+        return MonthLine(
+            goals.relative_to(self._root).with_suffix("").as_posix(),
+            month.topic,
+            done,
+            len(items) - done,
+        )
+
+    def _vault_text(self, path: str) -> str:
+        try:
+            return (self._root / path).read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def _optional(self, day: date, target: str) -> str:
+        """선택 항목이 저장되지 않은 날(v10 전)은 아침 규칙(optional_for)으로 다시 정한다."""
+        section = next(
+            (
+                item.section
+                for item in parse_queue(self._vault_text(QUEUE_FILE))
+                if item.target == target
+            ),
+            "",
+        )
+        try:
+            goals = goals_file(self._root).read_text(encoding="utf-8")
+            return optional_for(parse_month(goals, f"{day:%Y-%m}"), section)
+        except (DailyError, OSError):
+            return ""
 
     async def _study(self, day: date) -> StudyFact | None:
         rows = await self._repo.study_days(day.isoformat(), day.isoformat())
@@ -145,6 +196,10 @@ class SecretaryDesk:
             done=row["done_at"] is not None,
             note=await self._score(NOTE_KEY + row["target"]),
             review=await self._score(REVIEW_KEY + day.isoformat()),
+            concept_id=curriculum_id(self._vault_text(CURRICULUM_FILE), row["label"]),
+            # 아침에 정해 둔 선택 항목. v10 전 기록은 아침 규칙으로 다시 정하고 했는지는 모른다
+            optional=row["optional"] or self._optional(day, row["target"]),
+            optional_done=(row["optional_done_at"] is not None) if row["optional"] else None,
         )
 
     async def _score(self, key: str) -> Score | None:
@@ -204,7 +259,7 @@ class SecretaryDesk:
                 continue
             yield datetime.fromisoformat(row["started_at"]), text
 
-    async def _summary(self, facts: DayFacts) -> list[str] | None:
+    async def _summary(self, facts: DayFacts) -> str | None:
         self._workdir.mkdir(parents=True, exist_ok=True)
         answer = await self._engine.ask_outside_task(
             SCOPE,
@@ -219,7 +274,7 @@ class SecretaryDesk:
         if answer.result is None:
             log.warning("하루 정리 요약 실패: %s", answer.error or answer.status)
             return None
-        return list(answer.result.summary)
+        return answer.result.summary
 
 
 def _event(row: dict[str, Any], change: str) -> TaskEvent:

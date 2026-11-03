@@ -253,5 +253,5 @@ def test_secretary_daily_prompt_snapshot():
         day="2026-11-02",
         facts="## 결정할 것\n\n- [gagaessi] #19 카테고리 추가 — AWAIT_PLAN_APPROVAL (대기 9시간)",
     )
-    assert "Theta" in prompt and "#19 카테고리 추가" in prompt and "1~3줄" in prompt
+    assert "Theta" in prompt and "#19 카테고리 추가" in prompt and "한 줄 요약" in prompt
     check_snapshot("secretary_daily_theta", prompt)

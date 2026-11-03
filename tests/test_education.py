@@ -364,6 +364,9 @@ class Desk:
     def done(self, day, pressed=None):
         return self.call(pressed or day, lambda desk: desk.mark_done(day.isoformat()), hour=21)
 
+    def optional(self, day):
+        return self.call(day, lambda desk: desk.mark_optional(day.isoformat()), hour=21)
+
     def weekly(self, day, engine):
         return self.call(day, lambda desk: desk.run_weekly(), engine, hour=20)
 
@@ -396,8 +399,18 @@ def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
     text, mention = desk.notes[0]
     assert mention is False and "**오늘 개념** (11-02, 새 개념)" in text
     assert "<https://grpc.io/docs/>" in text and "완료 버튼" in text
+    assert "'선택 했음'을 누른다" in text
     assert desk.dones == [("2026-11-02", "엣지-중앙 서버 구조")]
     assert desk.posts == [(1, "오늘 문제", [1, 2, 3], 3)]
+
+
+def test_morning_keeps_optional_item_for_the_optional_button(tmp_path):
+    desk = Desk(tmp_path)
+    desk.daily(date(2026, 11, 2))
+    first = desk.optional(date(2026, 11, 2))
+    assert first.startswith("선택 항목을 했음으로 기록했다: 플랫폼 지도: '전체'")
+    assert desk.optional(date(2026, 11, 2)) == "선택 항목은 이미 했음으로 기록했다."
+    assert desk.optional(date(2026, 11, 3)) == "그날 선택 항목 기록이 없다."
 
 
 def test_not_done_is_carried_with_unanswered_questions_only(tmp_path):

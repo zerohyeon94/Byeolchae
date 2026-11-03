@@ -188,7 +188,13 @@ CREATE TABLE task_transitions (
 CREATE INDEX task_transitions_at ON task_transitions(created_at);
 """
 
-MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8, _V9)
+# v10: 그날 선택 항목과 Zero의 "선택 했음" 버튼 (ADR-010). 비서 Daily가 했는지를 쓴다
+_V10 = """
+ALTER TABLE study_days ADD COLUMN optional TEXT NOT NULL DEFAULT '';
+ALTER TABLE study_days ADD COLUMN optional_done_at TEXT;
+"""
+
+MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8, _V9, _V10)
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
