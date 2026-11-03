@@ -107,7 +107,7 @@ agents:
     title: 팀원
     engine: codex              # 이미지 생성. 그림 파일은 봇이 볼트로 옮긴다 (읽기 전용)
     mbti: ISFP
-    perspective: 한눈에 보이는 그림, 글자 없이 구조와 흐름만, 노트의 설명과 어긋나지 않게
+    perspective: 실제 장비 모양과 한글 이름표로 한눈에 보이는 흐름, 노트의 설명과 어긋나지 않게
     basic_question: 이 그림 한 장으로 흐름이 보이는가
     persona: agents/iota.md
     daily_calls: 2             # 하루 그림 1장 (형식 오류 재요청 포함)

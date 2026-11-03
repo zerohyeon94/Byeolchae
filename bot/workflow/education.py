@@ -38,7 +38,16 @@ from bot.education.daily import (
     section_of,
     update_queue,
 )
-from bot.education.image import asset_path, check_image, insert_figure, shrink_png, snapshot
+from bot.education.image import (
+    asset_path,
+    check_figure,
+    check_image,
+    insert_figure,
+    missing_labels,
+    read_text,
+    shrink_png,
+    snapshot,
+)
 from bot.education.note import check_note, complete_note
 from bot.education.quiz import answer_text, check_questions
 from bot.education.weekly import (
@@ -67,6 +76,8 @@ class Notify(Protocol):
 
 # 그림을 줄여 볼트에 둔다 (Codex 원본, 볼트 경로). 테스트에서 바꾼다
 Shrink = Callable[[Path, Path], Awaitable[None]]
+# 그림 속 글자를 줄 단위로 읽는다 (이름표 확인). 테스트에서 바꾼다
+ReadText = Callable[[Path], Awaitable[list[str]]]
 # 문제를 버튼과 함께 게시한다 (quiz_id, 제목, [(번호, 문제)], 전체 문제 수). Discord 계층이 맡는다
 PostQuiz = Callable[[int, str, list[tuple[int, QuizQuestion]], int], Awaitable[None]]
 # 오늘 개념의 완료 버튼을 게시한다 (날짜, 개념 이름)
@@ -115,6 +126,7 @@ class EducationDesk:
         illustrator: AgentName | None = None,
         images: Path | None = None,
         shrink: Shrink = shrink_png,
+        read_text: ReadText = read_text,
     ):
         self._engine = engine
         self._vault = vault
@@ -132,6 +144,7 @@ class EducationDesk:
         self._illustrator = illustrator
         self._images = images
         self._shrink = shrink
+        self._read_text = read_text
 
     async def run_daily(self) -> DailyResult:
         today = self._clock.now().astimezone().date()
@@ -273,7 +286,8 @@ class EducationDesk:
         assert item is not None or plan.carried
 
         async def verify(note: ConceptNote) -> list[str]:
-            return check_note(note.body) + check_questions(note.questions)
+            figure = check_figure(note.figure) if note.figure is not None else []
+            return check_note(note.body) + check_questions(note.questions) + figure
 
         answer = await self._engine.ask_outside_task(
             SCOPE,
@@ -302,14 +316,34 @@ class EducationDesk:
         before = snapshot(folder)
 
         async def verify(image: ConceptImage) -> list[str]:
-            return check_image(image.image_path, folder, before)
+            problems = check_image(image.image_path, folder, before)
+            if problems:
+                return problems
+            try:
+                recognized = await self._read_text(Path(image.image_path))
+            except OSError:
+                # 글자 인식을 못 돌리면 확인 없이 받는다. 틀린 이름표는 Zero가 볼 때 보인다
+                log.exception("그림 이름표 확인 실패")
+                return []
+            missing = missing_labels(figure.labels, recognized)
+            if not missing:
+                return []
+            names = ", ".join(f"'{name}'" for name in missing)
+            return [
+                f"그림에서 이름표 {names}가 읽히지 않는다. 이름표를 글자 그대로 넣어 "
+                "이미지 생성 도구로 그림을 새로 한 장 다시 그린다"
+            ]
 
         answer = await self._engine.ask_outside_task(
             SCOPE,
             self._illustrator,
             Stage.CONCEPT_IMAGE,
             lambda persona: concept_image_prompt(
-                persona, day=plan.day.isoformat(), label=plan.label, brief=figure.brief
+                persona,
+                day=plan.day.isoformat(),
+                label=plan.label,
+                brief=figure.brief,
+                labels=figure.labels,
             ),
             model=ConceptImage,
             cwd=self._root,

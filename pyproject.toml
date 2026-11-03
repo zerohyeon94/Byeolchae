@@ -30,6 +30,8 @@ include = ["bot*"]
 [tool.setuptools.package-data]
 # 프롬프트 템플릿 (SPEC 5.3)
 "bot.prompts" = ["*.md"]
+# 그림 이름표 글자 인식 (ADR-009)
+"bot.education" = ["*.swift"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
