@@ -19,12 +19,14 @@ import json
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 BOT_ENTRYPOINT = "sdk-cli"
 WEEKLY_WINDOW_MINUTES = 10080
+# 같은 주간 창이라도 기록마다 초기화 시각이 1초쯤 흔들린다. 이보다 많이 다르면 창이 바뀐 것이다
+SAME_WINDOW = timedelta(minutes=5)
 _CODEX_TOKENS = re.compile(r"^tokens used\s*\n\s*([\d,]+)\s*$", re.MULTILINE)
 
 
@@ -222,7 +224,7 @@ def weekly_limit(samples: list[LimitSample], start: datetime, end: datetime) -> 
     if not before_start:
         return Limit(last.used_percent, None)
     first = before_start[-1]
-    if first.resets_at != last.resets_at:
+    if abs(first.resets_at - last.resets_at) > SAME_WINDOW:
         return Limit(last.used_percent, last.used_percent)
     return Limit(last.used_percent, max(0.0, last.used_percent - first.used_percent))
 

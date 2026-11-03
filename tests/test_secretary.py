@@ -186,6 +186,12 @@ def test_weekly_limit_compares_with_value_before_the_day():
     # 그날 사이에 주간 창이 바뀌면 마지막 값이 오늘 쓴 만큼이다
     moved = [sample(start - timedelta(hours=3), 80.0, start + timedelta(hours=1)), samples[2]]
     assert weekly_limit(moved, start, end) == Limit(17.5, 17.5)
+    # 같은 창의 초기화 시각이 1초 흔들려도 창이 바뀐 것이 아니다 (실제 Codex 기록)
+    jitter = [
+        sample(start - timedelta(days=4), 4.0, resets),
+        sample(start + timedelta(hours=8), 23.0, resets - timedelta(seconds=1)),
+    ]
+    assert weekly_limit(jitter, start, end) == Limit(23.0, 19.0)
     # 마지막 기록 뒤에 창이 이미 초기화됐으면 0%
     stale = [sample(start - timedelta(days=5), 40.0, start - timedelta(days=1))]
     assert weekly_limit(stale, start, end) == Limit(0.0, 0.0)
