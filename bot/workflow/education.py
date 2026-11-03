@@ -130,6 +130,16 @@ class EducationDesk:
             return f"'{label}'은 이미 완료로 기록했다."
         return f"'{label}'을 완료로 기록했다. 내일 아침에는 대기열의 다음 개념이 나온다."
 
+    async def mark_optional(self, day: str) -> str:
+        """선택 했음 버튼. 저녁 Daily의 선택 항목에 했음으로 나온다."""
+        marked = await self._repo.mark_optional_done(day)
+        if marked is None:
+            return "그날 선택 항목 기록이 없다."
+        optional, new = marked
+        if not new:
+            return "선택 항목은 이미 했음으로 기록했다."
+        return f"선택 항목을 했음으로 기록했다: {optional}"
+
     async def _daily(self, today: date) -> DailyResult:
         root = self._root
         studies = await self._repo.study_days(end=today.isoformat())
@@ -174,7 +184,9 @@ class EducationDesk:
             await self._vault.commit(
                 root, written, f"docs(learning): {today.isoformat()} {plan.label}", COMMIT_TRAILER
             )
-        await self._repo.add_study_day(today.isoformat(), plan.target, plan.label, plan.carried)
+        await self._repo.add_study_day(
+            today.isoformat(), plan.target, plan.label, plan.carried, optional
+        )
         posts = await self._daily_quizzes(today, plan, new_questions)
         text = _announce(plan, optional, posts, sources, unverified)
         return DailyResult(True, text, posts, plan.label)
@@ -374,6 +386,7 @@ def _announce(
         parts = [f"{post.title.split(' (')[0]} {len(post.items)}개" for post in posts]
         lines.append(f"- 문제: {', '.join(parts)}. 노트를 읽고 아래 버튼으로 푼다")
     lines.append("- 다 읽었으면 아래 완료 버튼을 누른다. 누르지 않으면 내일 이어 한다")
+    lines.append("- 선택 항목을 했으면 '선택 했음'을 누른다. 저녁 Daily에 했음으로 나온다")
     if sources:
         lines.append("- 확인한 자료: " + ", ".join(f"<{url}>" for url in sources))
     if unverified:

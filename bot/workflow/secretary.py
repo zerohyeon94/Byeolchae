@@ -169,7 +169,7 @@ class SecretaryDesk:
             return ""
 
     def _optional(self, day: date, target: str) -> str:
-        """그날 선택 항목. 아침 규칙(optional_for)으로 다시 정한다."""
+        """선택 항목이 저장되지 않은 날(v10 전)은 아침 규칙(optional_for)으로 다시 정한다."""
         section = next(
             (
                 item.section
@@ -197,7 +197,9 @@ class SecretaryDesk:
             note=await self._score(NOTE_KEY + row["target"]),
             review=await self._score(REVIEW_KEY + day.isoformat()),
             concept_id=curriculum_id(self._vault_text(CURRICULUM_FILE), row["label"]),
-            optional=self._optional(day, row["target"]),
+            # 아침에 정해 둔 선택 항목. v10 전 기록은 아침 규칙으로 다시 정하고 했는지는 모른다
+            optional=row["optional"] or self._optional(day, row["target"]),
+            optional_done=(row["optional_done_at"] is not None) if row["optional"] else None,
         )
 
     async def _score(self, key: str) -> Score | None:

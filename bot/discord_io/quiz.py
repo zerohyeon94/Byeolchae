@@ -76,7 +76,37 @@ class StudyDoneButton(
         await client.mark_study_done(interaction, self.day)
 
 
+OPTIONAL_DONE_ID = re.compile(r"study:optional:(?P<day>\d{4}-\d{2}-\d{2})")
+
+
+class OptionalDoneButton(
+    discord.ui.DynamicItem[discord.ui.Button[Any]], template=OPTIONAL_DONE_ID.pattern
+):
+    """그날 선택 항목을 했다는 표시. 저녁 Daily에 했음 / 안 함으로 나온다."""
+
+    def __init__(self, day: str):
+        super().__init__(
+            discord.ui.Button(
+                label="선택 했음",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"study:optional:{day}",
+            )
+        )
+        self.day = day
+
+    @classmethod
+    async def from_custom_id(
+        cls, interaction: discord.Interaction, item: discord.ui.Item[Any], match: re.Match[str]
+    ) -> "OptionalDoneButton":
+        return cls(match["day"])
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        client: Any = interaction.client
+        await client.mark_optional_done(interaction, self.day)
+
+
 def study_done_view(day: str) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     view.add_item(StudyDoneButton(day))
+    view.add_item(OptionalDoneButton(day))
     return view

@@ -233,6 +233,7 @@ def facts(**changes):
             review=Score(1, 0, 0),
             concept_id="SYS-05",
             optional="플랫폼 지도: '장비 안' 구성 요소 칸 하나 채우기 (5분)",
+            optional_done=True,
         ),
         transitions=[
             TaskEvent(
@@ -270,7 +271,7 @@ def test_render_daily_follows_vault_template():
     )
     assert "- **문제:** 오늘 3개 중 2개 맞힘 · 아직 안 푼 문제 0개" in text
     assert "- **복습:** 안 풂" in text
-    assert "- **선택:** 플랫폼 지도: '장비 안' 구성 요소 칸 하나 채우기 (5분) — 기록 없음" in text
+    assert "- **선택:** 플랫폼 지도: '장비 안' 구성 요소 칸 하나 채우기 (5분) — 했음" in text
     # 오늘 한 일은 단계 변화와 PR을 시각 순으로
     assert (
         "- 14:02 [gagaessi] #19 카테고리 추가: PLANNING → AWAIT_PLAN_APPROVAL\n"
@@ -299,6 +300,25 @@ def test_render_daily_review_and_unknown_scores():
     assert "gRPC 스트리밍]] — 완료" in text
     assert "- **문제:** 기록 없음" in text and "- **복습:** 틀림" in text
     assert "**선택:**" not in text
+    skipped = replace(study, optional_done=False)
+    assert "(5분) — 안 함" in render_daily(facts(study=skipped), "요약")
+
+
+def test_optional_done_is_recorded_once_per_day(tmp_path):
+    async def work(desk, repo, clock):
+        await repo.add_study_day(
+            DAY.isoformat(), "Learning/개념/2026-11-02 SSE", "SSE", False, "지도 칸"
+        )
+        await repo.add_study_day("2026-11-03", "Learning/개념/2026-11-02 SSE", "SSE", True, "")
+        first = await repo.mark_optional_done(DAY.isoformat())
+        again = await repo.mark_optional_done(DAY.isoformat())
+        empty = await repo.mark_optional_done("2026-11-03")
+        missing = await repo.mark_optional_done("2026-11-04")
+        return first, again, empty, missing, (await desk.facts(DAY)).study
+
+    (first, again, empty, missing, study), _ = run_desk(tmp_path, work, FakeEngine())
+    assert (first, again, empty, missing) == (("지도 칸", True), ("지도 칸", False), None, None)
+    assert (study.optional, study.optional_done) == ("지도 칸", True)
 
 
 def test_curriculum_id_from_heading():

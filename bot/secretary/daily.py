@@ -59,7 +59,8 @@ class StudyFact:
     note: Score | None  # 오늘 개념의 문제
     review: Score | None  # 오늘 복습 1문제
     concept_id: str = ""  # 커리큘럼 ID (SYS-01). 못 찾으면 ""
-    optional: str = ""  # 그날 선택 항목. 했는지는 기록하지 않는다
+    optional: str = ""  # 그날 선택 항목
+    optional_done: bool | None = None  # 선택 했음 버튼. 기록이 없으면(v10 전) None
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,8 @@ def _study_lines(study: StudyFact | None) -> list[str]:
         f"- **복습:** {_review_score(study.review)}",
     ]
     if study.optional:
-        lines.append(f"- **선택:** {study.optional} — 기록 없음")
+        state = {True: "했음", False: "안 함", None: "기록 없음"}[study.optional_done]
+        lines.append(f"- **선택:** {study.optional} — {state}")
     return lines
 
 
