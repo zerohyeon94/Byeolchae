@@ -3,6 +3,8 @@
 오늘 개념을 정하는 규칙은 bot.education.daily가, 개념 노트 본문과 문제는 교육팀장이 맡는다.
 볼트에 파일을 쓰고 커밋하는 주체는 봇이다. 아침에는 개념 노트(학습 내용만)와 대기열만 쓰고,
 하루 정리(Daily 파일)는 비서 부서가 저녁에 만든다.
+그림이 도움 되는 날에는 교육팀장이 그림 설명을 쓰고, 교육팀원(Codex)이 그린 그림을 봇이
+`Assets/`에 두고 노트에 넣어 #교육 안내에 붙인다 (bot.education.image).
 학습 기록(오늘 개념, 완료)은 DB에 둔다. 완료는 Zero가 #교육의 완료 버튼으로 표시한다.
 문제(개념 노트 3문제, 복습 1문제, 주간 문제)도 DB에 두고 Discord에 버튼으로 올린다.
 처음 고른 답만 남겨 주간 보고에 넣는다.
@@ -11,11 +13,11 @@
 
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from bot.agents.base import AgentName, Stage
 from bot.clock import Clock
@@ -36,6 +38,7 @@ from bot.education.daily import (
     section_of,
     update_queue,
 )
+from bot.education.image import asset_path, check_image, insert_figure, shrink_png, snapshot
 from bot.education.note import check_note, complete_note
 from bot.education.quiz import answer_text, check_questions
 from bot.education.weekly import (
@@ -46,15 +49,23 @@ from bot.education.weekly import (
     week_key,
     week_start,
 )
-from bot.prompts import concept_note_prompt, weekly_quiz_prompt
-from bot.schemas import ConceptNote, QuizQuestion, WeeklyReview
+from bot.prompts import concept_image_prompt, concept_note_prompt, weekly_quiz_prompt
+from bot.schemas import ConceptFigure, ConceptImage, ConceptNote, QuizQuestion, WeeklyReview
 
 log = logging.getLogger(__name__)
 
 SCOPE = "education"  # 실행 기록의 project 값
 COMMIT_TRAILER = "ZeroSync-Department: education"
 
-Notify = Callable[[str, bool], Awaitable[None]]
+
+class Notify(Protocol):
+    """#교육에 알린다 (문구, 멘션 여부, 붙일 파일)."""
+
+    async def __call__(self, text: str, mention: bool, files: Sequence[Path] = ()) -> None: ...
+
+
+# 그림을 줄여 볼트에 둔다 (Codex 원본, 볼트 경로). 테스트에서 바꾼다
+Shrink = Callable[[Path, Path], Awaitable[None]]
 # 문제를 버튼과 함께 게시한다 (quiz_id, 제목, [(번호, 문제)], 전체 문제 수). Discord 계층이 맡는다
 PostQuiz = Callable[[int, str, list[tuple[int, QuizQuestion]], int], Awaitable[None]]
 # 오늘 개념의 완료 버튼을 게시한다 (날짜, 개념 이름)
@@ -76,6 +87,13 @@ class DailyResult:
     text: str  # #교육에 올린 안내
     posts: tuple[QuizPost, ...] = ()
     label: str = ""  # 오늘 개념 (완료 버튼에 쓴다)
+    files: tuple[Path, ...] = ()  # 안내에 붙인 그림
+
+
+@dataclass(frozen=True)
+class Figure:
+    asset: str  # 볼트 기준 그림 경로. 그리지 못했으면 빈 문자열
+    alt: str
 
 
 class EducationDesk:
@@ -92,6 +110,9 @@ class EducationDesk:
         repo: Any,
         post_quiz: PostQuiz | None = None,
         post_done: PostDone | None = None,
+        illustrator: AgentName | None = None,
+        images: Path | None = None,
+        shrink: Shrink = shrink_png,
     ):
         self._engine = engine
         self._vault = vault
@@ -103,6 +124,10 @@ class EducationDesk:
         self._repo = repo
         self._post_quiz = post_quiz
         self._post_done = post_done
+        # 그림 담당 교육팀원(Codex). 없으면 그림 없이 낸다. images는 Codex가 그림을 저장하는 폴더
+        self._illustrator = illustrator
+        self._images = images
+        self._shrink = shrink
 
     async def run_daily(self) -> DailyResult:
         today = self._clock.now().astimezone().date()
@@ -114,11 +139,11 @@ class EducationDesk:
         except DailyError as error:
             result = DailyResult(False, f"오늘 학습을 만들지 못했다: {error}")
         text = "\n\n".join([*notes, result.text])
-        await self._notify(text, not result.created or bool(notes))
+        await self._notify(text, not result.created or bool(notes), files=result.files)
         if result.created and self._post_done is not None:
             await self._post_done(today.isoformat(), result.label)
         await self._post(result.posts)
-        return DailyResult(result.created, text, result.posts, result.label)
+        return DailyResult(result.created, text, result.posts, result.label, result.files)
 
     async def mark_done(self, day: str) -> str:
         """완료 버튼. 다음 날 아침에 대기열의 다음 개념으로 넘어간다."""
@@ -167,12 +192,19 @@ class EducationDesk:
         sources: list[str] = []
         unverified: list[str] = []
         new_questions: list[QuizQuestion] = []
+        figure: Figure | None = None
         if not note.exists():
             answer = await self._write_note(plan)
             if answer is None:
                 return DailyResult(False, f"{self._display}가 개념 노트를 쓰지 못했다.")
-            _write(note, complete_note(note_header(plan), answer.body))
-            written.append(plan.note_path)
+            text = complete_note(note_header(plan), answer.body)
+            if answer.figure is not None and self._illustrator is not None:
+                figure = await self._draw(plan, answer.figure)
+                if figure.asset:
+                    text = insert_figure(text, figure.asset, answer.figure.alt)
+                    written.append(figure.asset)
+            _write(note, text)
+            written.insert(0, plan.note_path)
             sources, unverified = answer.sources, answer.unverified
             new_questions = list(answer.questions)
         optional = optional_for(month, section_of(queue, plan))
@@ -188,8 +220,9 @@ class EducationDesk:
             today.isoformat(), plan.target, plan.label, plan.carried, optional
         )
         posts = await self._daily_quizzes(today, plan, new_questions)
-        text = _announce(plan, optional, posts, sources, unverified)
-        return DailyResult(True, text, posts, plan.label)
+        text = _announce(plan, optional, posts, sources, unverified, figure)
+        files = (root / figure.asset,) if figure is not None and figure.asset else ()
+        return DailyResult(True, text, posts, plan.label, files)
 
     async def _daily_quizzes(
         self, today: date, plan: DailyPlan, new_questions: list[QuizQuestion]
@@ -256,6 +289,37 @@ class EducationDesk:
         if answer.result is None:
             log.warning("개념 노트 실패: %s", answer.error or answer.status)
         return answer.result
+
+    async def _draw(self, plan: DailyPlan, figure: ConceptFigure) -> Figure:
+        """교육팀원이 그린 새 PNG를 줄여 `Assets/`에 둔다. 실패해도 노트는 그림 없이 낸다."""
+        assert self._illustrator is not None
+        folder = self._images or Path("~/.codex/generated_images").expanduser()
+        before = snapshot(folder)
+
+        async def verify(image: ConceptImage) -> list[str]:
+            return check_image(image.image_path, folder, before)
+
+        answer = await self._engine.ask_outside_task(
+            SCOPE,
+            self._illustrator,
+            Stage.CONCEPT_IMAGE,
+            lambda persona: concept_image_prompt(
+                persona, day=plan.day.isoformat(), label=plan.label, brief=figure.brief
+            ),
+            model=ConceptImage,
+            cwd=self._root,
+            verify=verify,
+        )
+        if answer.result is None:
+            log.warning("개념 노트 그림 실패: %s", answer.error or answer.status)
+            return Figure("", figure.alt)
+        asset = asset_path(plan.day.isoformat(), plan.label)
+        try:
+            await self._shrink(Path(answer.result.image_path), self._root / asset)
+        except OSError:
+            log.exception("개념 노트 그림 저장 실패")
+            return Figure("", figure.alt)
+        return Figure(asset, figure.alt)
 
     async def run_weekly(self) -> str:
         """이번 주 사실을 세고, 개념이 있으면 교육팀장에게 주간 문제를 받아 함께 올린다."""
@@ -374,6 +438,7 @@ def _announce(
     posts: tuple[QuizPost, ...],
     sources: list[str],
     unverified: list[str],
+    figure: Figure | None = None,
 ) -> str:
     kind = "어제 것 이어서" if plan.carried else "새 개념"
     lines = [
@@ -382,6 +447,11 @@ def _announce(
         f"- 여유 있으면: {optional}",
         f"- 노트: `{plan.note_path}`",
     ]
+    if figure is not None:
+        if figure.asset:
+            lines.append(f"- 그림: {figure.alt} (붙인 그림, 노트의 흐름 끝에도 있다)")
+        else:
+            lines.append("- 그림: 오늘은 그림을 만들지 못해 노트를 그림 없이 냈다")
     if posts:
         parts = [f"{post.title.split(' (')[0]} {len(post.items)}개" for post in posts]
         lines.append(f"- 문제: {', '.join(parts)}. 노트를 읽고 아래 버튼으로 푼다")

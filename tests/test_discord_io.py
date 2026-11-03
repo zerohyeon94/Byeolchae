@@ -171,6 +171,19 @@ def test_post_with_mention_splits_and_attaches_on_last():
     assert all(len(content) <= 1900 for content, _ in webhook.calls)
 
 
+def test_send_attaches_image_files_on_last_chunk(tmp_path):
+    chat, _, _, _ = make_chat()
+    channel = FakeSender()
+    image = tmp_path / "그림.png"
+    image.write_bytes(b"png")
+    run(chat.send(channel, "\n".join(["가" * 1000] * 2), files=[image]))
+    run(chat.send(channel, "그림 없음"))
+    first, last, plain = (kwargs for _, kwargs in channel.calls)
+    assert "files" not in first and "files" not in plain
+    assert [f.filename for f in last["files"]] == ["그림.png"]
+    assert last["silent"] is True
+
+
 def test_notify_ops():
     chat, _, ops, _ = make_chat()
     run(chat.notify_ops("오류", mention=True))

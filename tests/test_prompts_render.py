@@ -11,6 +11,7 @@ import pytest
 from bot.org import DEFAULT_ORG
 from bot.prompts import (
     HistoryEntry,
+    concept_image_prompt,
     concept_note_prompt,
     debate_prompt,
     lead_check_prompt,
@@ -234,7 +235,20 @@ def test_concept_note_prompt_snapshot():
         month="시스템 전체 한 바퀴",
     )
     assert "회사/" in prompt  # 금지 안내
+    assert "figure" in prompt and "그림 안에는 글자를 넣지 않는다" in prompt
     check_snapshot("concept_note_eta", prompt)
+
+
+def test_concept_image_prompt_snapshot():
+    prompt = concept_image_prompt(
+        persona_for(DEFAULT_ORG, "iota"),
+        day="2026-11-01",
+        label="엣지-중앙 서버 구조",
+        brief="위에 중앙 서버(랙) 하나, 아래에 장비 상자 셋. 서버에서 장비로 화살표가 내려간다",
+    )
+    assert "Iota · 교육팀원" in prompt and "image_path" in prompt
+    assert "글자, 숫자, 로고를 넣지 않는다" in prompt
+    check_snapshot("concept_image_iota", prompt)
 
 
 def test_weekly_quiz_prompt_snapshot():

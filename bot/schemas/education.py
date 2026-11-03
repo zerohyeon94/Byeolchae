@@ -3,6 +3,7 @@
 교육팀장은 개념 노트 본문과 문제, 주간 한마디만 JSON으로 낸다.
 파일 경로, 제목, 머리말, Daily, 주간 보고의 숫자는 봇이 정한다.
 문제는 볼트에 쓰지 않고 Discord에서 버튼으로 푼다.
+그림은 교육팀장이 설명만 쓰고, Codex 팀원이 그린 파일을 봇이 볼트로 옮긴다.
 """
 
 from typing import Annotated, Literal
@@ -30,6 +31,20 @@ class QuizQuestion(BaseModel):
     ]
 
 
+class ConceptFigure(BaseModel):
+    """그림으로 보면 나은 날에만 내는 그림 설명. 그림은 교육팀원(Codex)이 그린다."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # 그릴 구성 요소와 화살표(흐름). 그림 안에는 글자를 넣지 않는다
+    brief: Annotated[str, StringConstraints(strip_whitespace=True, min_length=20, max_length=800)]
+    # 그림 아래에 붙는 한 문장 설명. 노트와 #교육 안내에 쓴다
+    alt: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=5, max_length=150, pattern=r"^[^\n]+$"),
+    ]
+
+
 class ConceptNote(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -43,6 +58,18 @@ class ConceptNote(BaseModel):
     unverified: list[Annotated[str, StringConstraints(max_length=200)]] = Field(
         default_factory=list, max_length=5
     )
+    # 흐름이나 구조를 그림으로 보면 나은 날에만. 없으면 그림 없이 낸다
+    figure: ConceptFigure | None = None
+
+
+class ConceptImage(BaseModel):
+    """교육팀원이 그린 그림 파일 위치. 봇이 새로 생긴 PNG인지 확인하고 볼트로 옮긴다."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    image_path: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
+    ]
 
 
 class WeeklyReview(BaseModel):

@@ -30,6 +30,7 @@ class Stage(StrEnum):
     RELEASE_PREP = "release_prep"
     DOC_SYNC = "doc_sync"
     CONCEPT_NOTE = "concept_note"  # 교육 Daily 개념 노트 (ADR-009)
+    CONCEPT_IMAGE = "concept_image"  # 개념 노트 그림 (Codex 이미지 생성)
     WEEKLY_QUIZ = "weekly_quiz"  # 교육 주간 문제와 한마디
     SECRETARY_DAILY = "secretary_daily"  # 비서 저녁 하루 정리 요약 (ADR-010)
 

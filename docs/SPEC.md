@@ -27,7 +27,7 @@
 ## 1. 목표와 범위
 
 ### 1.1 완료 기준 (프로젝트 목표)
-ZeroSync는 Zero 한 사람을 위한 회사다 (ADR-007). 회사는 교육·비서·제품 세 부서로 나뉘고, 이 문서는 지금 **제품 부서**를 다룬다. 제품 부서는 Zero가 부서장을 겸임하고 기획팀(Beta), 디자인팀(Gamma), 개발팀(Alpha), QA팀(Delta)이 가게씨·제이데이·오롯을 맡는다. 교육 부서는 ADR-009로 시작했다(교육팀장 Eta, 매일 Daily와 개념 노트, Discord에서 푸는 문제, 일요일 주간 학습 보고와 주간 문제). 비서 부서는 ADR-010으로 시작했다(비서팀장 Theta, 매일 23:30 하루 정리 Daily, `#비서`의 짧은 아침 보고).
+ZeroSync는 Zero 한 사람을 위한 회사다 (ADR-007). 회사는 교육·비서·제품 세 부서로 나뉘고, 이 문서는 지금 **제품 부서**를 다룬다. 제품 부서는 Zero가 부서장을 겸임하고 기획팀(Beta), 디자인팀(Gamma), 개발팀(Alpha), QA팀(Delta)이 가게씨·제이데이·오롯을 맡는다. 교육 부서는 ADR-009로 시작했다(교육팀장 Eta, 매일 Daily와 개념 노트, Discord에서 푸는 문제, 일요일 주간 학습 보고와 주간 문제, 교육팀원 Iota가 Codex로 그리는 개념 노트 그림). 비서 부서는 ADR-010으로 시작했다(비서팀장 Theta, 매일 23:30 하루 정리 Daily, `#비서`의 짧은 아침 보고).
 
 완료 기준은 다음과 같다.
 
@@ -377,7 +377,7 @@ class AgentResult:
 | 단계 | 에이전트 | 명령 골격 | 권한 |
 |---|---|---|---|
 | OPINION(채팅 답), DEBATE, RELEASE_PREP | Claude | `claude -p --permission-mode plan` | 읽기 전용 (출시 준비물은 JSON으로만) |
-| OPINION, DEBATE, REVIEW | Codex | `codex exec --cd <cwd> --sandbox read-only --ephemeral --ignore-user-config -o <runs>/<run_id>.last.txt -` | 읽기 전용 |
+| OPINION, DEBATE, REVIEW, DIAGNOSE, CONCEPT_IMAGE | Codex | `codex exec --cd <cwd> --sandbox read-only --ephemeral --ignore-user-config -o <runs>/<run_id>.last.txt -` | 읽기 전용 (CONCEPT_IMAGE의 그림은 Codex 폴더에 생기고 봇이 볼트로 옮긴다, ADR-009) |
 | PLAN | Claude | DESIGN과 같고 허용 경로만 `docs/기획/**` [제안] | worktree의 `docs/기획/`만 |
 | UI_DESIGN | Claude | DESIGN과 같고 허용 경로만 `docs/디자인/**`. Claude 디자인 생성 도구 허용은 V14 확인 뒤 정한다 [제안] | worktree의 `docs/디자인/`만 |
 | DESIGN | Claude | `claude -p --permission-mode dontAsk --allowedTools Read Glob Grep "Edit(docs/설계/**)" "Write(docs/설계/**)" <로컬 git>` | worktree의 `docs/설계/`만 |

@@ -25,10 +25,18 @@ from bot.education.daily import (
     plan_daily,
     update_queue,
 )
+from bot.education.image import (
+    PNG_SIGNATURE,
+    asset_path,
+    check_image,
+    insert_figure,
+    png_size,
+    snapshot,
+)
 from bot.education.note import check_note
 from bot.education.quiz import answer_text, check_questions, render_question
 from bot.education.weekly import QuizScore, render_weekly, week_facts, week_key
-from bot.schemas import ConceptNote, QuizQuestion, WeeklyReview
+from bot.schemas import ConceptFigure, ConceptImage, ConceptNote, QuizQuestion, WeeklyReview
 from bot.workflow.education import EducationDesk
 
 GOALS = """\
@@ -272,15 +280,19 @@ class FakeAnswer:
 
 
 class FakeEngine:
-    def __init__(self, note=None, review=None):
+    def __init__(self, note=None, review=None, draw=None):
         self.note = note
         self.review = review
+        self.draw = draw  # 그림 단계: 호출되면 Codex 폴더에 PNG를 만들고 ConceptImage를 돌려준다
         self.calls = []
 
     async def ask_outside_task(self, scope, agent, stage, build_prompt, *, model, cwd, verify):
         prompt = build_prompt(_persona())
         self.calls.append((scope, agent, stage.value, prompt))
-        answer = self.review if stage.value == "weekly_quiz" else self.note
+        if stage.value == "concept_image":
+            answer = self.draw() if self.draw is not None else None
+        else:
+            answer = self.review if stage.value == "weekly_quiz" else self.note
         if answer is None:
             return FakeAnswer(None, "형식 오류")
         assert isinstance(answer, model)
@@ -323,12 +335,20 @@ class Desk:
         self.notes = []  # (text, mention)
         self.posts = []  # (quiz_id, title, numbers, total)
         self.dones = []  # (day, label)
+        self.files = []  # 안내에 붙인 파일
+        self.images = tmp_path / "codex-images"  # Codex 그림 폴더
+        self.illustrator = None
 
     def call(self, day, work, engine=None, vault=None, hour=7):
         from bot.store import Repository, connect
 
-        async def notify(text, mention):
+        async def notify(text, mention, files=()):
             self.notes.append((text, mention))
+            self.files.append(list(files))
+
+        async def shrink(source, target):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
 
         async def post_quiz(quiz_id, title, items, total):
             self.posts.append((quiz_id, title, [n for n, _ in items], total))
@@ -351,6 +371,9 @@ class Desk:
                     repo=Repository(conn, clock),
                     post_quiz=post_quiz,
                     post_done=post_done,
+                    illustrator=self.illustrator,
+                    images=self.images,
+                    shrink=shrink,
                 )
                 return await work(desk)
             finally:
@@ -402,6 +425,98 @@ def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
     assert "'선택 했음'을 누른다" in text
     assert desk.dones == [("2026-11-02", "엣지-중앙 서버 구조")]
     assert desk.posts == [(1, "오늘 문제", [1, 2, 3], 3)]
+
+
+FIGURE = ConceptFigure(
+    brief="위에 중앙 서버(랙) 하나, 아래에 장비 상자 셋. 서버에서 장비로 설정 화살표가 내려간다",
+    alt="중앙 서버가 세 장비에 설정을 내려보낸다",
+)
+NOTE_WITH_FIGURE = NOTE.model_copy(update={"figure": FIGURE})
+PNG = PNG_SIGNATURE + b"\x00\x00\x00\rIHDR" + (1536).to_bytes(4, "big") + (1024).to_bytes(4, "big")
+
+
+def drawer(folder):
+    """가짜 교육팀원. 부를 때마다 Codex 폴더에 새 PNG를 만든다."""
+
+    def draw():
+        path = folder / "run-1" / "exec-1.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(PNG)
+        return ConceptImage(image_path=str(path))
+
+    return draw
+
+
+def test_figure_is_drawn_by_iota_and_put_in_note_vault_and_announcement(tmp_path):
+    desk = Desk(tmp_path)
+    desk.illustrator = "iota"
+    engine, vault = FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)), FakeVault()
+    result = desk.daily(date(2026, 11, 2), engine, vault)
+
+    scope, agent, stage, prompt = engine.calls[1]
+    assert (scope, agent, stage) == ("education", "iota", "concept_image")
+    assert FIGURE.brief in prompt
+    asset = "Assets/2026-11-02 - 엣지-중앙 서버 구조.png"
+    assert (desk.root / asset).read_bytes() == PNG
+    note = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
+    figure = f"![[{asset}]]\n*그림: 중앙 서버가 세 장비에 설정을 내려보낸다*\n\n## 어디서 깨지나"
+    assert figure in note
+    assert check_note(note.split("\n\n", 2)[2]) == []  # 노트 형식은 그대로
+    assert vault.commits[0][0] == [
+        "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md",
+        asset,
+        "Schedule/학습 대기열.md",
+    ]
+    text, _ = desk.notes[0]
+    assert "- 그림: 중앙 서버가 세 장비에 설정을 내려보낸다" in text
+    assert desk.files[0] == [desk.root / asset] and result.files == (desk.root / asset,)
+
+
+def test_failed_drawing_still_sends_the_note_without_figure(tmp_path):
+    desk = Desk(tmp_path)
+    desk.illustrator = "iota"
+    vault = FakeVault()
+    result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE), vault)
+
+    assert result.created and result.files == ()
+    note = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
+    assert "![[" not in note and not (desk.root / "Assets").exists()
+    assert "Assets" not in " ".join(vault.commits[0][0])
+    text, mention = desk.notes[0]
+    assert "그림을 만들지 못해 노트를 그림 없이 냈다" in text and mention is False
+
+
+def test_without_illustrator_figure_is_skipped(tmp_path):
+    desk, engine = Desk(tmp_path), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(tmp_path / "x"))
+    desk.daily(date(2026, 11, 2), engine)
+    assert [call[2] for call in engine.calls] == ["concept_note"]
+    assert "그림" not in desk.notes[0][0] and desk.files[0] == []
+
+
+def test_image_rules(tmp_path):
+    folder = tmp_path / "images"
+    old = folder / "a" / "old.png"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(PNG)
+    before = snapshot(folder)
+    new = folder / "b" / "new.png"
+    new.parent.mkdir()
+    new.write_bytes(PNG)
+    text = folder / "b" / "fake.png"
+    text.write_text("not png")
+
+    assert check_image(str(new), folder, before) == []
+    assert "절대 경로" in check_image("b/new.png", folder, before)[0]
+    assert "아래여야" in check_image(str(tmp_path / "x.png"), folder, before)[0]
+    assert "새로 만든" in check_image(str(old), folder, before)[0]
+    assert "PNG" in check_image(str(text), folder, before)[0]
+    assert "파일이 없다" in check_image(str(folder / "b" / "none.png"), folder, before)[0]
+    assert png_size(PNG) == (1536, 1024) and png_size(b"GIF89a" + bytes(18)) is None
+    assert asset_path("2026-11-02", "TCP/IP: 흐름?") == "Assets/2026-11-02 - TCP-IP- 흐름-.png"
+    # 절이 없으면 맨 끝에 붙인다
+    assert insert_figure("# 제목\n\n본문\n", "Assets/a.png", "설명") == (
+        "# 제목\n\n본문\n\n![[Assets/a.png]]\n*그림: 설명*\n"
+    )
 
 
 def test_morning_keeps_optional_item_for_the_optional_button(tmp_path):

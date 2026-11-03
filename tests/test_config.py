@@ -367,6 +367,14 @@ def test_education_section_is_optional_and_validated(tmp_path):
         "30 7 * * *",
         "555",
     )
+    assert education.illustrator is None  # 그림은 설정해야 넣는다
+    assert education.codex_images == Path.home() / ".codex/generated_images"
+    config = load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: iota\n"))
+    assert config.education.illustrator == "iota"
+    with pytest.raises(ConfigError, match="Codex 엔진"):
+        load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: eta\n"))
+    with pytest.raises(ConfigError, match="omega"):
+        load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: omega\n"))
     with pytest.raises(ConfigError, match="omega"):
         load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  agent: omega\n"))
     with pytest.raises(ConfigError, match="schedule"):

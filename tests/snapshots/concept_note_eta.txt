@@ -45,6 +45,16 @@ questions에 4지선다 3문제를 쓴다. 볼트에는 쓰지 않고, 봇이 Di
 - prompt: 문제 문장. options: A~D 순서의 보기 문장 4개("A." 같은 머리표는 봇이 붙인다). answer: 정답 글자. explanation: 왜 그 답인지, 헷갈리기 쉬운 오답은 왜 틀렸는지 2~3문장
 - 정답 위치를 고르게 섞는다
 
+## 그림 (선택)
+
+흐름이나 구조를 그림 한 장으로 보면 훨씬 쉬워지는 날에만 figure를 쓴다. 텍스트 그림으로 충분하면 figure를 비운다(null).
+그림은 교육팀원이 Codex 이미지 생성으로 그리고, 봇이 노트의 `## 흐름` 끝에 넣는다. 너는 그림 설명만 쓴다.
+
+- brief: 그릴 구성 요소와 그 사이의 화살표(무엇이 어디로 가는지)를 위에서 아래, 왼쪽에서 오른쪽 순서로 적는다. 본문 `## 흐름`과 같은 내용이어야 한다
+- 그림 안에는 글자를 넣지 않는다. 구성 요소는 모양과 아이콘으로 구분되게 적는다(예: 서버는 랙, 장비는 작은 상자)
+- alt: 그림 아래에 붙는 한 문장 설명. 무엇이 무엇으로 이어지는지 쓴다
+- 회사·제품·서비스 이름이나 로고를 그림 설명에 넣지 않는다
+
 ## 출력
 
 아래 JSON 스키마에 맞는 JSON 객체 하나만 출력한다. 앞뒤에 설명 문장을 붙이지 않는다.
@@ -52,9 +62,10 @@ questions에 4지선다 3문제를 쓴다. 볼트에는 쓰지 않고, 봇이 Di
 - questions: 위 기준의 3문제
 - sources: 사실을 확인한 https 주소 1~8개
 - unverified: 확인하지 못한 내용 (없으면 빈 목록)
+- figure: 위 기준의 그림 설명, 또는 null
 - 한국어로 쓴다
 
-{"$defs": {"QuizQuestion": {"additionalProperties": false, "properties": {"prompt": {"maxLength": 500, "minLength": 5, "title": "Prompt", "type": "string"}, "options": {"items": {"maxLength": 200, "minLength": 1, "type": "string"}, "maxItems": 4, "minItems": 4, "title": "Options", "type": "array"}, "answer": {"enum": ["A", "B", "C", "D"], "title": "Answer", "type": "string"}, "explanation": {"maxLength": 800, "minLength": 1, "title": "Explanation", "type": "string"}}, "required": ["prompt", "options", "answer", "explanation"], "title": "QuizQuestion", "type": "object"}}, "additionalProperties": false, "properties": {"body": {"maxLength": 20000, "minLength": 200, "title": "Body", "type": "string"}, "questions": {"items": {"$ref": "#/$defs/QuizQuestion"}, "maxItems": 3, "minItems": 3, "title": "Questions", "type": "array"}, "sources": {"items": {"maxLength": 500, "pattern": "^https://\\S+$", "type": "string"}, "maxItems": 8, "minItems": 1, "title": "Sources", "type": "array"}, "unverified": {"items": {"maxLength": 200, "type": "string"}, "maxItems": 5, "title": "Unverified", "type": "array"}}, "required": ["body", "questions", "sources"], "title": "ConceptNote", "type": "object"}
+{"$defs": {"ConceptFigure": {"additionalProperties": false, "description": "그림으로 보면 나은 날에만 내는 그림 설명. 그림은 교육팀원(Codex)이 그린다.", "properties": {"brief": {"maxLength": 800, "minLength": 20, "title": "Brief", "type": "string"}, "alt": {"maxLength": 150, "minLength": 5, "pattern": "^[^\\n]+$", "title": "Alt", "type": "string"}}, "required": ["brief", "alt"], "title": "ConceptFigure", "type": "object"}, "QuizQuestion": {"additionalProperties": false, "properties": {"prompt": {"maxLength": 500, "minLength": 5, "title": "Prompt", "type": "string"}, "options": {"items": {"maxLength": 200, "minLength": 1, "type": "string"}, "maxItems": 4, "minItems": 4, "title": "Options", "type": "array"}, "answer": {"enum": ["A", "B", "C", "D"], "title": "Answer", "type": "string"}, "explanation": {"maxLength": 800, "minLength": 1, "title": "Explanation", "type": "string"}}, "required": ["prompt", "options", "answer", "explanation"], "title": "QuizQuestion", "type": "object"}}, "additionalProperties": false, "properties": {"body": {"maxLength": 20000, "minLength": 200, "title": "Body", "type": "string"}, "questions": {"items": {"$ref": "#/$defs/QuizQuestion"}, "maxItems": 3, "minItems": 3, "title": "Questions", "type": "array"}, "sources": {"items": {"maxLength": 500, "pattern": "^https://\\S+$", "type": "string"}, "maxItems": 8, "minItems": 1, "title": "Sources", "type": "array"}, "unverified": {"items": {"maxLength": 200, "type": "string"}, "maxItems": 5, "title": "Unverified", "type": "array"}, "figure": {"anyOf": [{"$ref": "#/$defs/ConceptFigure"}, {"type": "null"}], "default": null}}, "required": ["body", "questions", "sources"], "title": "ConceptNote", "type": "object"}
 
 ## 금지
 

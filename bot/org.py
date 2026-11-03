@@ -34,6 +34,7 @@ READ_ONLY_STAGES = frozenset(
         Stage.DIAGNOSE,
         Stage.LEAD_CHECK,
         Stage.CONCEPT_NOTE,
+        Stage.CONCEPT_IMAGE,
         Stage.WEEKLY_QUIZ,
         Stage.SECRETARY_DAILY,
     }
@@ -256,6 +257,19 @@ def _default_org() -> Org:
                 basic_question="오늘 이것 하나로 무엇을 알게 되는가",
                 hired="2026-10-29",
                 reason="교육 부서 Daily 개념 노트 (ADR-009)",
+            ),
+            "iota": AgentSpec(
+                display="Iota",
+                team="education",
+                title="팀원",
+                engine="codex",
+                mbti="ISFP",
+                perspective=(
+                    "한눈에 보이는 그림, 글자 없이 구조와 흐름만, 노트의 설명과 어긋나지 않게"
+                ),
+                basic_question="이 그림 한 장으로 흐름이 보이는가",
+                hired="2026-11-03",
+                reason="개념 노트 그림 (Codex 이미지 생성, ADR-009)",
             ),
             "theta": AgentSpec(
                 display="Theta",
