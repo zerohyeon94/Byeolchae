@@ -415,17 +415,7 @@ class EducationDesk:
         return QuizScore(len(await self._load(quiz_id)), answered, correct)
 
     async def _daily_score(self, start: date, end: date) -> QuizScore | None:
-        """이번 주에 올린 개념 노트 문제와 복습 문제를 합친 점수."""
-        total = answered = correct = 0
-        for kind, prefix in (("note", NOTE_KEY), ("review", REVIEW_KEY)):
-            for quiz_id, key, payload in await self._repo.list_quizzes(kind):
-                made = _key_day(key[len(prefix) :])
-                if made is None or not start <= made <= end:
-                    continue
-                total += len(_questions(payload))
-                done, ok = await self._repo.quiz_score(quiz_id)
-                answered, correct = answered + done, correct + ok
-        return QuizScore(total, answered, correct) if total else None
+        return await daily_quiz_score(self._repo, start, end)
 
     async def _write_review(
         self, facts: WeekFacts, last: QuizScore | None, daily: QuizScore | None
@@ -504,6 +494,23 @@ def _announce(
     if unverified:
         lines.append("- 확인하지 못함: " + "; ".join(unverified))
     return "\n".join(lines)
+
+
+async def daily_quiz_score(repo: Any, start: date, end: date) -> QuizScore | None:
+    """start~end에 올린 개념 노트 문제와 복습 문제를 합친 점수. 문제가 없으면 None.
+
+    교육 주간 보고와 비서 Daily의 `## 이번 주`가 같은 값을 쓴다.
+    """
+    total = answered = correct = 0
+    for kind, prefix in (("note", NOTE_KEY), ("review", REVIEW_KEY)):
+        for quiz_id, key, payload in await repo.list_quizzes(kind):
+            made = _key_day(key[len(prefix) :])
+            if made is None or not start <= made <= end:
+                continue
+            total += len(json.loads(payload))
+            done, ok = await repo.quiz_score(quiz_id)
+            answered, correct = answered + done, correct + ok
+    return QuizScore(total, answered, correct) if total else None
 
 
 def _payload(questions: list[QuizQuestion]) -> str:

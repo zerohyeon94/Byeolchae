@@ -19,6 +19,7 @@ from bot.secretary.daily import (
     Score,
     StudyFact,
     TaskEvent,
+    WeekLine,
     curriculum_id,
     daily_path,
     is_morning,
@@ -249,6 +250,7 @@ def facts(**changes):
             EngineUsage("codex", bot=20_000, zero=1_400_000, week=11_000_000, limit=Limit(4, 1)),
         ],
         month=MonthLine("Schedule/월별 목표 (2026-11 ~ 2027-10)", "시스템 전체 한 바퀴", 1, 28),
+        week=WeekLine(DAY, DAY + timedelta(days=2), 3, 1, Score(9, 7, 5), 3, 1),
     )
     base.update(changes)
     return DayFacts(**base)
@@ -266,7 +268,14 @@ def test_render_daily_follows_vault_template():
         "이번 달 완료 1개 · 대기열 남은 28개\n\n## 오늘 학습\n"
     )
     headings = [line for line in text.splitlines() if line.startswith("## ")]
-    assert headings == ["## 오늘 학습", "## 오늘 한 일", "## 토큰", "## 결정할 것", "## 한 줄 요약"]
+    assert headings == [
+        "## 오늘 학습",
+        "## 오늘 한 일",
+        "## 토큰",
+        "## 이번 주",
+        "## 결정할 것",
+        "## 한 줄 요약",
+    ]
     assert (
         "- **개념:** [[Learning/개념/2026-11-02 gRPC 스트리밍|gRPC 스트리밍]] (SYS-05) — 완료"
         in text
@@ -283,15 +292,25 @@ def test_render_daily_follows_vault_template():
     assert "- **나:** Claude 30.50M · Codex 1.40M" in text
     assert "- **이번 주 중 오늘:** Claude 19% · Codex 13%" in text
     assert "- **구독 주간 한도:** Claude 기록 없음 · Codex 4% (오늘 +1%p)" in text
+    assert (
+        "## 이번 주\n\n"
+        "- **기간:** 11-02 (월) ~ 11-04 (수)\n"
+        "- **학습:** 3일 중 3일 · 끝낸 개념 1개\n"
+        "- **문제 (복습 포함):** 9개 중 5개 맞힘 · 안 푼 문제 2개\n"
+        "- **선택:** 3일 중 1일 했음\n"
+        "- **토큰:** Claude 170.00M · Codex 11.00M\n\n## 결정할 것"
+    ) in text
     assert text.endswith("## 한 줄 요약\n\n#19 기획 승인을 기다린다.\n")
     assert "|" not in text.replace("|이번 달]]", "").replace("|gRPC 스트리밍]]", "")  # 표 없음
 
 
 def test_render_daily_without_summary_study_or_month():
-    text = render_daily(facts(study=None, decisions=[], month=None, transitions=[], prs=[]), None)
+    empty = dict(study=None, decisions=[], month=None, transitions=[], prs=[], week=None)
+    text = render_daily(facts(**empty), None)
     assert text.startswith("# 2026-11-02 (월)\n\n## 오늘 학습\n")
     assert "- 오늘 학습 기록 없음" in text
     assert "- 제품 부서 작업 변화 없음" in text
+    assert "## 이번 주\n\n- 이번 주 기록 없음\n" in text
     assert "## 결정할 것\n\n## 한 줄 요약\n\n(요약을 만들지 못했다)\n" in text
 
 
@@ -301,7 +320,11 @@ def test_render_daily_review_and_unknown_scores():
     text = render_daily(facts(study=wrong), "요약")
     assert "gRPC 스트리밍]] — 완료" in text
     assert "- **문제:** 기록 없음" in text and "- **복습:** 틀림" in text
-    assert "**선택:**" not in text
+    assert "**선택:**" not in text.split("## 오늘 한 일")[0]
+    quiet = WeekLine(DAY, DAY, 1, 0, None)
+    text = render_daily(facts(study=wrong, week=quiet, tokens=[]), "요약")
+    assert "- **문제 (복습 포함):** 기록 없음" in text
+    assert "일 했음" not in text and "- **토큰:** Claude" not in text.split("## 이번 주")[1]
     skipped = replace(study, optional_done=False)
     assert "(5분) — 안 함" in render_daily(facts(study=skipped), "요약")
 
@@ -316,11 +339,14 @@ def test_optional_done_is_recorded_once_per_day(tmp_path):
         again = await repo.mark_optional_done(DAY.isoformat())
         empty = await repo.mark_optional_done("2026-11-03")
         missing = await repo.mark_optional_done("2026-11-04")
-        return first, again, empty, missing, (await desk.facts(DAY)).study
+        week = (await desk.facts(date(2026, 11, 3))).week
+        return first, again, empty, missing, (await desk.facts(DAY)).study, week
 
-    (first, again, empty, missing, study), _ = run_desk(tmp_path, work, FakeEngine())
+    (first, again, empty, missing, study, week), _ = run_desk(tmp_path, work, FakeEngine())
     assert (first, again, empty, missing) == (("지도 칸", True), ("지도 칸", False), None, None)
     assert (study.optional, study.optional_done) == ("지도 칸", True)
+    # 이번 주: 선택 항목이 있던 날만 센다 (화요일은 선택 항목이 비어 있다)
+    assert (week.study_days, week.optional_days, week.optional_done) == (2, 1, 1)
 
 
 def test_curriculum_id_from_heading():
@@ -489,6 +515,9 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     assert "[gagaessi] #1 카테고리 추가: PR #7 열림" in daily
     assert "AWAIT_PLAN_APPROVAL (대기" in daily  # 결정할 것
     assert "- **봇:** Claude 0 · Codex 2,500" in daily
+    assert "- **학습:** 1일 중 1일 · 끝낸 개념 0개" in daily
+    assert "- **문제 (복습 포함):** 3개 중 0개 맞힘 · 안 푼 문제 3개" in daily
+    assert "- **토큰:** Claude 0 · Codex 2,500" in daily
     assert vault.commits == [
         (
             ["Daily/2026-11/2026-11-02.md"],
@@ -565,7 +594,8 @@ def test_morning_writes_entry_daily_then_evening_replaces_it(tmp_path):
         morning
     )
     assert "- **문제:** 오늘 3개 · #교육에서 푼다" in morning and "- **복습:** 없음" in morning
-    assert morning.count("(저녁 23:30에 비서가 채운다)") == 4  # 오늘 한 일·토큰·결정할 것·요약
+    # 오늘 한 일·토큰·이번 주·결정할 것·요약
+    assert morning.count("(저녁 23:30에 비서가 채운다)") == 5
     # 저녁에는 아침판을 하루 정리로 다시 쓴다
     evening = path.read_text(encoding="utf-8")
     assert "(저녁 23:30에 비서가 채운다)" not in evening

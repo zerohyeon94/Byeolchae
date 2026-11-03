@@ -6,6 +6,7 @@
 - 제품 부서: 작업 단계 변화와 PR 열림·merge
 - 결정할 것: 승인 대기 작업과 열린 채용 제안
 - 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
+- 이번 주: 월요일~그날의 학습한 날·끝낸 개념(교육 주간 보고와 같은 셈), 문제 점수, 선택 했음
 
 비서는 그 사실로 한 줄 요약만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
 요약을 받지 못해도 사실만으로 Daily를 쓴다.
@@ -33,6 +34,7 @@ from bot.education.daily import (
     parse_month,
     parse_queue,
 )
+from bot.education.weekly import week_facts, week_start
 from bot.org import Org
 from bot.prompts import secretary_daily_prompt
 from bot.reports import pending_decisions
@@ -44,6 +46,7 @@ from bot.secretary.daily import (
     Score,
     StudyFact,
     TaskEvent,
+    WeekLine,
     curriculum_id,
     daily_path,
     is_morning,
@@ -65,6 +68,7 @@ from bot.secretary.tokens import (
     weekly_limit,
 )
 from bot.store import EventKind
+from bot.workflow.education import daily_quiz_score
 
 log = logging.getLogger(__name__)
 
@@ -176,6 +180,24 @@ class SecretaryDesk:
             decisions=await pending_decisions(self._repo, self._org, end, lambda _: None),
             tokens=await self._tokens(start, end),
             month=self._month(day),
+            week=await self._week(day),
+        )
+
+    async def _week(self, day: date) -> WeekLine:
+        """이번 주 누적. 학습 셈은 교육 주간 보고(week_facts, daily_quiz_score)와 같다."""
+        monday = week_start(day)
+        rows = await self._repo.study_days(monday.isoformat(), day.isoformat())
+        counted = week_facts(day, rows, [])
+        quiz = await daily_quiz_score(self._repo, monday, day)
+        optional = [row for row in rows if row.get("optional")]
+        return WeekLine(
+            start=monday,
+            end=day,
+            study_days=counted.study_days,
+            done=counted.done,
+            quiz=None if quiz is None else Score(quiz.total, quiz.answered, quiz.correct),
+            optional_days=len(optional),
+            optional_done=sum(1 for row in optional if row.get("optional_done_at")),
         )
 
     def _month(self, day: date) -> MonthLine | None:
