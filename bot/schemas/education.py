@@ -3,7 +3,7 @@
 교육팀장은 개념 노트 본문과 문제, 주간 한마디만 JSON으로 낸다.
 파일 경로, 제목, 머리말, Daily, 주간 보고의 숫자는 봇이 정한다.
 문제는 볼트에 쓰지 않고 Discord에서 버튼으로 푼다.
-그림은 교육팀장이 설명만 쓰고, Codex 팀원이 그린 파일을 봇이 볼트로 옮긴다.
+그림은 교육팀장이 설명과 이름표를 쓰고, Codex 팀원이 그린 파일을 봇이 확인해 볼트로 옮긴다.
 """
 
 from typing import Annotated, Literal
@@ -15,6 +15,7 @@ Letter = Literal["A", "B", "C", "D"]
 LETTERS: tuple[Letter, ...] = ("A", "B", "C", "D")
 NOTE_QUESTIONS = 3  # 개념 노트마다 (개념, 흐름, 실패·오류)
 QUIZ_MIN, QUIZ_MAX = 5, 8  # 주간 문제
+LABELS_MAX, LABEL_MAX = 10, 10  # 그림 이름표 개수, 이름표 글자 수
 
 
 class QuizQuestion(BaseModel):
@@ -36,8 +37,15 @@ class ConceptFigure(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    # 그릴 구성 요소와 화살표(흐름). 그림 안에는 글자를 넣지 않는다
-    brief: Annotated[str, StringConstraints(strip_whitespace=True, min_length=20, max_length=800)]
+    # 그릴 구성 요소(실제 장비 모양)와 화살표. 이름표마다 어느 요소·화살표에 붙는지 적는다
+    brief: Annotated[str, StringConstraints(strip_whitespace=True, min_length=20, max_length=1200)]
+    # 그림 안에 글자 그대로 넣는 한글 이름표. 노트 본문의 용어와 같은 말을 쓴다
+    labels: list[
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=LABEL_MAX),
+        ]
+    ] = Field(min_length=2, max_length=LABELS_MAX)
     # 그림 아래에 붙는 한 문장 설명. 노트와 #교육 안내에 쓴다
     alt: Annotated[
         str,

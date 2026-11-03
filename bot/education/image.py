@@ -1,13 +1,18 @@
 """개념 노트 그림 규칙 (ADR-009).
 
-교육팀장이 그림 설명을 쓰면 교육팀원(Codex)이 이미지 생성으로 그린다. Codex는 읽기 전용이라
-그림은 Codex 폴더(`~/.codex/generated_images`)에 생기고, 봇이 실행 전후를 비교해 새로 생긴 PNG만
-받아 가로 1024로 줄여 볼트 `Assets/`에 둔다. 노트에는 `## 흐름` 끝에 그림과 한 줄 설명을 넣는다.
+교육팀장이 그림 설명과 한글 이름표를 쓰면 교육팀원(Codex)이 이미지 생성으로 그린다. Codex는 읽기
+전용이라 그림은 Codex 폴더(`~/.codex/generated_images`)에 생기고, 봇이 실행 전후를 비교해 새로
+생긴 PNG만 받는다. 이름표가 그림에 모두 있는지 macOS 글자 인식(Vision)으로 확인하고, 가로 1024로
+줄여 볼트 `Assets/`에 둔다. 노트에는 `## 흐름` 끝에 그림과 한 줄 설명을 넣는다.
 """
 
 import asyncio
+import re
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
+
+from bot.schemas import ConceptFigure
 
 ASSETS_DIR = "Assets"
 IMAGE_WIDTH = 1024  # 볼트에 두는 그림의 가로 (2026-11-03 Zero 결정)
@@ -15,6 +20,9 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 FIGURE_BEFORE = "## 어디서 깨지나"  # 그림은 이 절 바로 앞(= `## 흐름` 끝)에 넣는다
 # Obsidian 링크와 파일 이름에 쓸 수 없는 글자
 _UNSAFE = str.maketrans({ch: "-" for ch in '/\\:*?"<>|#^[]'})
+OCR_SCRIPT = Path(__file__).with_name("ocr.swift")
+# 글자 인식 비교에서 빼는 것: 공백과 가운뎃점 모양들 (인식기가 `·`를 `•`로 읽기도 한다)
+_IGNORED = re.compile(r"[\s·•・‧.∙]")
 
 
 def asset_path(day: str, label: str) -> str:
@@ -83,3 +91,37 @@ async def shrink_png(source: Path, target: Path, width: int = IMAGE_WIDTH) -> No
     _, stderr = await process.communicate()
     if process.returncode != 0:
         raise OSError(f"sips 실패: {stderr.decode('utf-8', 'replace').strip()}")
+
+
+def check_figure(figure: ConceptFigure) -> list[str]:
+    """교육팀장이 쓴 그림 설명의 형식 문제. 이름표는 겹치지 않고, 설명에서 자리가 정해져야 한다."""
+    problems = []
+    if len(set(figure.labels)) != len(figure.labels):
+        problems.append("figure.labels에 같은 이름표가 두 번 있다")
+    for label in figure.labels:
+        if label not in figure.brief:
+            problems.append(f"figure.brief에 이름표 '{label}'가 붙을 요소·화살표를 적지 않았다")
+    if any("\n" in label for label in figure.labels):
+        problems.append("figure.labels의 이름표는 한 줄이어야 한다")
+    return problems
+
+
+def missing_labels(labels: Sequence[str], recognized: Sequence[str]) -> list[str]:
+    """그림에서 읽힌 글자에 없는 이름표. 공백과 가운뎃점 모양은 비교하지 않는다."""
+    seen = _IGNORED.sub("", "".join(recognized))
+    return [label for label in labels if _IGNORED.sub("", label) not in seen]
+
+
+async def read_text(image: Path) -> list[str]:
+    """macOS 내장 글자 인식으로 그림 속 글자를 줄 단위로 읽는다. 실패하면 OSError."""
+    process = await asyncio.create_subprocess_exec(
+        "swift",
+        str(OCR_SCRIPT),
+        str(image),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        raise OSError(f"글자 인식 실패: {stderr.decode('utf-8', 'replace').strip()[:300]}")
+    return [line for line in stdout.decode("utf-8", "replace").splitlines() if line.strip()]
