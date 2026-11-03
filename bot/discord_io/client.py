@@ -162,7 +162,6 @@ class ZeroSyncBot(discord.Client):
                 VaultGit(),
                 config.secretary.vault,
                 config.secretary.agent,
-                config.org.display(config.secretary.agent),
                 self._secretary_notify,
                 repo=repo,
                 org=config.org,
