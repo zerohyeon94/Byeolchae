@@ -554,13 +554,16 @@ def concept_note_prompt(
     )
 
 
-def concept_image_prompt(persona: Persona, *, day: str, label: str, brief: str) -> str:
-    """교육팀원의 개념 노트 그림 (ADR-009). brief는 교육팀장이 쓴 그림 설명."""
+def concept_image_prompt(
+    persona: Persona, *, day: str, label: str, brief: str, labels: Sequence[str]
+) -> str:
+    """교육팀원의 개념 노트 그림 (ADR-009). brief와 labels는 교육팀장이 쓴 그림 설명과 이름표."""
     return _template("concept_image").substitute(
         _persona(persona, hiring_guide=False),
         day=day,
         label=label.strip(),
         brief=brief.strip(),
+        labels="\n".join(f"- {name}" for name in labels),
         schema=_schema(ConceptImage),
     )
 

@@ -235,7 +235,7 @@ def test_concept_note_prompt_snapshot():
         month="시스템 전체 한 바퀴",
     )
     assert "회사/" in prompt  # 금지 안내
-    assert "figure" in prompt and "그림 안에는 글자를 넣지 않는다" in prompt
+    assert "figure" in prompt and "labels: 그림 안에 그대로 넣을 한글 이름표" in prompt
     check_snapshot("concept_note_eta", prompt)
 
 
@@ -244,10 +244,12 @@ def test_concept_image_prompt_snapshot():
         persona_for(DEFAULT_ORG, "iota"),
         day="2026-11-01",
         label="엣지-중앙 서버 구조",
-        brief="위에 중앙 서버(랙) 하나, 아래에 장비 상자 셋. 서버에서 장비로 화살표가 내려간다",
+        brief="위에 서버 랙('중앙 서버'), 아래에 산업용 컴퓨터 셋('엣지 장비')",
+        labels=["중앙 서버", "엣지 장비"],
     )
     assert "Iota · 교육팀원" in prompt and "image_path" in prompt
-    assert "글자, 숫자, 로고를 넣지 않는다" in prompt
+    assert "- 중앙 서버\n- 엣지 장비" in prompt and "글자 하나 바꾸지 않고" in prompt
+    assert "사람, 캐릭터, 만화체" in prompt
     check_snapshot("concept_image_iota", prompt)
 
 

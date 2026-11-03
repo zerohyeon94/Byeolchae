@@ -28,8 +28,10 @@ from bot.education.daily import (
 from bot.education.image import (
     PNG_SIGNATURE,
     asset_path,
+    check_figure,
     check_image,
     insert_figure,
+    missing_labels,
     png_size,
     snapshot,
 )
@@ -296,6 +298,15 @@ class FakeEngine:
         if answer is None:
             return FakeAnswer(None, "형식 오류")
         assert isinstance(answer, model)
+        if stage.value == "concept_image":
+            # 엔진처럼 확인에 걸리면 문제를 붙여 한 번 다시 부른다
+            problems = await verify(answer)
+            if problems:
+                self.calls.append((scope, agent, "retry", problems[0]))
+                answer = self.draw()
+                if await verify(answer):
+                    return FakeAnswer(None, "형식 오류")
+            return FakeAnswer(answer)
         assert await verify(answer) == []
         return FakeAnswer(answer)
 
@@ -338,6 +349,7 @@ class Desk:
         self.files = []  # 안내에 붙인 파일
         self.images = tmp_path / "codex-images"  # Codex 그림 폴더
         self.illustrator = None
+        self.readings = []  # 그림마다 글자 인식 결과 (차례로 꺼낸다). 비면 이름표가 다 읽힌다
 
     def call(self, day, work, engine=None, vault=None, hour=7):
         from bot.store import Repository, connect
@@ -349,6 +361,12 @@ class Desk:
         async def shrink(source, target):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(source.read_bytes())
+
+        async def read(image):
+            reading = self.readings.pop(0) if self.readings else FIGURE.labels
+            if isinstance(reading, Exception):
+                raise reading
+            return list(reading)
 
         async def post_quiz(quiz_id, title, items, total):
             self.posts.append((quiz_id, title, [n for n, _ in items], total))
@@ -374,6 +392,7 @@ class Desk:
                     illustrator=self.illustrator,
                     images=self.images,
                     shrink=shrink,
+                    read_text=read,
                 )
                 return await work(desk)
             finally:
@@ -428,7 +447,11 @@ def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
 
 
 FIGURE = ConceptFigure(
-    brief="위에 중앙 서버(랙) 하나, 아래에 장비 상자 셋. 서버에서 장비로 설정 화살표가 내려간다",
+    brief=(
+        "위에 서버 랙 하나('중앙 서버'), 아래에 산업용 컴퓨터 셋('엣지 장비'). "
+        "서버에서 장비로 점선 화살표('설정 배포')가 내려간다"
+    ),
+    labels=["중앙 서버", "엣지 장비", "설정 배포"],
     alt="중앙 서버가 세 장비에 설정을 내려보낸다",
 )
 NOTE_WITH_FIGURE = NOTE.model_copy(update={"figure": FIGURE})
@@ -438,8 +461,12 @@ PNG = PNG_SIGNATURE + b"\x00\x00\x00\rIHDR" + (1536).to_bytes(4, "big") + (1024)
 def drawer(folder):
     """가짜 교육팀원. 부를 때마다 Codex 폴더에 새 PNG를 만든다."""
 
+    count = 0
+
     def draw():
-        path = folder / "run-1" / "exec-1.png"
+        nonlocal count
+        count += 1
+        path = folder / f"run-{count}" / "exec.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(PNG)
         return ConceptImage(image_path=str(path))
@@ -455,7 +482,8 @@ def test_figure_is_drawn_by_iota_and_put_in_note_vault_and_announcement(tmp_path
 
     scope, agent, stage, prompt = engine.calls[1]
     assert (scope, agent, stage) == ("education", "iota", "concept_image")
-    assert FIGURE.brief in prompt
+    assert FIGURE.brief in prompt and "- 중앙 서버\n- 엣지 장비\n- 설정 배포" in prompt
+    assert [call[2] for call in engine.calls] == ["concept_note", "concept_image"]
     asset = "Assets/2026-11-02 - 엣지-중앙 서버 구조.png"
     assert (desk.root / asset).read_bytes() == PNG
     note = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
@@ -470,6 +498,36 @@ def test_figure_is_drawn_by_iota_and_put_in_note_vault_and_announcement(tmp_path
     text, _ = desk.notes[0]
     assert "- 그림: 중앙 서버가 세 장비에 설정을 내려보낸다" in text
     assert desk.files[0] == [desk.root / asset] and result.files == (desk.root / asset,)
+
+
+def test_missing_label_is_redrawn_once(tmp_path):
+    desk = Desk(tmp_path)
+    desk.illustrator = "iota"
+    desk.readings = [["중앙 서버", "엣지 장비"], ["중앙 서버", "엣지 장비", "설정 • 배포"]]
+    engine = FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images))
+    result = desk.daily(date(2026, 11, 2), engine)
+
+    retry = [call for call in engine.calls if call[2] == "retry"]
+    assert len(retry) == 1 and "'설정 배포'" in retry[0][3] and "다시 그린다" in retry[0][3]
+    assert result.files and (desk.root / "Assets/2026-11-02 - 엣지-중앙 서버 구조.png").exists()
+
+
+def test_labels_still_wrong_after_redraw_sends_note_without_figure(tmp_path):
+    desk = Desk(tmp_path)
+    desk.illustrator = "iota"
+    desk.readings = [["중앙 서버"], ["중앙 서버"]]
+    result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)))
+
+    assert result.files == () and not (desk.root / "Assets").exists()
+    assert "그림을 만들지 못해" in desk.notes[0][0]
+
+
+def test_unreadable_text_check_keeps_the_figure(tmp_path):
+    desk = Desk(tmp_path)
+    desk.illustrator = "iota"
+    desk.readings = [OSError("swift 없음")]
+    result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)))
+    assert result.files  # 확인을 못 해도 그림은 넣는다
 
 
 def test_failed_drawing_still_sends_the_note_without_figure(tmp_path):
@@ -512,6 +570,15 @@ def test_image_rules(tmp_path):
     assert "PNG" in check_image(str(text), folder, before)[0]
     assert "파일이 없다" in check_image(str(folder / "b" / "none.png"), folder, before)[0]
     assert png_size(PNG) == (1536, 1024) and png_size(b"GIF89a" + bytes(18)) is None
+    # 글자 인식은 공백과 가운뎃점 모양을 빼고 비교한다
+    labels = ["카메라·센서", "웹 화면", "결과만 전송", "중앙 서버"]
+    assert missing_labels(labels, ["카메라• 센서", "웹화면", "결과만", "전송"]) == ["중앙 서버"]
+    assert check_figure(FIGURE) == []
+    bad = FIGURE.model_copy(update={"labels": ["중앙 서버", "중앙 서버", "웹 화면"]})
+    assert check_figure(bad) == [
+        "figure.labels에 같은 이름표가 두 번 있다",
+        "figure.brief에 이름표 '웹 화면'가 붙을 요소·화살표를 적지 않았다",
+    ]
     assert asset_path("2026-11-02", "TCP/IP: 흐름?") == "Assets/2026-11-02 - TCP-IP- 흐름-.png"
     # 절이 없으면 맨 끝에 붙인다
     assert insert_figure("# 제목\n\n본문\n", "Assets/a.png", "설명") == (

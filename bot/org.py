@@ -265,7 +265,7 @@ def _default_org() -> Org:
                 engine="codex",
                 mbti="ISFP",
                 perspective=(
-                    "한눈에 보이는 그림, 글자 없이 구조와 흐름만, 노트의 설명과 어긋나지 않게"
+                    "실제 장비 모양과 한글 이름표로 한눈에 보이는 흐름, 노트의 설명과 어긋나지 않게"
                 ),
                 basic_question="이 그림 한 장으로 흐름이 보이는가",
                 hired="2026-11-03",
