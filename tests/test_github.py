@@ -19,6 +19,7 @@ from bot.github import (
     GitOps,
     PushRefused,
     VaultGit,
+    VaultPush,
     check_push,
     commit_message_problems,
 )
@@ -244,3 +245,36 @@ def test_vault_git_commits_only_written_files(repo):
 def test_vault_git_skips_non_git_folder(tmp_path):
     (tmp_path / "a.md").write_text("x")
     assert run(VaultGit().commit(tmp_path, ["a.md"], "t", "z")) is False
+
+
+def test_vault_push_sends_new_commits_once_and_never_overwrites_github(repo, tmp_path):
+    vault = VaultGit()
+    # develop을 추적하도록 맞춘다 (fixture는 HEAD:develop으로 올렸다)
+    git("branch", "-q", "--set-upstream-to=origin/develop", cwd=repo)
+    for name in ("a.md", "b.md"):
+        (repo / name).write_text("봇이 씀\n")
+        run(vault.commit(repo, [name], f"docs: {name}", "ZeroSync-Department: secretary"))
+    assert run(vault.push(repo)) == VaultPush(pushed=2)
+    assert run(vault.push(repo)) == VaultPush()  # 올릴 것이 없다
+    # 다른 곳에서 GitHub에 올린 커밋이 있으면 덮어쓰지 않는다
+    other = tmp_path / "other"
+    git("clone", "-q", "-b", "develop", str(tmp_path / "origin.git"), str(other), cwd=tmp_path)
+    for key, value in (("user.name", "t"), ("user.email", "t@localhost")):
+        git("config", key, value, cwd=other)
+    (other / "c.md").write_text("다른 기기\n")
+    git("add", ".", cwd=other)
+    git("commit", "-qm", "other", cwd=other)
+    git("push", "-q", "origin", "HEAD:develop", cwd=other)
+    (repo / "d.md").write_text("봇이 씀\n")
+    run(vault.commit(repo, ["d.md"], "docs: d", "z"))
+    result = run(vault.push(repo))
+    assert result.pushed == 0 and "이 맥에 없는 커밋 1개" in result.problem
+    assert git("log", "-1", "--format=%s", "origin/develop", cwd=repo).strip() == "other"
+
+
+def test_vault_push_without_upstream_or_git(repo, tmp_path):
+    git("switch", "-q", "-c", "local-only", cwd=repo)
+    assert "추적 중인 GitHub 브랜치가 없다" in run(VaultGit().push(repo)).problem
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert run(VaultGit().push(plain)) == VaultPush()

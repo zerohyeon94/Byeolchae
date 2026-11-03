@@ -12,6 +12,7 @@
 아침에는 교육 노트가 나온 뒤 아침판 Daily(오늘 학습과 노트 링크)를 먼저 쓴다.
 에이전트는 부르지 않는다. 저녁에는 아침판(또는 Obsidian이 만든 빈 파일)을 하루 정리로
 다시 쓴다. 저녁판이 이미 있으면 다시 쓰지 않는다.
+저녁 Daily를 커밋한 뒤 볼트를 GitHub에 한 번 올린다.
 """
 
 import json
@@ -146,11 +147,13 @@ class SecretaryDesk:
         facts = await self._with_claude_limit(facts)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_daily(facts, summary), encoding="utf-8")
+        text = render_discord(facts, summary, path)
         if self._vault is not None:
             await self._vault.commit(
                 self._root, [path], f"docs(daily): {day.isoformat()} 하루 정리", COMMIT_TRAILER
             )
-        text = render_discord(facts, summary, path)
+            # 하루의 마지막 볼트 쓰기 뒤에 한 번 GitHub에 올린다 (그날 노트·그림·Daily)
+            text += "\n" + _push_line(await self._vault.push(self._root))
         await self._notify(text, False)
         return text
 
@@ -306,6 +309,14 @@ class SecretaryDesk:
             log.warning("하루 정리 요약 실패: %s", answer.error or answer.status)
             return None
         return answer.result.summary
+
+
+def _push_line(result: Any) -> str:
+    if result.problem:
+        return f"볼트 GitHub 백업 못 함: {result.problem}. 다음 저녁에 함께 올린다"
+    if result.pushed:
+        return f"볼트 GitHub 백업: 커밋 {result.pushed}개"
+    return "볼트 GitHub 백업: 올릴 커밋 없음"
 
 
 def _event(row: dict[str, Any], change: str) -> TaskEvent:

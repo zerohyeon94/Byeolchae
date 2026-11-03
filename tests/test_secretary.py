@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from bot.agents.base import Stage
 from bot.clock import FixedClock
+from bot.github import VaultPush
 from bot.schemas import DailySummary
 from bot.secretary.daily import (
     DayFacts,
@@ -366,12 +367,18 @@ class FakeEngine:
 
 
 class FakeVault:
-    def __init__(self):
+    def __init__(self, push=None):
         self.commits = []
+        self.pushes = 0
+        self.result = push or VaultPush(pushed=3)
 
     async def commit(self, root, paths, title, trailer):
         self.commits.append((list(paths), title, trailer))
         return True
+
+    async def push(self, root):
+        self.pushes += 1
+        return self.result
 
 
 def run_desk(tmp_path, work, engine, vault=None, now=None):
@@ -490,6 +497,7 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
         )
     ]
     assert notes == [(text, False)] and text.startswith("**하루 정리** (11-02)")
+    assert vault.pushes == 1 and text.endswith("\n볼트 GitHub 백업: 커밋 3개")
     scope, agent, stage, prompt = engine.calls[0]
     assert (scope, agent, stage) == ("secretary", "theta", Stage.SECRETARY_DAILY)
     assert "PLANNING → AWAIT_PLAN_APPROVAL" in prompt and "Theta" in prompt
@@ -588,6 +596,21 @@ def test_morning_keeps_evening_daily_and_obsidian_empty_file_is_filled(tmp_path)
     assert path.read_text(encoding="utf-8") == evening
     assert is_morning("") and is_morning("(저녁 23:30에 비서가 채운다)")
     assert not is_morning(evening)
+
+
+def test_failed_vault_push_is_told_and_daily_stays(tmp_path):
+    problem = VaultPush(problem="GitHub에 이 맥에 없는 커밋 1개가 있어 올리지 않았다")
+    vault = FakeVault(push=problem)
+
+    async def work(desk, repo, clock):
+        return await desk.run_evening(DAY)
+
+    text, _ = run_desk(tmp_path, work, FakeEngine(DailySummary(summary="요약")), vault)
+    assert (tmp_path / "vault" / daily_path(DAY)).exists() and len(vault.commits) == 1
+    assert text.endswith(
+        "볼트 GitHub 백업 못 함: GitHub에 이 맥에 없는 커밋 1개가 있어 올리지 않았다. "
+        "다음 저녁에 함께 올린다"
+    )
 
 
 def test_evening_writes_facts_when_summary_fails_and_never_twice(tmp_path):
