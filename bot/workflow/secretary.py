@@ -8,7 +8,10 @@
 - 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
 
 비서는 그 사실로 한 줄 요약만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
-요약을 받지 못해도 사실만으로 Daily를 쓴다. 같은 날 Daily가 이미 있으면 다시 쓰지 않는다.
+요약을 받지 못해도 사실만으로 Daily를 쓴다.
+아침에는 교육 노트가 나온 뒤 아침판 Daily(오늘 학습과 노트 링크)를 먼저 쓴다.
+에이전트는 부르지 않는다. 저녁에는 아침판(또는 Obsidian이 만든 빈 파일)을 하루 정리로
+다시 쓴다. 저녁판이 이미 있으면 다시 쓰지 않는다.
 """
 
 import json
@@ -42,9 +45,11 @@ from bot.secretary.daily import (
     TaskEvent,
     curriculum_id,
     daily_path,
+    is_morning,
     render_daily,
     render_discord,
     render_facts,
+    render_morning,
 )
 from bot.secretary.tokens import (
     EngineUsage,
@@ -101,10 +106,37 @@ class SecretaryDesk:
         self._codex_dir = codex_dir
         self._workdir = workdir  # 비서 실행 폴더. 비서는 파일을 읽지 않으므로 빈 폴더다
 
-    async def run_evening(self, day: date) -> str:
-        """그날 Daily를 쓰고 #비서에 짧게 알린다. 알린 문구를 돌려준다."""
+    async def run_morning(self, day: date) -> str:
+        """교육 노트가 나온 뒤 아침판 Daily를 쓴다. 저녁판이 이미 있으면 두고 경로를 돌려준다."""
         path = daily_path(day)
-        if (self._root / path).exists():
+        target = self._root / path
+        if target.exists() and not is_morning(target.read_text(encoding="utf-8")):
+            return path
+        facts = DayFacts(
+            day=day,
+            study=await self._study(day),
+            transitions=[],
+            prs=[],
+            decisions=[],
+            tokens=[],
+            month=self._month(day),
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render_morning(facts), encoding="utf-8")
+        if self._vault is not None:
+            await self._vault.commit(
+                self._root, [path], f"docs(daily): {day.isoformat()} 아침", COMMIT_TRAILER
+            )
+        return path
+
+    async def run_evening(self, day: date) -> str:
+        """그날 Daily를 쓰고 #비서에 짧게 알린다. 알린 문구를 돌려준다.
+
+        아침판이나 빈 파일은 하루 정리로 다시 쓴다. 저녁판이 이미 있으면 다시 쓰지 않는다.
+        """
+        path = daily_path(day)
+        target = self._root / path
+        if target.exists() and not is_morning(target.read_text(encoding="utf-8")):
             text = f"{day.isoformat()} 하루 정리는 이미 있다: `{path}`"
             await self._notify(text, False)
             return text
@@ -112,7 +144,6 @@ class SecretaryDesk:
         summary = await self._summary(facts)
         # 비서 호출 자신의 한도 줄까지 넣는다. 그날 Zero만 Claude를 썼어도 값이 생긴다
         facts = await self._with_claude_limit(facts)
-        target = self._root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_daily(facts, summary), encoding="utf-8")
         if self._vault is not None:

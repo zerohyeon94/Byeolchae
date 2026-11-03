@@ -4,6 +4,8 @@
 로컬 기록, 볼트의 대기열·월별 목표·커리큘럼에서 센다. 비서는 그 사실을 읽고 한 줄 요약만 쓴다.
 모양은 볼트의 `Templates/Daily.md`를 따른다: 머리말 → 오늘 학습 → 오늘 한 일 → 토큰 →
 결정할 것 → 한 줄 요약. iPad에서 위아래로 읽히게 표를 쓰지 않는다.
+아침에는 교육 노트가 나온 뒤 같은 모양의 아침판(오늘 학습만, 나머지는 저녁에 채움)을 먼저 쓴다.
+Obsidian에서 오늘의 Daily를 열면 개념 노트로 바로 갈 수 있게 하려는 것이다 (2026-11-03 Zero 결정).
 표시는 순수 함수로 두고 단위 테스트로 고정한다.
 """
 
@@ -16,6 +18,8 @@ from bot.secretary.tokens import EngineUsage, tokens_text
 DAILY_DIR = "Daily"
 CURRICULUM_FILE = "Schedule/교육 커리큘럼.md"
 WEEKDAYS = "월화수목금토일"
+# 아침판에서 저녁에 채울 자리. 저녁에는 이 문구가 있는 Daily만 다시 쓴다
+EVENING_PENDING = "(저녁 23:30에 비서가 채운다)"
 _CURRICULUM_HEADING = re.compile(r"^###\s+([A-Z]+-\d+)\s+(.+?)\s*$")
 
 
@@ -177,6 +181,39 @@ def render_facts(facts: DayFacts) -> str:
     lines += ["", "## 결정할 것", ""]
     lines += [f"- {line}" for line in facts.decisions]
     return "\n".join(lines).rstrip()
+
+
+def _morning_study_lines(study: StudyFact) -> list[str]:
+    concept = f"[[{study.target}|{study.label}]]"
+    if study.concept_id:
+        concept += f" ({study.concept_id})"
+    kind = "어제 것 이어서" if study.carried else "새 개념"
+    problems = f"오늘 {study.note.total}개" if study.note is not None else "없음"
+    lines = [
+        f"- **개념:** {concept} — 오늘 읽기 ({kind})",
+        f"- **문제:** {problems} · #교육에서 푼다",
+        f"- **복습:** {'1개' if study.review is not None else '없음'}",
+    ]
+    if study.optional:
+        lines.append(f"- **선택:** {study.optional}")
+    return lines
+
+
+def render_morning(facts: DayFacts) -> str:
+    """아침판 Daily. 오늘 학습과 개념 노트 링크만 쓰고, 나머지 절은 저녁에 채운다."""
+    day = facts.day
+    lines = [f"# {day.isoformat()} ({WEEKDAYS[day.weekday()]})", ""]
+    lines += _month_line(facts.month)
+    lines += ["## 오늘 학습", ""]
+    lines += _morning_study_lines(facts.study) if facts.study else ["- 오늘 학습 기록 없음"]
+    for section in ("오늘 한 일", "토큰", "결정할 것", "한 줄 요약"):
+        lines += ["", f"## {section}", "", EVENING_PENDING]
+    return "\n".join(lines) + "\n"
+
+
+def is_morning(text: str) -> bool:
+    """저녁에 다시 써도 되는 Daily인가: 아침판이거나, Obsidian이 먼저 만든 빈 파일."""
+    return not text.strip() or EVENING_PENDING in text
 
 
 def render_daily(facts: DayFacts, summary: str | None) -> str:

@@ -338,6 +338,7 @@ class Desk:
         self.files = []  # 안내에 붙인 파일
         self.images = tmp_path / "codex-images"  # Codex 그림 폴더
         self.illustrator = None
+        self.daily_link = False
 
     def call(self, day, work, engine=None, vault=None, hour=7):
         from bot.store import Repository, connect
@@ -369,6 +370,7 @@ class Desk:
                     notify,
                     clock,
                     repo=Repository(conn, clock),
+                    daily_link=self.daily_link,
                     post_quiz=post_quiz,
                     post_done=post_done,
                     illustrator=self.illustrator,
@@ -516,6 +518,17 @@ def test_image_rules(tmp_path):
     # 절이 없으면 맨 끝에 붙인다
     assert insert_figure("# 제목\n\n본문\n", "Assets/a.png", "설명") == (
         "# 제목\n\n본문\n\n![[Assets/a.png]]\n*그림: 설명*\n"
+    )
+
+
+def test_announcement_points_to_todays_daily_when_secretary_writes_it(tmp_path):
+    desk = Desk(tmp_path)
+    desk.daily_link = True
+    desk.daily(date(2026, 11, 2))
+    daily = "`Daily/2026-11/2026-11-02.md`"
+    assert (
+        f"- Obsidian: 오늘의 Daily({daily})를 열면 오늘 학습에서 노트로 바로 간다"
+        in desk.notes[0][0]
     )
 
 

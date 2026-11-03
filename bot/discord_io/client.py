@@ -159,6 +159,7 @@ class ZeroSyncBot(discord.Client):
                 self._education_notify,
                 self.clock,
                 repo=repo,
+                daily_link=config.secretary is not None,
                 post_quiz=self._post_quiz,
                 post_done=self._post_done,
                 illustrator=config.education.illustrator,
@@ -286,7 +287,7 @@ class ZeroSyncBot(discord.Client):
         education = self.config.education
         if self.education is not None and education is not None:
             jobs = (
-                (EDUCATION_DAILY, education.schedule, self.education.run_daily, "교육 아침 학습"),
+                (EDUCATION_DAILY, education.schedule, self.education_morning, "교육 아침 학습"),
                 (EDUCATION_WEEKLY, education.weekly, self.education.run_weekly, "교육 주간 보고"),
             )
             for job, cron, run, name in jobs:
@@ -436,7 +437,14 @@ class ZeroSyncBot(discord.Client):
         if await self._education_guard(interaction):
             assert self.education is not None
             await interaction.response.send_message("오늘 학습을 만든다.", ephemeral=True)
-            self.spawn(self.education.run_daily(), "교육 아침 학습")
+            self.spawn(self.education_morning(), "교육 아침 학습")
+
+    async def education_morning(self) -> None:
+        """교육 아침 학습. 노트가 새로 나오면 비서가 아침판 Daily를 쓴다 (노트로 가는 입구)."""
+        assert self.education is not None
+        result = await self.education.run_daily()
+        if result.created and self.secretary is not None:
+            await self.secretary.run_morning(self.clock.now().astimezone().date())
 
     async def run_weekly(self, interaction: discord.Interaction) -> None:
         """이번 주 학습 보고와 주간 문제를 지금 만든다 (/weekly). 문제는 주마다 한 번."""

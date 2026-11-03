@@ -550,6 +550,7 @@ def test_education_daily_and_weekly_run_on_their_schedules_once(bot, tmp_path):
     class Desk:
         async def run_daily(self):
             runs.append("daily")
+            return SimpleNamespace(created=True)
 
         async def run_weekly(self):
             runs.append("weekly")
@@ -579,6 +580,27 @@ def test_education_daily_and_weekly_run_on_their_schedules_once(bot, tmp_path):
     # 주간(일요일 20:00)은 지난 일요일 몫을 한 번 따라잡는다
     assert "education_weekly" in first and "education_weekly" not in again
     assert sorted(runs) == ["daily", "weekly"]
+
+
+@pytest.mark.parametrize("created", [True, False])
+def test_new_morning_note_makes_secretary_write_entry_daily(bot, created):
+    from bot.clock import FixedClock
+
+    runs = []
+
+    class Desk:
+        async def run_daily(self):
+            return SimpleNamespace(created=created)
+
+    class Secretary:
+        async def run_morning(self, day):
+            runs.append(day.isoformat())
+
+    bot.education, bot.secretary = Desk(), Secretary()
+    bot.clock = FixedClock(datetime(2026, 10, 28, 22, 31, tzinfo=UTC))  # 한국 목 07:31
+    run(bot.education_morning())
+    # 이미 낸 날(/daily 다시 누름)은 아침판을 다시 쓰지 않는다
+    assert runs == (["2026-10-29"] if created else [])
 
 
 def test_secretary_catches_up_missed_evening_and_takes_morning_report(bot, tmp_path):

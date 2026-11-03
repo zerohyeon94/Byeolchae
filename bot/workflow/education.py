@@ -51,6 +51,7 @@ from bot.education.weekly import (
 )
 from bot.prompts import concept_image_prompt, concept_note_prompt, weekly_quiz_prompt
 from bot.schemas import ConceptFigure, ConceptImage, ConceptNote, QuizQuestion, WeeklyReview
+from bot.secretary.daily import daily_path
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ class EducationDesk:
         clock: Clock,
         *,
         repo: Any,
+        daily_link: bool = False,
         post_quiz: PostQuiz | None = None,
         post_done: PostDone | None = None,
         illustrator: AgentName | None = None,
@@ -122,6 +124,8 @@ class EducationDesk:
         self._notify = notify
         self._clock = clock
         self._repo = repo
+        # 비서가 아침판 Daily를 쓰면 안내에 "Obsidian 오늘의 Daily에서 노트로 간다"를 붙인다
+        self._daily_link = daily_link
         self._post_quiz = post_quiz
         self._post_done = post_done
         # 그림 담당 교육팀원(Codex). 없으면 그림 없이 낸다. images는 Codex가 그림을 저장하는 폴더
@@ -220,7 +224,8 @@ class EducationDesk:
             today.isoformat(), plan.target, plan.label, plan.carried, optional
         )
         posts = await self._daily_quizzes(today, plan, new_questions)
-        text = _announce(plan, optional, posts, sources, unverified, figure)
+        daily = daily_path(today) if self._daily_link else ""
+        text = _announce(plan, optional, posts, sources, unverified, figure, daily)
         files = (root / figure.asset,) if figure is not None and figure.asset else ()
         return DailyResult(True, text, posts, plan.label, files)
 
@@ -439,6 +444,7 @@ def _announce(
     sources: list[str],
     unverified: list[str],
     figure: Figure | None = None,
+    daily: str = "",
 ) -> str:
     kind = "어제 것 이어서" if plan.carried else "새 개념"
     lines = [
@@ -447,6 +453,8 @@ def _announce(
         f"- 여유 있으면: {optional}",
         f"- 노트: `{plan.note_path}`",
     ]
+    if daily:
+        lines.append(f"- Obsidian: 오늘의 Daily(`{daily}`)를 열면 오늘 학습에서 노트로 바로 간다")
     if figure is not None:
         if figure.asset:
             lines.append(f"- 그림: {figure.alt} (붙인 그림, 노트의 흐름 끝에도 있다)")
