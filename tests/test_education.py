@@ -265,10 +265,17 @@ def test_valid_note_has_no_problems():
         (BODY + "\n## 확인 문제\n\n### 1. 개념\n", "템플릿에 없는 섹션: ## 확인 문제"),
         (BODY + "\n`회사/플랫폼 지도.md` 참고\n", "회사 폴더"),
         (BODY + "\n## 내 말로 한 줄 (선택)\n", "템플릿에 없는 섹션"),
+        (BODY + "\n| 일 | 어디서 |\n|---|---|\n| 추론 | 엣지 |\n", "표"),
+        (BODY + "\n일 | 어디서\n:--- | ---:\n추론 | 엣지\n", "표"),
     ],
 )
 def test_note_problems_are_reported(body, problem):
     assert any(problem in found for found in check_note(body))
+
+
+def test_table_inside_code_block_is_allowed():
+    body = BODY + "\n```text\n| a | b |\n|---|---|\n```\n"
+    assert check_note(body) == []
 
 
 # 실행
