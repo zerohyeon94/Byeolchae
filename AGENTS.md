@@ -36,7 +36,7 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/prompts/` | 단계별 프롬프트 템플릿(`.md`)과 렌더링 함수 | 의견·반박·기획·화면 디자인·설계·구현·수정·리뷰·진단·출시 준비·문서 반영 구현 |
 | `bot/render/` | 스키마 → 사람이 읽는 텍스트 (Discord·Issue·PR·볼트 공용) | 구현 |
 | `bot/clock.py` | 현재 시각 인터페이스 (테스트에서 고정) | 구현 |
-| `bot/org.py` | 회사 조직 설정(`org.yaml`, 인격 파일) 로더. 에이전트 이름과 엔진 분리, 단계별 담당, R1 검사. 없으면 ADR-007~010 기본 조직(제품 팀장 넷, 팀원 Epsilon·Zeta, 교육팀장 Eta와 팀원 Iota, 비서팀장 Theta). 예시는 `examples/company/` | 구현 |
+| `bot/org.py` | 회사 조직 설정(`org.yaml`, 인격 파일) 로더. 에이전트 이름과 엔진 분리, 단계별 담당, R1 검사. 없으면 ADR-007~011 기본 조직(제품 팀장 넷, 개발·QA 팀원 Epsilon·Zeta, 프로젝트 담당 Kappa·Lambda·Mu, 교육팀장 Eta와 팀원 Iota, 비서팀장 Theta). 예시는 `examples/company/` | 구현 |
 | `bot/pipeline.py` | 파이프라인 선언(기능 개발·버그 수정·출시·정기 테스트) 로더와 규칙 검사(R1~R6, 팀장 확인 `check`). 회사 설정에 `pipelines/`가 없으면 기본 선언. 예시는 `examples/company/pipelines/` | 구현 |
 | `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule)와 `#대표실`·`#비서` 보고 만들기 | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
@@ -94,7 +94,7 @@ v1 메뉴바 앱을 수정할 때만 Xcode 명령을 쓴다. 저장소 루트에
 ## 문서
 
 - `docs/README.md`가 문서 인덱스다
-- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-011)
+- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-012)
 - 작업한 날에는 `docs/개발 일지/YYYY-MM-DD.md`에 한 것 / 막힌 것·발견한 것 / 다음 할 것을 기록한다
 - 개발 일지는 작업 PR 안에서 함께 갱신한다. 일지만 바꾸는 PR은 따로 만들지 않는다. 이전 PR의 merge 결과는 다음 작업 PR의 일지에 적는다
 - 문제 해결 기록은 `docs/트러블슈팅/`에 남긴다

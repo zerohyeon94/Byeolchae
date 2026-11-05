@@ -37,6 +37,7 @@ class DashboardSettings:
     education_vault: Path | None = None  # 커리큘럼 화면이 읽는 학습 볼트 (읽기만)
     secretary_agent: str | None = None  # 비서 담당 (ADR-010)
     projects: Sequence[str] = ()  # 등록된 제품
+    owners: Mapping[str, str] = field(default_factory=dict)
     schedules: Sequence[ScheduledJob] = ()  # 봇 일정 실행기가 확인하는 일정
     lock: Path | None = None  # 봇 단일 인스턴스 락 파일 (PID만 읽는다)
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
@@ -88,7 +89,7 @@ def _route(
             views.team_page(
                 settings.org,
                 activity,
-                views.assignments(settings.pipelines, settings.education_agent),
+                views.assignments(settings.pipelines, settings.education_agent, settings.owners),
                 daily_calls=settings.daily_calls,
                 now=now,
             )
@@ -183,7 +184,7 @@ def _member(
         today_start=today.astimezone(UTC).isoformat(),
         week_start=(today - timedelta(days=7)).astimezone(UTC).isoformat(),
     )
-    jobs = views.assignments(settings.pipelines, settings.education_agent)
+    jobs = views.assignments(settings.pipelines, settings.education_agent, settings.owners)
     return _ok(
         views.member_page(
             settings.org,

@@ -32,9 +32,11 @@ def main(argv: list[str] | None = None) -> int:
         education_vault=config.education.vault if config.education else None,
         secretary_agent=config.secretary.agent if config.secretary else None,
         projects=tuple(config.projects),
+        owners={k: p.owner for k, p in config.projects.items() if p.owner is not None},
         schedules=scheduled_jobs(
             config.pipelines,
             config.projects,
+            without_test=frozenset(k for k, p in config.projects.items() if p.test is None),
             education=(config.education.schedule, config.education.weekly)
             if config.education
             else None,

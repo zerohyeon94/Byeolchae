@@ -43,11 +43,13 @@ from bot.prompts import (
     debate_prompt,
     opinion_prompt,
     persona_for,
+    project_report_prompt,
     with_format_error,
 )
 from bot.render import render_format_error, render_notice, render_opinion, render_opinion_post
 from bot.render.hiring import rejected_line, render_hiring_proposal
 from bot.schemas import AgentOutputError, Opinion, parse_agent_output
+from bot.schemas.project_report import ProjectReport
 from bot.store import (
     INVALID_OUTPUT,
     Actor,
@@ -57,10 +59,11 @@ from bot.store import (
     NotFoundError,
     Repository,
 )
-from bot.store.repo import StaleStateError, TaskRecord
+from bot.store.repo import PendingReport, ReportAssignment, StaleStateError, TaskRecord
 from bot.workflow.chat import Attachment, Author, ChatIO
 from bot.workflow.gate import AgentGate, Priority
 from bot.workflow.mentions import Moment, should_mention
+from bot.workflow.project_reports import report_facts
 from bot.workflow.state import (
     RUNNING_STATES,
     ApplyTypeLabel,
@@ -142,6 +145,8 @@ class ProjectContext:
     feature_dir: Path | None = None  # 볼트 `기능/` 폴더
     vault_hub: str | None = None  # 볼트 허브 파일 이름 (문서 반영)
     design_system_url: str | None = None  # 제품 Claude 디자인 시스템 링크 (ADR-007)
+
+    owner: str | None = None
 
     def feature_names(self) -> set[str] | None:
         if self.feature_dir is None or not self.feature_dir.is_dir():
@@ -236,6 +241,7 @@ class Engine(WorkStages):
         self._limits = limits or Limits()
         self._worktrees = worktrees_dir or Path.home() / ".zerosync" / "worktrees"
         self._thread_url = thread_url or (lambda thread: None)
+        self._project_report_lock = asyncio.Lock()
         self._task_locks: dict[int, asyncio.Lock] = {}
         self._running = _Running()
         self._clock = clock or SystemClock()
@@ -320,11 +326,20 @@ class Engine(WorkStages):
         """현재 상태로 전이를 계산해 저장하고 효과를 실행한다."""
         task = await self._repo.get_task(task_id)
         result = transition(task, event, self._limits, self._pipeline(task))
+        report = None
+        if result.state != task.state and (
+            result.state.is_terminal or result.state is TaskState.NEEDS_HUMAN
+        ):
+            reason = next((e.reason for e in result.effects if isinstance(e, MarkNeedsHuman)), "")
+            report = self._assignment(
+                task.project, f"작업 #{task.id} {task.title} · {result.state} {reason}".rstrip()
+            )
         try:
             task = await self._repo.apply_transition(
                 task.id,
                 expected_state=task.state,
                 new_state=result.state,
+                report=report,
                 event=record,
                 updates=result.updates,
             )
@@ -354,6 +369,9 @@ class Engine(WorkStages):
                 expected_state=task.state,
                 new_state=TaskState.NEEDS_HUMAN,
                 event=NewEvent(Actor.BOT, EventKind.ERROR, {"reason": "restart"}),
+                report=self._assignment(
+                    task.project, f"작업 #{task.id} {task.title} · 재시작으로 {task.state} 중단"
+                ),
                 updates={"prev_state": task.state},
             )
             await self._say(task, render_notice(NoticeCode.INTERRUPTED), Moment.NEEDS_HUMAN)
@@ -366,6 +384,12 @@ class Engine(WorkStages):
 
         # 포스트 없이 NEEDS_HUMAN에 멈춘 일정 작업(이 수정 전 기록)에 포스트를 열어 준다
         for task in await self._repo.list_tasks({TaskState.NEEDS_HUMAN}):
+            assignment = self._assignment(
+                task.project,
+                f"작업 #{task.id} {task.title} · {task.prev_state or ''} 단계에서 확인 대기",
+            )
+            if assignment:
+                await self._repo.queue_existing_blocker(task.id, assignment)
             if not self._postable(task):
                 await self._say(
                     task,
@@ -559,6 +583,56 @@ class Engine(WorkStages):
             attachments=attachments,
         )
 
+    # 프로젝트 담당자 보고
+
+    def _assignment(self, project: str, subject: str) -> ReportAssignment | None:
+        context = self._projects.get(project)
+        if context is None or context.owner is None:
+            return None
+        lead = self._org.teams[self._org.agents[context.owner].team].lead
+        return ReportAssignment(context.owner, lead, subject)
+
+    async def process_project_reports(self) -> None:
+        """접수된 보고를 처리한다. 실행 중 재시작하면 같은 사건부터 다시 시도한다."""
+        async with self._project_report_lock:
+            for job in await self._repo.pending_project_reports():
+                try:
+                    await self._deliver_project_report(job)
+                except Exception:
+                    log.exception("프로젝트 보고 #%s 처리 실패", job.id)
+                    await self._repo.defer_project_report(
+                        job.id, to_iso(self._clock.now() + timedelta(hours=1))
+                    )
+
+    async def _deliver_project_report(self, job: PendingReport) -> None:
+        evidence = report_facts(await self._repo.project_report_evidence(job))
+        answer = await self.ask_outside_task(
+            job.project,
+            job.owner,
+            Stage.PROJECT_REPORT,
+            lambda persona: project_report_prompt(
+                persona,
+                project=job.project,
+                lead=self._name(job.lead),
+                subject=job.subject,
+                facts=evidence,
+            ),
+            model=ProjectReport,
+            cwd=self._projects[job.project].repo,
+        )
+        if answer.result is None:
+            raise RuntimeError(answer.error or answer.failure)
+        if not await self._repo.deliver_project_report(
+            job.id, answer.result.model_dump(mode="json")
+        ):
+            return
+        # 원본은 팀장 수신함에 있다. 조용한 정기 테스트는 사본을 위해 포스트를 열지 않는다.
+        text = f"{self._name(job.lead)}에게 보고 · {job.subject}\n{answer.result.text()}"
+        if job.task_id is not None:
+            await self._post(await self._repo.get_task(job.task_id), job.owner, text, Moment.NOTICE)
+        else:
+            await self._chat.chat(job.project, job.owner, text)
+
     # 에이전트 호출
 
     def _runner(self, agent: AgentName) -> AgentRunner:
@@ -614,6 +688,19 @@ class Engine(WorkStages):
 
         형식 오류이거나 verify가 문제를 찾으면 그 내용을 붙여 1회 재요청한다 (운영 규약 2.1).
         """
+        inbox = []
+        project = self._projects.get(scope.project)
+        if project and project.owner and agent == self._org.teams["planning"].lead:
+            inbox = await self._repo.project_report_inbox(scope.project, agent)
+            if inbox:
+                lines = [
+                    f"[{self._name(row['owner'])}] {row['subject']}\n"
+                    f"{ProjectReport.model_validate(row['body']).text()}"
+                    for row in inbox
+                ]
+                prompt += "\n\n## 프로젝트 담당자에게 받은 보고 (참고 기록)\n\n" + "\n\n".join(
+                    lines
+                )
         call = dict(model=model, mode=mode, cwd=cwd, context=context, verify=verify)
         answer = await self._attempt(scope, agent, stage, prompt, resume=resume, **call)
         if answer.result is None and not answer.failed_to_run:
@@ -621,6 +708,8 @@ class Engine(WorkStages):
             answer = await self._attempt(
                 scope, agent, stage, retry, resume=answer.session_id or resume, **call
             )
+        if inbox and answer.result is not None:
+            await self._repo.mark_project_reports_read([row["id"] for row in inbox])
         proposal = getattr(answer.result, "hiring_proposal", None)
         if proposal is not None:
             await self._record_hiring(scope, agent, proposal)
@@ -880,7 +969,7 @@ class Engine(WorkStages):
         answers = await asyncio.gather(
             *(self._ask(scope, agent, Stage.OPINION, prompts[agent]) for agent in agents)
         )
-        await self._publish_chat(project, answers, "opinion", heading="")
+        await self._publish_chat(project, answers, "opinion", heading="", question=question or text)
 
     async def debate(self, project: str) -> str:
         """직전에 답한 두 팀장이 상대 답에 반박 1회씩. 안 되면 이유를 돌려준다."""
@@ -914,23 +1003,34 @@ class Engine(WorkStages):
         return ""
 
     async def _publish_chat(
-        self, project: str, answers: Sequence[_Answer[Opinion]], kind: str, *, heading: str
+        self,
+        project: str,
+        answers: Sequence[_Answer[Opinion]],
+        kind: str,
+        *,
+        heading: str,
+        question: str = "",
     ) -> None:
         """답을 의견 담당 순서로 게시하고 기록한다. 마지막 게시에서 멘션한다."""
         order = list(self._roster.opinions) + list(self._org.agent_names)
         ordered = sorted(answers, key=lambda answer: order.index(answer.agent))
-        outgoing = [self._outgoing(project, answer, kind, heading) for answer in ordered]
         mention = should_mention(Moment.OPINIONS_READY)
-        for index, item in enumerate(outgoing):
+        for index, answer in enumerate(ordered):
+            item = self._outgoing(project, answer, kind, heading)
             message_id = await self._chat.chat(
                 project,
                 item.author,
                 item.text,
-                mention=mention and index == len(outgoing) - 1,
+                mention=mention and index == len(ordered) - 1,
                 attachments=item.attachments,
             )
             actor = item.author if item.author != "bot" else Actor.BOT
-            await self._repo.add_chat_turn(project, actor, item.kind, item.payload, message_id)
+            report = None
+            if answer.agent == self._projects[project].owner:
+                report = self._assignment(project, f"담당자 채팅 · {question[:200]}")
+            await self._repo.add_chat_turn(
+                project, actor, item.kind, item.payload, message_id, report=report
+            )
             if item.ops_alert:
                 await self._chat.notify_ops(
                     item.ops_alert, mention=should_mention(Moment.BOT_ERROR)

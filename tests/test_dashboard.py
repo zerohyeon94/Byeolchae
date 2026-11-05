@@ -294,6 +294,7 @@ def test_team_page_shows_status_jobs_and_persona(settings):
     team = replace(
         settings,
         org=org,
+        owners={"orot": "mu"},
         pipelines=default_pipelines(),
         daily_calls={"epsilon": 30},
         now=lambda: T0,
@@ -307,7 +308,8 @@ def test_team_page_shows_status_jobs_and_persona(settings):
     alpha = body[body.index('id="alpha"') : body.index('id="epsilon"')]
     assert "쉬는 중" in alpha and "기능 개발 · 구현 (확인)" in alpha
     assert "# Zeta &lt;성격&gt;" in body  # 인격 파일은 이스케이프해 보인다
-    assert "9명 중 1명이 일하는 중" in body
+    assert "12명 중 1명이 일하는 중" in body
+    assert "orot 담당 · 기획팀장에게 진행·막힘 보고" in body
 
 
 # 교육 커리큘럼 (ADR-009)

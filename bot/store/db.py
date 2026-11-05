@@ -194,7 +194,26 @@ ALTER TABLE study_days ADD COLUMN optional TEXT NOT NULL DEFAULT '';
 ALTER TABLE study_days ADD COLUMN optional_done_at TEXT;
 """
 
-MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8, _V9, _V10)
+# v11: 담당자 보고. 원래 사건과 같은 트랜잭션에서 접수하고 검증된 본문이 생기면 팀장이 읽는다
+_V11 = """
+CREATE TABLE project_reports (
+  id INTEGER PRIMARY KEY,
+  project TEXT NOT NULL,
+  event_id INTEGER UNIQUE REFERENCES events(id),
+  turn_id INTEGER UNIQUE REFERENCES chat_turns(id),
+  owner TEXT NOT NULL,
+  lead TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT,
+  read_at TEXT,
+  retry_at TEXT NOT NULL,
+  CHECK ((event_id IS NULL) <> (turn_id IS NULL))
+);
+CREATE INDEX project_reports_pending ON project_reports(retry_at) WHERE body IS NULL;
+CREATE INDEX project_reports_inbox ON project_reports(project, lead, id) WHERE body IS NOT NULL;
+"""
+
+MIGRATIONS: tuple[str, ...] = (_V1, _V2, _V3, _V4, _V5, _V6, _V7, _V8, _V9, _V10, _V11)
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

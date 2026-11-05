@@ -17,6 +17,7 @@ Mode = Literal["read_only", "write_worktree"]
 
 
 class Stage(StrEnum):
+    PROJECT_REPORT = "project_report"  # 제품 담당자가 기획팀장에게 보내는 보고
     OPINION = "opinion"
     DEBATE = "debate"
     PLAN = "plan"

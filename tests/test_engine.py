@@ -236,7 +236,7 @@ class FakeVault:
 
 
 class Harness:
-    def __init__(self, conn, claude, codex, tmp, tests, org):
+    def __init__(self, conn, claude, codex, tmp, tests, org, owners):
         self.conn = conn
         self.clock = FixedClock(T0)
         self.slept = []
@@ -257,13 +257,15 @@ class Harness:
             self.chat,
             {"claude": claude, "codex": codex},
             {
-                P: ProjectContext(
+                project: ProjectContext(
+                    owner=owner,
                     repo=REPO,
                     test_command=("xcodebuild", "test"),
                     github=self.github,
                     feature_dir=self.root / "기능",
                     vault_hub="가게씨.md",
                 )
+                for project, owner in (owners or {P: None}).items()
             },
             timeout_sec=60,
             org=org,
@@ -294,7 +296,7 @@ class Harness:
         return await self.task(task_id)
 
 
-def scenario(claude=(), codex=(), tests=(), org=TEST_ORG):
+def scenario(claude=(), codex=(), tests=(), org=TEST_ORG, owners=None):
     """응답 목록으로 Harness를 만들어 시나리오 함수를 바로 실행한다."""
 
     def wrap(body):
@@ -309,6 +311,7 @@ def scenario(claude=(), codex=(), tests=(), org=TEST_ORG):
                         Path(tmp),
                         FakeTests(tests),
                         org,
+                        owners,
                     )
                     return await body(h)
                 finally:
@@ -902,3 +905,119 @@ def test_legacy_task_resumes_with_new_roles():
         assert task.state is TaskState.AWAIT_MERGE
         assert h.codex.requests[0].stage is Stage.REVIEW
         assert "Delta · QA팀장" in h.codex.requests[0].prompt
+
+
+PROJECT_OWNERS = {"gagaessi": "kappa", "jday": "lambda", "orot": "mu"}
+
+
+def owner_reply(done, blockers=()):
+    return json.dumps(
+        {"done": [done], "blockers": list(blockers), "next_step": "다음 회의에서 확인한다"}
+    )
+
+
+def test_owners_report_their_own_chat_to_beta_and_projects_stay_separate():
+    @scenario(owners=PROJECT_OWNERS)
+    async def _(h):
+        for project, owner in PROJECT_OWNERS.items():
+            h.claude.add_response(opinion(f"{project} 검토 결과"))
+            await h.engine.on_chat(project, f"@{owner} 개선 후보를 살펴봐")
+        for project in PROJECT_OWNERS:
+            h.claude.add_response(owner_reply(f"{project} 후보를 정리했다"))
+        await asyncio.gather(h.engine.process_project_reports(), h.engine.process_project_reports())
+        reports = h.claude.requests[3:]
+        assert len(reports) == 3
+        for (project, owner), request in zip(PROJECT_OWNERS.items(), reports, strict=True):
+            assert request.stage is Stage.PROJECT_REPORT and request.mode == "read_only"
+            assert f"-{owner}-" in request.run_id and "Beta · 기획팀장" in request.prompt
+            assert f"{project} 검토 결과" in request.prompt
+            (receipt,) = await h.repo.project_report_inbox(project, "beta")
+            assert receipt["owner"] == owner and receipt["body"]["done"] == [
+                f"{project} 후보를 정리했다"
+            ]
+            assert not await h.repo.project_report_inbox(project, "alpha")
+        h.claude.add_response(opinion("검토했다"))
+        await h.engine.on_chat("orot", "@beta 어떤 보고가 왔어?")
+        prompt = h.claude.requests[-1].prompt
+        assert "orot 후보를 정리했다" in prompt and "jday 후보를 정리했다" not in prompt
+        assert all(not c.mention for c in h.chat.chats if "에게 보고" in c.text)
+
+
+def test_done_is_reported_once_even_if_worker_runs_again_after_recovery():
+    @scenario(owners={P: "kappa"}, claude=[owner_reply("정기 테스트 통과를 확인했다")])
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        assert task.state is TaskState.DONE
+        await h.engine.recover_interrupted()
+        await h.engine.process_project_reports()
+        await h.engine.recover_interrupted()
+        await h.engine.process_project_reports()
+        assert len(h.claude.requests) == 1
+        assert '"passed": true' in h.claude.requests[0].prompt
+        assert len(await h.repo.project_report_inbox(P, "beta")) == 1
+        assert h.chat.created == [] and h.chat.posts == []
+
+
+def test_blocked_report_retries_independently_and_keeps_original_evidence():
+    @scenario(owners={P: "kappa"}, tests=[make_report(False, ["출시 점검"])])
+    async def _(h):
+        await h.engine.task_from_chat(P, "/release", "1.0")
+        task = await h.task()
+        assert task.state is TaskState.NEEDS_HUMAN
+        await h.repo.add_event(
+            task.id, NewEvent(Actor.ZERO, EventKind.MESSAGE, {"text": "뒤늦은 의견"})
+        )
+        h.claude.add_response(failed())
+        await h.engine.process_project_reports()
+        assert not await h.repo.project_report_inbox(P, "beta")
+        await h.engine.process_project_reports()
+        assert len(h.claude.requests) == 1
+        h.clock.advance(timedelta(hours=1))
+        h.claude.add_response(owner_reply("출시 점검을 확인했다", ["테스트 실패"]))
+        await h.engine.process_project_reports()
+        assert (await h.task()).state is TaskState.NEEDS_HUMAN
+        assert "테스트가 실패했다" in h.claude.requests[-1].prompt
+        assert "뒤늦은 의견" not in h.claude.requests[-1].prompt
+        assert "막힌 점: 테스트 실패" in h.chat.posts[-1].text and not h.chat.posts[-1].mention
+        h.claude.add_response(owner_reply("중지를 확인했다"))
+        await h.command(CommandName.STOP)
+        await h.command(CommandName.STOP)
+        await h.engine.process_project_reports()
+        assert len(await h.repo.project_report_inbox(P, "beta")) == 2
+
+
+def test_restart_queues_a_single_report_for_an_interrupted_stage():
+    @scenario(owners={P: "kappa"}, claude=[owner_reply("재시작 기록을 확인했다", ["구현 중단"])])
+    async def _(h):
+        await h.repo.create_task(
+            project=P,
+            discord_thread="thread",
+            title="복구",
+            pipeline="feature",
+            state=TaskState.IMPLEMENTING,
+            event=NewEvent(Actor.ZERO, EventKind.DECISION, {"text": "복구"}),
+        )
+        await h.engine.recover_interrupted()
+        await h.engine.recover_interrupted()
+        await h.engine.process_project_reports()
+        (receipt,) = await h.repo.project_report_inbox(P, "beta")
+        assert "재시작" in receipt["subject"] and "IMPLEMENTING" in receipt["subject"]
+
+
+def test_new_owner_picks_up_an_existing_blocker_once():
+    @scenario(owners={P: "kappa"}, claude=[owner_reply("기존 기록을 확인했다", ["빌드 실패"])])
+    async def _(h):
+        task = await h.repo.create_task(
+            project=P,
+            discord_thread="thread",
+            title="출시",
+            state=TaskState.NEEDS_HUMAN,
+            updates={"prev_state": TaskState.TESTING},
+            event=NewEvent(Actor.BOT, EventKind.ERROR, {"reason": "빌드 실패"}),
+        )
+        await h.engine.recover_interrupted()
+        await h.engine.process_project_reports()
+        await h.engine.on_message(task.discord_thread, "나중에 재개")
+        await h.engine.recover_interrupted()
+        assert await h.repo.pending_project_reports() == []
+        assert "빌드 실패" in h.claude.requests[0].prompt

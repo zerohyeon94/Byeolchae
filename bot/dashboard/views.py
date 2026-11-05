@@ -55,6 +55,7 @@ STAGE_LABELS = {
     "concept_note": "개념 노트",
     "weekly_quiz": "주간 문제",
     "secretary_daily": "하루 정리",
+    "project_report": "프로젝트 담당 보고",
 }
 KIND_LABELS = {
     "message": "메시지",
@@ -631,10 +632,14 @@ def _elapsed(since: str, now: datetime) -> str:
 
 
 def assignments(
-    pipelines: Mapping[str, Pipeline], education: str | None = None
+    pipelines: Mapping[str, Pipeline],
+    education: str | None = None,
+    owners: Mapping[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """에이전트별로 맡은 흐름 단계. 팀장 확인은 `(확인)`을 붙인다."""
     jobs: dict[str, list[str]] = {}
+    for project, owner in (owners or {}).items():
+        jobs.setdefault(owner, []).append(f"{project} 담당 · 기획팀장에게 진행·막힘 보고")
     if education is not None:
         jobs[education] = ["교육 · 매일 Daily 개념 노트"]
     for pipeline in pipelines.values():

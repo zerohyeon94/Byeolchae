@@ -182,6 +182,9 @@ class Pipeline(_Model):
 
     # 조회
 
+    def scheduled_for(self, *, has_test: bool) -> bool:
+        return "schedule" in self.triggers and (has_test or self.first_of(StageKind.TEST) is None)
+
     def index(self, stage_id: str) -> int:
         for i, stage in enumerate(self.stages):
             if stage.id == stage_id:

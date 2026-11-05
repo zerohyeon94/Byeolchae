@@ -54,6 +54,9 @@ def test_default_org_is_product_education_and_secretary_departments():
         "Eta · 교육팀장",
         "Iota · 교육팀원",
         "Theta · 비서팀장",
+        "Kappa · 기획팀원",
+        "Lambda · 기획팀원",
+        "Mu · 기획팀원",
     ]
     assert org.teams["education"].department == "education"
     assert org.teams["secretary"].department == "secretary"

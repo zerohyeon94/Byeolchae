@@ -33,6 +33,7 @@ def scheduled_jobs(
     pipelines: Mapping[str, Pipeline],
     projects: Iterable[str],
     *,
+    without_test: frozenset[str] = frozenset(),
     education: tuple[str, str] | None = None,  # (매일, 주간) cron
     secretary: str | None = None,  # 저녁 cron
 ) -> list[ScheduledJob]:
@@ -49,6 +50,8 @@ def scheduled_jobs(
         if pipeline.schedule is None or "schedule" not in pipeline.triggers:
             continue
         for project in projects:
+            if not pipeline.scheduled_for(has_test=project not in without_test):
+                continue
             jobs.append(
                 ScheduledJob(f"{project}:{key}", f"{pipeline.name} · {project}", pipeline.schedule)
             )
