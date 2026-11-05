@@ -161,15 +161,17 @@ def review_reply(required=0):
     )
 
 
-def diagnosis_reply(with_change=True):
+def diagnosis_reply(with_change=True, *, action=None, cause="test"):
     data = {
         "summary": "날짜 의존 테스트",
         "reproduction": ["토요일 다음 날 실행"],
-        "cause": "test",
+        "cause": cause,
         "evidence": ["Tests.swift:10"],
         "fix_direction": "기준 날짜를 고정한다",
         "confidence": "high",
     }
+    if action is not None:
+        data["action"] = action
     if with_change:
         data |= {**CHANGE, "change_type": "bug_fix", "slug": "date-fix", "title": "날짜 고정"}
     return json.dumps(data, ensure_ascii=False)
@@ -630,39 +632,118 @@ def test_nightly_test_pass_is_silent():
         assert task.discord_thread.startswith("sched:")
 
 
-def test_nightly_test_failure_is_diagnosed_and_reported():
-    @scenario(claude=[diagnosis_reply(with_change=False)], codex=[review_reply()],
-              tests=[make_report(False, ["T"])])  # fmt: skip
+def nightly_reply(action="report", cause="test"):
+    return diagnosis_reply(with_change=False, action=action, cause=cause)
+
+
+async def report_payload(h, task_id=1):
+    (event,) = await h.repo.list_events(task_id, {EventKind.REPORT})
+    return event.payload
+
+
+def test_nightly_failure_is_retried_diagnosed_and_reported():
+    @scenario(claude=[nightly_reply()], codex=[review_reply()],
+              tests=[make_report(False, ["T"]), make_report(False, ["T"])])  # fmt: skip
     async def _(h):
         task = await h.engine.start_scheduled(P, "nightly-test")
         assert task.state is TaskState.DONE
+        assert len(h.tests.runs) == 2  # 진단 전에 한 번 더 돌린다
         (created,) = h.chat.created
-        assert created[0] == P
+        assert created[0] == P and "정기 테스트: 테스트 결함" in created[1]
+        assert "무엇이 문제인가" in created[2] and "무엇을 개선해야 하나" in created[2]
+        assert "/task bug" in created[2]
         assert task.discord_thread == "thread-gagaessi-1"
-        assert h.chat.posts and h.chat.posts[-1].thread == "thread-gagaessi-1"
+        mentions = [post for post in h.chat.posts if post.mention]
+        assert [post.thread for post in mentions] == [task.discord_thread]
+        payload = await report_payload(h)
+        assert payload["outcome"] == "posted" and payload["signature"] == "tests:T"
+
+
+def test_nightly_flaky_failure_is_recorded_without_post():
+    @scenario(tests=[make_report(False, ["T"]), make_report()])
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        assert task.state is TaskState.DONE
+        assert h.chat.created == [] and h.chat.posts == []
+        assert h.claude.requests == []
+        assert (await report_payload(h))["outcome"] == "flaky"
+
+
+def test_nightly_no_action_needed_is_recorded_without_post():
+    @scenario(claude=[nightly_reply("none")], codex=[review_reply()],
+              tests=[make_report(False, ["T"]), make_report(False, ["T"])])  # fmt: skip
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        assert task.state is TaskState.DONE
+        assert h.chat.created == []
+        assert (await report_payload(h))["outcome"] == "quiet"
+
+
+def test_nightly_diagnosis_must_decide_action():
+    @scenario(claude=[nightly_reply(None), nightly_reply()], codex=[review_reply()],
+              tests=[make_report(False, ["T"]), make_report(False, ["T"])])  # fmt: skip
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        assert task.state is TaskState.DONE
+        assert len(h.claude.requests) == 2
+        assert "action" in h.claude.requests[1].prompt
+        (check,) = h.codex.requests  # Delta가 판정까지 확인한다
+        assert "정기 테스트 판정: 개선 필요" in check.prompt
+        assert len(h.chat.created) == 1
 
 
 def no_device():
     return TestReport(
-        status=RunStatus.ERROR, exit_code=70, total=None, failures=None, log_path="runs/t.log"
+        status=RunStatus.ERROR,
+        exit_code=70,
+        total=None,
+        failures=None,
+        errors=["xcodebuild: error: Unable to find a device matching the provided destination"],
+        log_path="runs/t.log",
     )
 
 
-def test_nightly_environment_error_opens_post_to_resume():
-    """시뮬레이터가 없어 멈춘 정기 테스트도 포스트가 있어야 /resume, /stop을 쓸 수 있다."""
+def test_nightly_environment_error_is_diagnosed_and_reported():
+    """시뮬레이터가 없어 테스트를 못 돌려도 멈추지 않고, 원인을 진단해 보고한다."""
 
-    @scenario(tests=[no_device(), make_report()])
+    @scenario(claude=[nightly_reply(cause="environment")], codex=[review_reply()],
+              tests=[no_device(), no_device()])  # fmt: skip
     async def _(h):
         task = await h.engine.start_scheduled(P, "nightly-test")
-        assert task.state is TaskState.NEEDS_HUMAN
-        (created,) = h.chat.created
-        assert created[0] == P and "확인 필요" in created[1]
-        assert task.discord_thread == "thread-gagaessi-1"
-        notice = h.chat.posts[-1]
-        assert notice.thread == task.discord_thread and notice.mention and "/resume" in notice.text
-        task = await h.command(CommandName.RESUME)
         assert task.state is TaskState.DONE
+        assert "environment_error" in task.flag_set
+        (request,) = h.claude.requests
+        assert request.stage is Stage.DIAGNOSE and "전체 로그: `runs/t.log`" in request.prompt
+        (created,) = h.chat.created
+        assert "환경 문제" in created[1] and "실행 환경 문제" in created[2]
+        assert "Unable to find a device" in created[2]
+
+
+def test_nightly_same_failure_appends_to_previous_post():
+    @scenario(claude=[nightly_reply()], codex=[review_reply()],
+              tests=[make_report(False, ["T"])] * 4)  # fmt: skip
+    async def _(h):
+        await h.engine.start_scheduled(P, "nightly-test")
+        h.clock.advance(timedelta(days=1))
+        second = await h.engine.start_scheduled(P, "nightly-test")
+        assert second.state is TaskState.DONE
+        assert len(h.claude.requests) == 1  # 같은 실패는 다시 진단하지 않는다
         assert len(h.chat.created) == 1
+        appended = h.chat.posts[-1]
+        assert appended.thread == "thread-gagaessi-1" and not appended.mention
+        assert "같은 문제" in appended.text
+        payload = await report_payload(h, second.id)
+        assert payload["outcome"] == "appended" and payload["thread"] == "thread-gagaessi-1"
+
+
+def test_nightly_different_failure_opens_new_post():
+    @scenario(claude=[nightly_reply(), nightly_reply()], codex=[review_reply(), review_reply()],
+              tests=[make_report(False, ["T"])] * 2 + [make_report(False, ["U"])] * 2)  # fmt: skip
+    async def _(h):
+        await h.engine.start_scheduled(P, "nightly-test")
+        h.clock.advance(timedelta(days=1))
+        await h.engine.start_scheduled(P, "nightly-test")
+        assert len(h.claude.requests) == 2 and len(h.chat.created) == 2
 
 
 def test_restart_opens_post_for_scheduled_task_stuck_without_one():

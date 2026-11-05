@@ -100,10 +100,21 @@ class Confidence(StrEnum):
         return {"high": "높음", "medium": "보통", "low": "낮음"}[self.value]
 
 
+class ReportAction(StrEnum):
+    """정기 테스트 실패를 Zero에게 보고할지 (2026-11-05 Zero 결정)."""
+
+    REPORT = "report"  # 개선이 필요하다
+    NONE = "none"  # 개선할 것이 없다
+
+    @property
+    def label(self) -> str:
+        return {"report": "개선 필요", "none": "개선 불필요"}[self.value]
+
+
 class DiagnosisReport(BaseModel):
     """진단 보고 (QA팀, 읽기 전용). 버그 수정에서는 수정 방향 승인으로 변경 필드가 함께 승인된다.
 
-    정기 테스트 실패 보고에서는 변경 필드를 비워도 된다(null).
+    정기 테스트 실패 보고에서는 변경 필드를 비워도 된다(null). 대신 개선 필요 여부(action)를 정한다.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -120,6 +131,7 @@ class DiagnosisReport(BaseModel):
     title: Title | None = None
     scope: Scope | None = None
     hiring_proposal: HiringProposal | None = None
+    action: ReportAction | None = None  # 정기 테스트에서만 쓴다
 
     def change(self, info_context: dict | None = None) -> ChangeSummary | None:
         """변경 필드가 모두 있으면 ChangeSummary로. 하나라도 없으면 None."""

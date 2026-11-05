@@ -236,13 +236,33 @@ def test_release_flow():
 def test_nightly_test_reports_only_failures():
     passed = step(TaskState.TESTING, TestsFinished(True), NIGHTLY)
     assert passed.state is TaskState.REPORTING  # 진단은 건너뛰고 보고 단계가 조용히 끝낸다
-    failed = step(TaskState.TESTING, TestsFinished(False), NIGHTLY)
+    retried = step(TaskState.TESTING, TestsFinished(False), NIGHTLY)
+    assert retried.state is TaskState.TESTING  # 진단 전에 한 번 더 돌린다
+    assert (retried.effects, retried.updates) == ((RunTests("test"),), {"test_retry": 1})
+    failed = step(TaskState.TESTING, TestsFinished(False), NIGHTLY, test_retry=1)
     assert failed.state is TaskState.DIAGNOSING
     assert failed.updates == {"flags": "test_failed"}
     diagnosed = step(TaskState.DIAGNOSING, StageSucceeded(), NIGHTLY, flags="test_failed")
     assert diagnosed.state is TaskState.REPORTING
     reported = step(TaskState.REPORTING, StageSucceeded(), NIGHTLY, flags="test_failed")
     assert reported.state is TaskState.DONE
+
+
+def test_nightly_flaky_pass_is_flagged():
+    passed = step(TaskState.TESTING, TestsFinished(True), NIGHTLY, test_retry=1)
+    assert passed.state is TaskState.REPORTING
+    assert passed.updates == {"flags": "test_flaky"}
+
+
+def test_nightly_environment_error_is_diagnosed_not_needs_human():
+    env = TestsFinished(False, environment_error=True, detail="no device")
+    retried = step(TaskState.TESTING, env, NIGHTLY)
+    assert retried.state is TaskState.TESTING
+    failed = step(TaskState.TESTING, env, NIGHTLY, test_retry=1)
+    assert failed.state is TaskState.DIAGNOSING
+    assert failed.updates == {"flags": "environment_error,test_failed"}
+    # 출시 점검은 그대로 Zero가 환경을 고친 뒤 /resume한다
+    assert step(TaskState.TESTING, env, RELEASE).state is TaskState.NEEDS_HUMAN
 
 
 # 공통 규칙

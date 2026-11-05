@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from bot.schemas import (
+    CauseClass,
     DesignSummary,
     DiagnosisReport,
     DocSyncProposal,
@@ -143,6 +144,36 @@ def render_diagnosis(report: DiagnosisReport) -> str:
             f"변경 유형: {change.change_type.label} · 대상 기능: {change.target_feature}"
             f" · 제목: {change.conventional_title}",
         ]
+    return "\n".join(lines)
+
+
+def render_nightly_report(diagnosis: DiagnosisReport | None, tests: TestReport | None) -> str:
+    """정기 테스트 보고 포스트: 무엇이 문제인지, 무엇을 개선해야 하는지, 다음 행동 (2026-11-05)."""
+    lines: list[str] = []
+    environment = False
+    if diagnosis is not None:
+        environment = diagnosis.cause is CauseClass.ENVIRONMENT
+        lines += [
+            f"**무엇이 문제인가** — {diagnosis.cause.label} (확신도 {diagnosis.confidence.label})",
+            diagnosis.summary,
+            "",
+            "**무엇을 개선해야 하나**",
+            diagnosis.fix_direction,
+            "",
+            "근거",
+            *_bullets(diagnosis.evidence),
+            "",
+        ]
+    if environment:
+        step = (
+            "코드가 아니라 이 맥의 실행 환경 문제다. 환경을 고치면 다음 정기 테스트에서 확인된다."
+        )
+    else:
+        step = "수정하려면 제품 채팅 채널에서 `/task bug <제목>`으로 시작한다."
+    lines += [f"**다음 행동**: {step}", "같은 문제가 이어지면 이 포스트에 날짜만 덧붙인다.", ""]
+    lines.append(render_test_report(tests) if tests else "테스트 결과 없음")
+    if tests is not None and tests.log_path:
+        lines.append(f"전체 로그: `{tests.log_path}`")
     return "\n".join(lines)
 
 

@@ -62,6 +62,15 @@ class TestReport:
             return False
         return not any(_SOURCE_ERROR.match(error) for error in self.errors)
 
+    @property
+    def signature(self) -> str:
+        """같은 실패인지 가리는 값: 실패한 테스트 이름들, 없으면 첫 오류 줄. 통과면 빈 문자열."""
+        if self.passed:
+            return ""
+        if self.failed_tests:
+            return "tests:" + "|".join(sorted(self.failed_tests))
+        return "error:" + (self.errors[0].strip() if self.errors else self.status.value)
+
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "TestReport":
         names = {name for name in cls.__dataclass_fields__}

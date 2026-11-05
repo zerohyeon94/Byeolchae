@@ -50,6 +50,7 @@ from bot.render.work import (
     render_implementation,
     render_issue_body,
     render_lead_check,
+    render_nightly_report,
     render_plan,
     render_pr_body,
     render_release_prep,
@@ -68,6 +69,7 @@ from bot.schemas import (
     ImplementationReport,
     PlanSummary,
     ReleasePrep,
+    ReportAction,
     Review,
     UiDesignSummary,
 )
@@ -531,6 +533,10 @@ class WorkStages:
     # 진단 (QA팀, 읽기 전용)
 
     async def _diagnose(self, task_id: int, stage: StageDecl, revision: str) -> Outcome:
+        if not revision:
+            repeat = await self._repeat_diagnosis(task_id, stage)
+            if repeat is not None:
+                return repeat
         note = f"Zero의 수정 요청: {revision}" if revision else ""
         outcome = await self._diagnose_once(task_id, stage, note, revision)
 
@@ -545,20 +551,63 @@ class WorkStages:
             task_id, stage, "진단", outcome, subject, again, approve_hint=DIAGNOSIS_HINT
         )
 
+    def _needs_change(self, task: TaskRecord, stage: StageDecl) -> bool:
+        """진단 뒤에 구현이 있는가. 없으면 실패를 보고만 하는 흐름(정기 테스트)이다."""
+        pipeline = self._pipe(task)
+        implement = pipeline.first_of(StageKind.IMPLEMENT)
+        return implement is not None and pipeline.index(implement.id) > pipeline.index(stage.id)
+
+    async def _previous_report(self, task: TaskRecord) -> tuple[int, dict[str, Any]] | None:
+        """같은 제품·같은 흐름의 직전 작업이 남긴 보고 (정기 테스트 묶기)."""
+        earlier = [
+            t
+            for t in await self._repo.list_tasks()
+            if t.project == task.project and t.pipeline == task.pipeline and t.id < task.id
+        ]
+        for previous in sorted(earlier, key=lambda t: t.id, reverse=True):
+            payload = await self._latest(previous.id, EventKind.REPORT)
+            if payload is not None:
+                return previous.id, payload
+        return None
+
+    async def _repeat_diagnosis(self, task_id: int, stage: StageDecl) -> Outcome | None:
+        """직전 정기 테스트와 같은 실패면 다시 진단하지 않고 그 진단을 이어 쓴다."""
+        task = await self._repo.get_task(task_id)
+        if self._needs_change(task, stage):
+            return None
+        tests = await self._latest_tests(task_id)
+        previous = await self._previous_report(task)
+        if tests is None or previous is None:
+            return None
+        previous_id, report = previous
+        if not tests.signature or report.get("signature") != tests.signature:
+            return None
+        diagnosis = await self._latest(previous_id, EventKind.DIAGNOSIS)
+        if diagnosis is None:
+            return None
+        payload = {
+            "report": diagnosis["report"],
+            "revision": "",
+            "repeat_of": previous_id,
+            "thread": report.get("thread"),
+        }
+        return StageSucceeded(), NewEvent(Actor.BOT, EventKind.DIAGNOSIS, payload)
+
     async def _diagnose_once(
         self, task_id: int, stage: StageDecl, note: str, revision: str
     ) -> Outcome:
         """진단 1회. note는 Zero의 수정 요청이나 팀장 확인 지적이다."""
         task = await self._repo.get_task(task_id)
-        pipeline = self._pipe(task)
-        implement = pipeline.first_of(StageKind.IMPLEMENT)
-        here = pipeline.index(stage.id)
-        needs_change = implement is not None and pipeline.index(implement.id) > here
+        needs_change = self._needs_change(task, stage)
         context, features = self._context(task)
         tests = await self._latest_tests(task_id)
 
         async def verify(report: DiagnosisReport) -> list[str]:
             if not needs_change:
+                if report.action is None:
+                    return [
+                        "정기 테스트 진단은 개선이 필요한지 action(report | none)을 정해야 한다"
+                    ]
                 return []
             names = {FEATURE_NAMES: context[FEATURE_NAMES]} if FEATURE_NAMES in context else None
             try:
@@ -581,7 +630,7 @@ class WorkStages:
             await self._persona(agent),
             title=task.title,
             decision=decision,
-            tests=render_test_report(tests) if tests else "",
+            tests=self._tests_text(tests, with_log=not needs_change),
             features=features,
             needs_change=needs_change,
         )
@@ -1127,23 +1176,55 @@ class WorkStages:
             )
         await self._say(task, f"볼트에 반영했다: {', '.join(written)}")
 
-    # 정기 테스트 보고
+    @staticmethod
+    def _tests_text(tests: TestReport | None, *, with_log: bool = False) -> str:
+        if tests is None:
+            return ""
+        text = render_test_report(tests)
+        if with_log and tests.log_path:
+            text += f"\n\n전체 로그: `{tests.log_path}`"
+        return text
+
+    # 정기 테스트 보고 (2026-11-05 Zero 결정)
 
     async def _report(self, task_id: int, stage: StageDecl, revision: str) -> Outcome:
-        """정기 테스트가 실패했을 때만 포럼에 보고 포스트를 연다. 통과면 조용히 끝낸다."""
+        """개선이 필요한 실패만 포럼에 보고한다.
+
+        통과·일시적 실패·개선 불필요는 기록만 남긴다(아침 보고에 한 줄). 직전과 같은 실패면
+        새 포스트를 열지 않고 그 포스트에 날짜를 덧붙인다.
+        """
         task = await self._repo.get_task(task_id)
-        if "test_failed" not in task.flag_set:
-            return StageSucceeded(), NewEvent(Actor.BOT, EventKind.REPORT, {"posted": False})
         tests = await self._latest_tests(task_id)
-        diagnosis = await self._diagnosis(task_id)
-        body = render_test_report(tests) if tests else "테스트 결과 없음"
-        if diagnosis is not None:
-            body += "\n\n" + render_diagnosis(diagnosis)
-        body += "\n\n수정하려면 제품 채팅 채널에서 `/task bug <제목>`으로 시작한다."
-        task = await self._open_post(task, f"{task.title} 실패", body)
-        await self._say(task, "정기 테스트가 실패했다. 확인이 필요하다.", Moment.DESIGN_READY)
-        payload = {"posted": True, "thread": task.discord_thread}
-        return StageSucceeded(), NewEvent(Actor.BOT, EventKind.REPORT, payload)
+        signature = tests.signature if tests else ""
+
+        def done(outcome: str, thread: str | None = None) -> Outcome:
+            payload = {
+                "posted": outcome == "posted",
+                "outcome": outcome,
+                "thread": thread,
+                "signature": signature,
+            }
+            return StageSucceeded(), NewEvent(Actor.BOT, EventKind.REPORT, payload)
+
+        if "test_failed" not in task.flag_set:
+            return done("flaky" if "test_flaky" in task.flag_set else "passed")
+        found = await self._latest(task_id, EventKind.DIAGNOSIS)
+        diagnosis = DiagnosisReport.model_validate(found["report"]) if found else None
+        if found and found.get("repeat_of") is not None:
+            thread = found.get("thread")
+            if not thread:
+                return done("quiet")  # 직전에도 개선 불필요로 본 같은 실패
+            day = self._clock.now().astimezone().strftime("%m-%d")
+            await self._chat.post(
+                thread, "bot", f"{day} 정기 테스트에서도 같은 문제로 실패했다.", mention=False
+            )
+            return done("appended", thread)
+        if diagnosis is not None and diagnosis.action is ReportAction.NONE:
+            return done("quiet")
+        title = f"{task.title}: {diagnosis.cause.label}" if diagnosis else f"{task.title} 실패"
+        task = await self._open_post(task, title, render_nightly_report(diagnosis, tests))
+        await self._say(task, "정기 테스트에서 개선이 필요한 문제를 찾았다.", Moment.DESIGN_READY)
+        return done("posted", task.discord_thread)
 
     # NEEDS_HUMAN, merge, 끝, 중지
 
