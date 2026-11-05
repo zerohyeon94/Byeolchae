@@ -93,6 +93,8 @@ def _route(
                 now=now,
             )
         )
+    if len(parts) == 2 and parts[0] == "team":
+        return _member(settings, conn, parts[1], params.get("status", ""))
     if parts == ["education"]:
         return _education(settings, conn)
     if parts == ["features"]:
@@ -166,6 +168,36 @@ def _route(
     if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
         return _log(settings, conn, parts[1])
     return _not_found("없는 주소다")
+
+
+def _member(
+    settings: DashboardSettings, conn: sqlite3.Connection, agent: str, status: str
+) -> Response:
+    if agent not in settings.org.agents:
+        return _not_found("없는 직원이다")
+    now = settings.now()
+    today = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    activity = queries.agent_activity(
+        conn,
+        [agent],
+        today_start=today.astimezone(UTC).isoformat(),
+        week_start=(today - timedelta(days=7)).astimezone(UTC).isoformat(),
+    )
+    jobs = views.assignments(settings.pipelines, settings.education_agent)
+    return _ok(
+        views.member_page(
+            settings.org,
+            agent,
+            activity.get(agent),
+            jobs.get(agent, []),
+            queries.agent_work(conn, agent),
+            queries.list_runs(conn, agent=agent, status=status or None, limit=RUN_LIMIT),
+            daily_calls=settings.daily_calls,
+            now=now,
+            status=status,
+            limit=RUN_LIMIT,
+        )
+    )
 
 
 def _education(settings: DashboardSettings, conn: sqlite3.Connection) -> Response:

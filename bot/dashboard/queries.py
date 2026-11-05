@@ -74,9 +74,9 @@ class EventRow:
 @dataclass(frozen=True)
 class RunRow:
     id: str
-    task_id: int
-    project: str
-    title: str
+    task_id: int | None  # 채팅 의견·교육·비서 실행은 작업이 없다
+    project: str | None
+    title: str | None
     agent: str
     stage: str
     status: str
@@ -184,7 +184,7 @@ def task_events(conn: sqlite3.Connection, task_id: int) -> list[EventRow]:
 
 _RUN_SELECT = (
     f"SELECT r.*, t.project, t.title, {_DURATION} AS duration_sec "
-    "FROM agent_runs r JOIN tasks t ON t.id = r.task_id"
+    "FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id"
 )
 
 
@@ -217,6 +217,52 @@ def list_runs(
     sql = _RUN_SELECT + (" WHERE " + " AND ".join(where) if where else "")
     sql += " ORDER BY r.started_at DESC, r.id LIMIT ?"
     return [_run(row) for row in conn.execute(sql, [*params, limit])]
+
+
+@dataclass(frozen=True)
+class AgentTask:
+    task_id: int
+    project: str
+    title: str
+    state: str
+    runs: int
+    last_at: str
+
+
+@dataclass(frozen=True)
+class AgentWork:
+    """직원 한 명이 한 일 전체: 단계·결과별 실행 수와 맡았던 작업."""
+
+    by_stage: dict[str, dict[str, int]]
+    tasks: list[AgentTask]
+    taskless: int  # 작업 없이 한 실행 (채팅 의견, 교육, 비서)
+
+    @property
+    def total(self) -> int:
+        return sum(sum(by.values()) for by in self.by_stage.values())
+
+
+def agent_work(conn: sqlite3.Connection, agent: str) -> AgentWork:
+    by_stage: dict[str, dict[str, int]] = {}
+    taskless = 0
+    for row in conn.execute(
+        "SELECT stage, status, task_id IS NULL AS taskless, COUNT(*) AS n FROM agent_runs "
+        "WHERE agent = ? GROUP BY 1, 2, 3",
+        (agent,),
+    ):
+        stage = by_stage.setdefault(row["stage"], {})
+        stage[row["status"]] = stage.get(row["status"], 0) + row["n"]
+        taskless += row["n"] if row["taskless"] else 0
+    tasks = [
+        AgentTask(*tuple(row))
+        for row in conn.execute(
+            "SELECT t.id, t.project, t.title, t.state, COUNT(*), MAX(r.started_at) "
+            "FROM agent_runs r JOIN tasks t ON t.id = r.task_id WHERE r.agent = ? "
+            "GROUP BY t.id ORDER BY MAX(r.started_at) DESC",
+            (agent,),
+        )
+    ]
+    return AgentWork(by_stage, tasks, taskless)
 
 
 def get_run(conn: sqlite3.Connection, run_id: str) -> RunRow | None:
@@ -333,8 +379,8 @@ class WaitingRow:
 
 @dataclass(frozen=True)
 class RunningRow:
-    task_id: int
-    title: str
+    task_id: int | None
+    title: str | None
     agent: str
     stage: str
     started_at: str
@@ -383,7 +429,8 @@ def overview(conn: sqlite3.Connection, *, today_start: str, week_start: str) -> 
         RunningRow(r["task_id"], r["title"], r["agent"], r["stage"], r["started_at"])
         for r in conn.execute(
             "SELECT r.task_id, t.title, r.agent, r.stage, r.started_at FROM agent_runs r "
-            "JOIN tasks t ON t.id = r.task_id WHERE r.status = 'running' ORDER BY r.started_at"
+            "LEFT JOIN tasks t ON t.id = r.task_id WHERE r.status = 'running' "
+            "ORDER BY r.started_at"
         )
     ]
     paused = _optional(conn, "SELECT value FROM bot_state WHERE key = 'queue_paused_until'")

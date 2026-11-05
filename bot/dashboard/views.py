@@ -12,6 +12,7 @@ from urllib.parse import quote, urlencode
 from bot.dashboard.features import COMMANDS, PAGES, SAFEGUARDS, ScheduledJob, cron_label
 from bot.dashboard.queries import (
     AgentActivity,
+    AgentWork,
     EventRow,
     IdeaRow,
     Overview,
@@ -86,25 +87,30 @@ _CSS = """
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg);
   font:14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
-header { display:flex; gap:20px; align-items:baseline; padding:14px 24px;
+header { display:flex; flex-wrap:wrap; gap:6px 18px; align-items:baseline; padding:14px 24px;
   border-bottom:1px solid var(--line); background:var(--card); }
 header strong { font-size:16px; }
-header a { color:var(--muted); text-decoration:none; }
+header a { color:var(--muted); text-decoration:none; white-space:nowrap; }
 header a.on { color:var(--fg); font-weight:600; }
-main { padding:20px 24px; max-width:1200px; }
+main { padding:20px 24px; max-width:1200px; margin:0 auto; }
+.wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 0 4px; }
+.wrap table { min-width:100%; }
 h1 { font-size:20px; margin:0 0 16px; } h2 { font-size:16px; margin:28px 0 10px; }
 a { color:var(--accent); }
 table { border-collapse:collapse; width:100%; background:var(--card);
   border:1px solid var(--line); }
 th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line);
   vertical-align:top; }
-th { color:var(--muted); font-weight:500; font-size:12px; }
-td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+th { color:var(--muted); font-weight:500; font-size:12px; white-space:nowrap; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.nowrap { white-space:nowrap; }
+/* 좁은 화면에서 제목이 한 글자씩 꺾이지 않게 최소 폭을 둔다. 넘치면 표가 가로로 밀린다 */
+a.title { display:inline-block; min-width:14em; }
 .muted { color:var(--muted); } .bad { color:var(--bad); } .ok { color:var(--ok); }
 .warn { color:var(--warn); }
 .cards { display:flex; flex-wrap:wrap; gap:12px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 16px;
-  min-width:220px; }
+  flex:1 1 140px; }
 .card .big { font-size:24px; font-weight:600; }
 .member { background:var(--card); border:1px solid var(--line); border-radius:8px;
   padding:14px 18px; margin:0 0 14px; }
@@ -115,13 +121,21 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
   border:1px solid var(--line); margin-left:6px; }
 .badge.working { color:var(--ok); border-color:var(--ok); }
 details pre { white-space:pre-wrap; }
-form.filters { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+form.filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
 select, button { font:inherit; padding:3px 6px; }
 .event { background:var(--card); border:1px solid var(--line); border-radius:8px;
   padding:10px 14px; margin-bottom:10px; }
 .event .meta { color:var(--muted); font-size:12px; margin-bottom:6px; }
 pre { white-space:pre-wrap; word-break:break-word; margin:0;
   font:13px/1.5 ui-monospace, Menlo, monospace; }
+@media (max-width: 640px) {
+  header { padding:12px 16px; gap:6px 14px; }
+  main { padding:16px; }
+  .member { padding:12px 14px; }
+  .card { padding:10px 12px; } .card .big { font-size:20px; }
+  .member dl { grid-template-columns:1fr; gap:0; }
+  .member dd { margin:0 0 8px; }
+}
 h3 { font-size:14px; margin:18px 0 6px; }
 table.grouped td:first-child, table.grouped td:last-child { white-space:nowrap; }
 .diagram { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px;
@@ -221,7 +235,9 @@ def _table(
     )
     if not body:
         body = f'<tr><td colspan="{len(headers)}" class="muted">기록이 없다</td></tr>'
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    # 넓은 표는 화면 밖으로 넘치지 않고 표 안에서만 가로로 밀린다
+    table = f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    return f'<div class="wrap">{table}</div>'
 
 
 def _filters(
@@ -237,8 +253,19 @@ def _filters(
     return f'<form class="filters" action="{action}">{"".join(parts)}<button>보기</button></form>'
 
 
-def _task_link(task_id: int, title: str) -> str:
-    return f'<a href="/tasks/{task_id}">#{task_id} {_e(title)}</a>'
+def _cards(items: Iterable[tuple[str, str]]) -> str:
+    """숫자 카드 줄. 값은 이미 HTML이다."""
+    cards = "".join(
+        f'<div class="card"><div class="muted">{_e(k)}</div><div class="big">{v}</div></div>'
+        for k, v in items
+    )
+    return f'<div class="cards">{cards}</div>'
+
+
+def _task_link(task_id: int | None, title: str | None) -> str:
+    if task_id is None:
+        return '<span class="muted">작업 없음 (채팅·교육·비서)</span>'
+    return f'<a class="title" href="/tasks/{task_id}">#{task_id} {_e(title)}</a>'
 
 
 # 화면
@@ -577,15 +604,15 @@ def _runs_table(runs: Sequence[RunRow], *, with_task: bool = True) -> str:
     rows = []
     for r in runs:
         log = (
-            f'<a href="/runs/{quote(r.id, safe="")}/log">보기</a>'
+            f'<a class="nowrap" href="/runs/{quote(r.id, safe="")}/log">보기</a>'
             if r.log_path
             else '<span class="muted">-</span>'
         )
         row = [
-            local_time(r.started_at),
-            _name(r.agent),
-            _e(STAGE_LABELS.get(r.stage, r.stage)),
-            _status(r.status),
+            f'<span class="nowrap">{local_time(r.started_at)}</span>',
+            f'<span class="nowrap">{_name(r.agent)}</span>',
+            f'<span class="nowrap">{_e(STAGE_LABELS.get(r.stage, r.stage))}</span>',
+            f'<span class="nowrap">{_status(r.status)}</span>',
             seconds(r.duration_sec),
             _e("-" if r.exit_code is None else r.exit_code),
             log,
@@ -627,7 +654,10 @@ def _member(
     jobs: Sequence[str],
     daily_calls: Mapping[str, int],
     now: datetime,
+    *,
+    link: bool = True,
 ) -> str:
+    """직원 카드. 직원 화면에서는 이름이 그 직원의 한 일 화면(/team/<이름>)으로 간다."""
     spec = org.agents[agent]
     running = activity.running if activity else []
     if running:
@@ -670,11 +700,18 @@ def _member(
         if profile
         else '<p class="muted">인격 파일 없음 (기본 조직)</p>'
     )
-    recent = _runs_table(activity.recent, with_task=True) if activity and activity.recent else ""
     mbti = f" ({_e(spec.mbti)})" if spec.mbti else ""
+    href = f"/team/{quote(agent, safe='')}"
+    title = f'<a href="{href}">{_name(agent)}</a>' if link else _name(agent)
+    more = (
+        f'<p><a href="{href}">한 일 보기 →</a> <span class="muted">단계별 실행, 맡았던 작업, '
+        "실행 기록</span></p>"
+        if link
+        else ""
+    )
     return (
-        f'<section class="member" id="{_e(agent)}"><h3>{_name(agent)}{mbti}{badge}</h3>'
-        f"<dl>{rows}</dl>{persona}{recent}</section>"
+        f'<section class="member" id="{_e(agent)}"><h3>{title}{mbti}{badge}</h3>'
+        f"<dl>{rows}</dl>{persona}{more}</section>"
     )
 
 
@@ -701,6 +738,70 @@ def team_page(
             _member(org, a, activity.get(a), jobs.get(a, []), daily_calls, now) for a in members
         ]
     return page("직원", "".join(parts), active="team")
+
+
+def member_page(
+    org: Org,
+    agent: str,
+    activity: AgentActivity | None,
+    jobs: Sequence[str],
+    work: AgentWork,
+    runs: Sequence[RunRow],
+    *,
+    daily_calls: Mapping[str, int],
+    now: datetime,
+    status: str,
+    limit: int,
+) -> str:
+    """직원 한 명이 한 일: 단계·결과별 실행 수, 맡았던 작업, 실행 기록."""
+    ok = sum(by.get("ok", 0) for by in work.by_stage.values())
+    rate = f"{ok / work.total * 100:.0f}%" if work.total else "-"
+    cards = [
+        ("전체 실행", f"{work.total}회"),
+        ("성공", f"{ok}회 · {rate}"),
+        ("맡았던 작업", f"{len(work.tasks)}개"),
+        ("작업 밖 실행", f"{work.taskless}회"),
+    ]
+    body = [
+        '<p><a href="/team">← 직원</a></p>',
+        _member(org, agent, activity, jobs, daily_calls, now, link=False),
+        _cards((k, _e(v)) for k, v in cards),
+        "<h2>단계별 실행</h2>",
+        _table(
+            ["단계", "실행", "결과별"],
+            (
+                (
+                    _e(STAGE_LABELS.get(stage, stage)),
+                    str(sum(by.values())),
+                    _counts(by, STATUS_LABELS),
+                )
+                for stage, by in sorted(work.by_stage.items(), key=lambda x: -sum(x[1].values()))
+            ),
+            numeric={1},
+        ),
+        "<h2>맡았던 작업</h2>",
+        _table(
+            ["작업", "제품", "상태", "실행", "마지막"],
+            (
+                (
+                    _task_link(t.task_id, t.title),
+                    _e(t.project),
+                    _e(t.state),
+                    str(t.runs),
+                    f'<span class="nowrap">{local_time(t.last_at)}</span>',
+                )
+                for t in work.tasks
+            ),
+            numeric={3},
+        ),
+        f'<h2>실행 기록 <span class="muted">최근 {limit}개까지</span></h2>',
+        _filters(
+            f"/team/{quote(agent, safe='')}",
+            [("status", "결과", list(STATUS_LABELS.items()), status)],
+        ),
+        _runs_table(runs),
+    ]
+    return page(org.display(agent), "".join(body), active="team")
 
 
 def runs_page(
@@ -983,7 +1084,8 @@ def _grouped_table(
             first = f'<td rowspan="{len(rows)}"><strong>{_e(name)}</strong></td>' if i == 0 else ""
             body.append("<tr>" + first + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>")
     rows = "".join(body)
-    return f'<table class="grouped"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>'
+    table = f'<table class="grouped"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>'
+    return f'<div class="wrap">{table}</div>'
 
 
 def features_page(
@@ -1013,12 +1115,7 @@ def features_page(
         "<h1>기능</h1>",
         '<p class="muted">지금 봇에 들어 있는 기능이다. 파이프라인·일정·부서는 봇이 읽는 설정에서 '
         "만들고, 일정의 최근 실행은 DB 기록이다.</p>",
-        '<div class="cards">'
-        + "".join(
-            f'<div class="card"><div class="muted">{_e(k)}</div><div class="big">{v}</div></div>'
-            for k, v in cards
-        )
-        + "</div>",
+        _cards(cards),
     ]
 
     departments = [

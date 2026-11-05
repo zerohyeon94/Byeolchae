@@ -448,3 +448,67 @@ def test_feature_commands_match_discord_client():
     source = Path("bot/discord_io/client.py").read_text(encoding="utf-8")
     registered = set(re.findall(r'tree\.command\(\s*name="([a-z]+)"', source))
     assert registered and {name.lstrip("/") for name, _ in COMMANDS} == registered
+
+
+# 직원별 한 일 (/team/<이름>)
+
+
+def _add_member_runs(settings):
+    async def add():
+        conn = await connect(settings.db)
+        repo = Repository(conn, FixedClock(T0))
+        try:
+            await repo.start_agent_run("r-impl", task_id=1, agent="epsilon", stage=Stage.IMPLEMENT)
+            await repo.finish_agent_run("r-impl", status=RunStatus.OK, exit_code=0, log_path=None)
+            await repo.start_agent_run("r-fix", task_id=1, agent="epsilon", stage=Stage.FIX)
+            await repo.finish_agent_run("r-fix", status=INVALID_OUTPUT, exit_code=0, log_path=None)
+            # 작업 없이 한 실행 (교육 개념 노트)
+            await repo.start_agent_run(
+                "r-note", task_id=None, agent="eta", stage=Stage.CONCEPT_NOTE
+            )
+            await repo.finish_agent_run("r-note", status=RunStatus.OK, exit_code=0, log_path=None)
+        finally:
+            await conn.close()
+
+    asyncio.run(add())
+
+
+def test_team_page_links_to_member_page_without_run_table(settings):
+    from dataclasses import replace
+
+    _add_member_runs(settings)
+    _, body = get(replace(settings, now=lambda: T0), "/team")
+    epsilon = body[body.index('id="epsilon"') : body.index('id="delta"')]
+    assert 'href="/team/epsilon"' in epsilon and "한 일 보기" in epsilon
+    assert "<table" not in epsilon  # 실행 기록은 직원 화면으로 옮겼다
+
+
+def test_member_page_shows_stages_tasks_and_runs(settings):
+    from dataclasses import replace
+
+    _add_member_runs(settings)
+    member = replace(settings, now=lambda: T0)
+    status, body = get(member, "/team/epsilon")
+    assert status is HTTPStatus.OK
+    assert "Epsilon · 개발팀원" in body and 'href="/team"' in body
+    assert "2회" in body and "1회 · 50%" in body  # 전체 실행, 성공률
+    assert "구현" in body and "수정" in body and "형식 오류 1" in body
+    assert "#1 여행 &lt;소비&gt;" in body  # 맡았던 작업 (이스케이프)
+    _, filtered = get(member, "/team/epsilon?status=ok")
+    assert filtered.count("형식 오류</span>") == 0  # 실행 기록 표는 성공만
+
+
+def test_member_page_includes_runs_without_task(settings):
+    from dataclasses import replace
+
+    _add_member_runs(settings)
+    _, body = get(replace(settings, now=lambda: T0), "/team/eta")
+    assert "작업 없음 (채팅·교육·비서)" in body and "개념 노트" in body
+    assert "작업 밖 실행" in body
+    _, runs = get(settings, "/runs")
+    assert "작업 없음 (채팅·교육·비서)" in runs  # 실행 기록 화면에도 보인다
+
+
+def test_unknown_member_is_404(settings):
+    status, _ = get(settings, "/team/nobody")
+    assert status is HTTPStatus.NOT_FOUND
