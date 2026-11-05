@@ -3,7 +3,8 @@
 숫자와 사실(이번 달 진도, 학습, 제품 부서의 단계 변화와 PR, 토큰, 결정할 것)은 봇이 DB와
 로컬 기록, 볼트의 대기열·월별 목표·커리큘럼에서 센다. 비서는 그 사실을 읽고 한 줄 요약만 쓴다.
 모양은 볼트의 `Templates/Daily.md`를 따른다: 머리말 → 오늘 학습 → 오늘 한 일 → 토큰 →
-결정할 것 → 한 줄 요약. iPad에서 위아래로 읽히게 표를 쓰지 않는다.
+이번 주 → 결정할 것 → 한 줄 요약. 이번 주는 월요일부터 그날까지의 누적이다 (2026-11-04 Zero 결정).
+iPad에서 위아래로 읽히게 표를 쓰지 않는다.
 아침에는 교육 노트가 나온 뒤 같은 모양의 아침판(오늘 학습만, 나머지는 저녁에 채움)을 먼저 쓴다.
 Obsidian에서 오늘의 Daily를 열면 개념 노트로 바로 갈 수 있게 하려는 것이다 (2026-11-03 Zero 결정).
 표시는 순수 함수로 두고 단위 테스트로 고정한다.
@@ -79,6 +80,19 @@ class TaskEvent:
 
 
 @dataclass(frozen=True)
+class WeekLine:
+    """이번 주(월요일~그날) 누적. 토큰 합계는 DayFacts.tokens의 week를 쓴다."""
+
+    start: date  # 이번 주 월요일
+    end: date  # 그날
+    study_days: int  # 아침에 개념을 낸 날 수
+    done: int  # 이번 주에 끝낸 개념 수
+    quiz: Score | None  # 이번 주에 올린 개념 노트 문제와 복습 문제의 합. 없으면 None
+    optional_days: int = 0  # 선택 항목이 있던 날 (v10 뒤 기록만)
+    optional_done: int = 0  # 그중 '선택 했음'을 누른 날
+
+
+@dataclass(frozen=True)
 class DayFacts:
     day: date
     study: StudyFact | None
@@ -87,6 +101,7 @@ class DayFacts:
     decisions: list[str]  # "- ..." 없이 한 줄씩
     tokens: list[EngineUsage]
     month: MonthLine | None = None  # 볼트 파일을 못 읽으면 None
+    week: WeekLine | None = None
 
 
 def _percent(value: float | None) -> str:
@@ -166,8 +181,34 @@ def _token_lines(tokens: list[EngineUsage]) -> list[str]:
     ]
 
 
+def _day(day: date) -> str:
+    return f"{day:%m-%d} ({WEEKDAYS[day.weekday()]})"
+
+
+def _week_lines(week: WeekLine | None, tokens: list[EngineUsage]) -> list[str]:
+    if week is None:
+        return ["- 이번 주 기록 없음"]
+    days = (week.end - week.start).days + 1
+    quiz = week.quiz
+    if quiz is None:
+        score = "기록 없음"
+    else:
+        left = quiz.total - quiz.answered
+        score = f"{quiz.total}개 중 {quiz.correct}개 맞힘 · 안 푼 문제 {left}개"
+    lines = [
+        f"- **기간:** {_day(week.start)} ~ {_day(week.end)}",
+        f"- **학습:** {days}일 중 {week.study_days}일 · 끝낸 개념 {week.done}개",
+        f"- **문제 (복습 포함):** {score}",
+    ]
+    if week.optional_days:
+        lines.append(f"- **선택:** {week.optional_days}일 중 {week.optional_done}일 했음")
+    if tokens:
+        lines.append(f"- **토큰:** {_engines(tokens, lambda u: tokens_text(u.week))}")
+    return lines
+
+
 def render_facts(facts: DayFacts) -> str:
-    """제목·요약을 뺀 Daily 본문 (머리말 → 오늘 학습 → 오늘 한 일 → 토큰 → 결정할 것).
+    """제목·요약을 뺀 Daily 본문 (머리말 → 오늘 학습 → 오늘 한 일 → 토큰 → 이번 주 → 결정할 것).
 
     비서 프롬프트에도 그대로 넣는다. 결정할 것이 없으면 그 절은 비운다.
     """
@@ -178,6 +219,8 @@ def render_facts(facts: DayFacts) -> str:
     lines += _work_lines(facts)
     lines += ["", "## 토큰", ""]
     lines += _token_lines(facts.tokens)
+    lines += ["", "## 이번 주", ""]
+    lines += _week_lines(facts.week, facts.tokens)
     lines += ["", "## 결정할 것", ""]
     lines += [f"- {line}" for line in facts.decisions]
     return "\n".join(lines).rstrip()
@@ -206,7 +249,7 @@ def render_morning(facts: DayFacts) -> str:
     lines += _month_line(facts.month)
     lines += ["## 오늘 학습", ""]
     lines += _morning_study_lines(facts.study) if facts.study else ["- 오늘 학습 기록 없음"]
-    for section in ("오늘 한 일", "토큰", "결정할 것", "한 줄 요약"):
+    for section in ("오늘 한 일", "토큰", "이번 주", "결정할 것", "한 줄 요약"):
         lines += ["", f"## {section}", "", EVENING_PENDING]
     return "\n".join(lines) + "\n"
 
