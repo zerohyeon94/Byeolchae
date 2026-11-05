@@ -9,6 +9,7 @@ from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from bot.dashboard.features import COMMANDS, PAGES, SAFEGUARDS, ScheduledJob, cron_label
 from bot.dashboard.queries import (
     AgentActivity,
     EventRow,
@@ -24,6 +25,7 @@ from bot.education.daily import Month, QueueItem
 from bot.org import DEFAULT_ORG, Org
 from bot.pipeline import Pipeline
 from bot.render import render_opinion
+from bot.scheduler import parse_cron
 from bot.schemas import Opinion
 
 IDEA_LABELS = {"open": "열림"}
@@ -120,6 +122,27 @@ select, button { font:inherit; padding:3px 6px; }
 .event .meta { color:var(--muted); font-size:12px; margin-bottom:6px; }
 pre { white-space:pre-wrap; word-break:break-word; margin:0;
   font:13px/1.5 ui-monospace, Menlo, monospace; }
+h3 { font-size:14px; margin:18px 0 6px; }
+table.grouped td:first-child, table.grouped td:last-child { white-space:nowrap; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px;
+  overflow-x:auto; }
+.diagram svg { width:100%; min-width:640px; height:auto; display:block; }
+.diagram text { fill:var(--fg); font-size:13px; }
+.diagram text.sub { fill:var(--muted); font-size:11px; }
+.diagram .box { fill:var(--bg); stroke:var(--line); }
+.diagram .core { fill:none; stroke:var(--accent); stroke-width:1.5; }
+.diagram .edge { fill:none; stroke:var(--muted); stroke-width:1.4; }
+.diagram .head { fill:var(--muted); }
+ol.flow { list-style:none; display:flex; flex-wrap:wrap; align-items:stretch; gap:8px 0;
+  padding:0; margin:6px 0 10px; }
+ol.flow li { display:flex; align-items:center; }
+ol.flow li + li::before { content:"→"; color:var(--muted); padding:0 8px; }
+.step { background:var(--card); border:1px solid var(--line); border-radius:8px;
+  padding:6px 10px; min-width:96px; }
+.step.zero { border:1px dashed var(--accent); }
+.step.bot { background:transparent; }
+.step .who { color:var(--muted); font-size:12px; }
+.step .cond { color:var(--warn); font-size:12px; }
 """
 
 
@@ -169,6 +192,7 @@ def page(title: str, body: str, *, active: str = "") -> str:
             ("education", "/education", "교육"),
             ("runs", "/runs", "실행 기록"),
             ("ideas", "/ideas", "아이디어"),
+            ("features", "/features", "기능"),
         )
     )
     return (
@@ -815,3 +839,289 @@ def education_page(
 
 def message_page(title: str, message: str, status_class: str = "muted") -> str:
     return page(title, f'<h1>{_e(title)}</h1><p class="{status_class}">{_e(message)}</p>')
+
+
+# 기능 화면 (/features)
+
+_STEP_LABELS = {
+    "gate": "Zero 승인",
+    "merge_gate": "Zero merge",
+    "test": "테스트",
+    "report": "보고",
+}
+_CONDITIONS = {"has_ui_change": "화면 변경이 있을 때", "test_failed": "테스트가 실패했을 때"}
+
+
+def _on(flag: bool, on: str = "켜짐", off: str = "꺼짐") -> str:
+    return f'<span class="ok">{on}</span>' if flag else f'<span class="muted">{off}</span>'
+
+
+def _stage_label(kind: str) -> str:
+    return _STEP_LABELS.get(kind, STAGE_LABELS.get(kind, kind))
+
+
+def _trigger(pipeline: Pipeline) -> str:
+    parts = []
+    if "discord_task" in pipeline.triggers:
+        parts.append(pipeline.command or "Discord 명령")
+    if "schedule" in pipeline.triggers and pipeline.schedule:
+        parts.append(cron_label(pipeline.schedule))
+    return " · ".join(parts)
+
+
+def _step(title: str, who: str, css: str = "", notes: Sequence[str] = ()) -> str:
+    extra = "".join(f'<div class="cond">{_e(note)}</div>' for note in notes)
+    return (
+        f'<li><div class="step {css}"><div>{_e(title)}</div>'
+        f'<div class="who">{_e(who)}</div>{extra}</div></li>'
+    )
+
+
+def _pipeline_flow(org: Org, pipeline: Pipeline) -> str:
+    steps = []
+    for stage in pipeline.stages:
+        kind = stage.kind.value
+        notes = []
+        if stage.when:
+            notes.append(_CONDITIONS.get(stage.when, stage.when) + "만")
+        if stage.check:
+            notes.append(f"확인: {org.display(stage.check)}")
+        if stage.retries is not None:
+            notes.append(f"실패 시 재시도 {stage.retries}회")
+        if stage.rounds is not None:
+            notes.append(f"최대 {stage.rounds}라운드")
+        if stage.agent:
+            steps.append(_step(_stage_label(kind), org.display(stage.agent), notes=notes))
+        elif kind in ("gate", "merge_gate"):
+            steps.append(_step(_stage_label(kind), "Zero", "zero", notes))
+        else:
+            steps.append(_step(_stage_label(kind), "봇", "bot", notes))
+    steps.append(_step("완료", "DONE", "bot"))
+    return f'<ol class="flow">{"".join(steps)}</ol>'
+
+
+_COMMON_FLOW = (
+    ("제품 채팅에 글", "Zero", "zero"),
+    ("팀장 의견 (/debate로 반박 1회)", "팀장", ""),
+    ("/task로 포럼 포스트", "Zero", "zero"),
+    ("파이프라인 단계 진행", "봇 + 담당 직원", ""),
+    ("승인 대기 시 멘션, 오래 기다리면 한 번 더", "봇", "bot"),
+    ("PR merge 확인 뒤 문서 반영", "봇", "bot"),
+)
+
+_ARCHITECTURE = """
+<svg viewBox="0 0 960 440" role="img" aria-label="ZeroSync 구성도">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+ orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="head"/></marker></defs>
+<rect class="box" x="20" y="150" width="130" height="60" rx="8"/>
+<text x="85" y="176" text-anchor="middle">Zero</text>
+<text class="sub" x="85" y="194" text-anchor="middle">Discord 앱 · 브라우저</text>
+<rect class="box" x="200" y="40" width="180" height="200" rx="8"/>
+<text x="290" y="68" text-anchor="middle">Discord 서버</text>
+<text class="sub" x="290" y="100" text-anchor="middle">제품 채팅 채널</text>
+<text class="sub" x="290" y="124" text-anchor="middle">작업 포럼 (포스트 1개 = 작업 1개)</text>
+<text class="sub" x="290" y="148" text-anchor="middle">#대표실 · 아침·주간 보고</text>
+<text class="sub" x="290" y="172" text-anchor="middle">#교육 · 개념 노트, 문제 버튼</text>
+<text class="sub" x="290" y="196" text-anchor="middle">#비서 · 하루 정리</text>
+<rect class="core" x="430" y="20" width="270" height="300" rx="10"/>
+<text x="565" y="44" text-anchor="middle">봇 (python -m bot)</text>
+<text class="sub" x="565" y="60" text-anchor="middle">launchd 상시 실행 · 결정론적 프로그램</text>
+<rect class="box" x="450" y="70" width="230" height="44" rx="6"/>
+<text x="565" y="89" text-anchor="middle">Discord 입출력</text>
+<text class="sub" x="565" y="105" text-anchor="middle">슬래시 명령 · 버튼 · 웹훅</text>
+<rect class="box" x="450" y="126" width="230" height="44" rx="6"/>
+<text x="565" y="145" text-anchor="middle">엔진 · 상태 머신</text>
+<text class="sub" x="565" y="161" text-anchor="middle">파이프라인 선언대로 단계 진행</text>
+<rect class="box" x="450" y="182" width="230" height="44" rx="6"/>
+<text x="565" y="201" text-anchor="middle">실행 대기열</text>
+<text class="sub" x="565" y="217" text-anchor="middle">한 번에 한 명 · 하루 한도 · 예산</text>
+<rect class="box" x="450" y="238" width="230" height="44" rx="6"/>
+<text x="565" y="257" text-anchor="middle">일정 실행기</text>
+<text class="sub" x="565" y="273" text-anchor="middle">보고 · 교육 · 비서 · 정기 테스트</text>
+<rect class="box" x="750" y="20" width="190" height="56" rx="8"/>
+<text x="845" y="44" text-anchor="middle">에이전트 CLI</text>
+<text class="sub" x="845" y="62" text-anchor="middle">Claude · Codex</text>
+<rect class="box" x="750" y="96" width="190" height="56" rx="8"/>
+<text x="845" y="120" text-anchor="middle">GitHub</text>
+<text class="sub" x="845" y="138" text-anchor="middle">worktree · gh · Issue · PR</text>
+<rect class="box" x="750" y="172" width="190" height="56" rx="8"/>
+<text x="845" y="196" text-anchor="middle">Obsidian 볼트</text>
+<text class="sub" x="845" y="214" text-anchor="middle">제품 문서 · 학습 노트 · Daily</text>
+<rect class="box" x="750" y="248" width="190" height="56" rx="8"/>
+<text x="845" y="272" text-anchor="middle">앱 테스트</text>
+<text class="sub" x="845" y="290" text-anchor="middle">xcodebuild (전역 락)</text>
+<rect class="box" x="450" y="360" width="230" height="56" rx="8"/>
+<text x="565" y="384" text-anchor="middle">SQLite DB</text>
+<text class="sub" x="565" y="402" text-anchor="middle">작업 · 이벤트 · 실행 기록 · 일정</text>
+<rect class="box" x="200" y="360" width="180" height="56" rx="8"/>
+<text x="290" y="384" text-anchor="middle">대시보드</text>
+<text class="sub" x="290" y="402" text-anchor="middle">127.0.0.1:8765 · 읽기 전용</text>
+<path class="edge" d="M150,180H200" marker-start="url(#arr)" marker-end="url(#arr)"/>
+<path class="edge" d="M380,92H450" marker-start="url(#arr)" marker-end="url(#arr)"/>
+<path class="edge" d="M565,114V126" marker-end="url(#arr)"/>
+<path class="edge" d="M565,170V182" marker-end="url(#arr)"/>
+<path class="edge" d="M565,238V226" marker-end="url(#arr)"/>
+<path class="edge" d="M700,48H750" marker-end="url(#arr)"/>
+<path class="edge" d="M700,124H750" marker-end="url(#arr)"/>
+<path class="edge" d="M700,200H750" marker-end="url(#arr)"/>
+<path class="edge" d="M700,276H750" marker-end="url(#arr)"/>
+<path class="edge" d="M565,320V360" marker-end="url(#arr)"/>
+<path class="edge" d="M380,388H450" marker-end="url(#arr)"/>
+<text class="sub" x="415" y="380" text-anchor="middle">읽기</text>
+<path class="edge" d="M85,210V388H200" marker-end="url(#arr)"/>
+</svg>
+"""
+
+
+def _grouped_table(
+    headers: Sequence[str], groups: Sequence[tuple[str, Sequence[Sequence[str]]]]
+) -> str:
+    head = "".join(f"<th>{_e(h)}</th>" for h in headers)
+    body = []
+    for name, rows in groups:
+        for i, row in enumerate(rows):
+            first = f'<td rowspan="{len(rows)}"><strong>{_e(name)}</strong></td>' if i == 0 else ""
+            body.append("<tr>" + first + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>")
+    rows = "".join(body)
+    return f'<table class="grouped"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>'
+
+
+def features_page(
+    *,
+    org: Org,
+    pipelines: Mapping[str, Pipeline],
+    schedules: Sequence[ScheduledJob],
+    last_runs: Mapping[str, str],
+    projects: Sequence[str],
+    education_agent: str | None,
+    secretary_agent: str | None,
+    bot_pid: int | None,
+) -> str:
+    running = bot_pid is not None
+    bot_state = (
+        f'<span class="ok">실행 중</span> <span class="muted">PID {bot_pid}</span>'
+        if running
+        else '<span class="bad">꺼져 있음</span>'
+    )
+    cards = [
+        ("봇", bot_state),
+        ("파이프라인", str(len(pipelines))),
+        ("일정", str(len(schedules))),
+        ("직원", f"{len(org.agents)}명"),
+    ]
+    body = [
+        "<h1>기능</h1>",
+        '<p class="muted">지금 봇에 들어 있는 기능이다. 파이프라인·일정·부서는 봇이 읽는 설정에서 '
+        "만들고, 일정의 최근 실행은 DB 기록이다.</p>",
+        '<div class="cards">'
+        + "".join(
+            f'<div class="card"><div class="muted">{_e(k)}</div><div class="big">{v}</div></div>'
+            for k, v in cards
+        )
+        + "</div>",
+    ]
+
+    departments = [
+        (
+            "제품",
+            _e(", ".join(projects)) or '<span class="muted">등록된 제품 없음</span>',
+            _on(bool(projects), "동작 중", "없음"),
+        ),
+        (
+            "교육",
+            _e(org.display(education_agent)) + " · 아침 개념 노트, 문제, 주간 보고"
+            if education_agent
+            else "설정(education) 없음",
+            _on(education_agent is not None),
+        ),
+        (
+            "비서",
+            _e(org.display(secretary_agent)) + " · 아침판, 저녁 하루 정리, 토큰 집계"
+            if secretary_agent
+            else "설정(secretary) 없음",
+            _on(secretary_agent is not None),
+        ),
+    ]
+    pipeline_rows = [
+        (
+            _e(p.name),
+            _e(" → ".join(_stage_label(s.kind.value) for s in p.stages))
+            + f'<div class="muted">시작: {_e(_trigger(p))}</div>',
+            _on(True),
+        )
+        for p in pipelines.values()
+    ]
+    schedule_rows = []
+    for item in schedules:
+        last = last_runs.get(item.job)
+        schedule_rows.append(
+            (
+                _e(item.name),
+                _e(cron_label(item.cron)),
+                f'<span class="ok">최근 {local_time(last)}</span>'
+                if last
+                else '<span class="muted">아직 실행 기록 없음</span>',
+            )
+        )
+    command_state = _on(running, "받는 중", "봇이 꺼져 있음")
+    command_rows = [
+        (f"<code>{_e(name)}</code>", _e(desc), command_state) for name, desc in COMMANDS
+    ]
+    safeguard_rows = [
+        (
+            _e(name),
+            f'{_e(desc)}<div class="muted">{_e(where)}</div>',
+            '<span class="ok">적용</span>',
+        )
+        for name, desc, where in SAFEGUARDS
+    ]
+    page_rows = [
+        (f'<a href="{href}">{_e(name)}</a>', _e(desc), '<span class="ok">열림</span>')
+        for href, name, desc in PAGES
+    ]
+    groups = [
+        ("부서", departments),
+        ("제품 파이프라인", pipeline_rows),
+        ("일정", schedule_rows),
+        ("Discord 명령", command_rows),
+        ("안전장치", safeguard_rows),
+        ("대시보드", page_rows),
+    ]
+    body.append("<h2>분류별 기능</h2>")
+    body.append(_grouped_table(["분류", "기능", "동작", "상태"], [g for g in groups if g[1]]))
+
+    body.append("<h2>구성도</h2>")
+    body.append(
+        '<p class="muted">봇 하나가 Discord, 에이전트 CLI, GitHub, 볼트 사이를 잇는다. '
+        "외부에 쓰는 주체는 봇뿐이고, 대시보드는 DB를 읽기만 한다.</p>"
+    )
+    body.append(f'<div class="diagram">{_ARCHITECTURE}</div>')
+
+    body.append("<h2>흐름도</h2>")
+    body.append("<h3>작업 한 건</h3>")
+    body.append('<ol class="flow">' + "".join(_step(t, w, c) for t, w, c in _COMMON_FLOW) + "</ol>")
+    body.append(
+        '<p class="muted">에이전트가 실패하거나 한도를 넘으면 NEEDS_HUMAN(확인 필요)으로 멈추고, '
+        "Zero가 /resume으로 다시 잇거나 /stop으로 끝낸다.</p>"
+    )
+    for pipeline in pipelines.values():
+        body.append(
+            f'<h3>{_e(pipeline.name)} <span class="muted">{_e(_trigger(pipeline))}</span></h3>'
+        )
+        body.append(_pipeline_flow(org, pipeline))
+    daily = sorted(
+        (
+            (cron.hours[0], cron.minutes[0], item)
+            for item in schedules
+            if len((cron := parse_cron(item.cron)).weekdays) == 7
+        ),
+        key=lambda entry: (entry[0], entry[1], entry[2].name),
+    )
+    if daily:
+        body.append("<h3>하루 일정</h3>")
+        body.append(
+            '<ol class="flow">'
+            + "".join(_step(f"{h:02d}:{m:02d}", item.name, "bot") for h, m, item in daily)
+            + "</ol>"
+        )
+    return page("기능", "".join(body), active="features")

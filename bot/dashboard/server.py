@@ -5,7 +5,7 @@
 """
 
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from bot.dashboard import queries, views
+from bot.dashboard.features import ScheduledJob, bot_pid
 from bot.education.daily import QUEUE_FILE, DailyError, goals_file, parse_months, parse_queue
 from bot.org import DEFAULT_ORG, Org
 from bot.pipeline import Pipeline
@@ -34,6 +35,10 @@ class DashboardSettings:
     pipelines: Mapping[str, Pipeline] = field(default_factory=dict)  # 직원별 맡은 일
     education_agent: str | None = None  # 교육 담당 (ADR-009)
     education_vault: Path | None = None  # 커리큘럼 화면이 읽는 학습 볼트 (읽기만)
+    secretary_agent: str | None = None  # 비서 담당 (ADR-010)
+    projects: Sequence[str] = ()  # 등록된 제품
+    schedules: Sequence[ScheduledJob] = ()  # 봇 일정 실행기가 확인하는 일정
+    lock: Path | None = None  # 봇 단일 인스턴스 락 파일 (PID만 읽는다)
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
 
     def discord_url(self, thread: str) -> str | None:
@@ -90,6 +95,19 @@ def _route(
         )
     if parts == ["education"]:
         return _education(settings, conn)
+    if parts == ["features"]:
+        return _ok(
+            views.features_page(
+                org=settings.org,
+                pipelines=settings.pipelines,
+                schedules=settings.schedules,
+                last_runs=queries.schedule_runs(conn),
+                projects=settings.projects,
+                education_agent=settings.education_agent,
+                secretary_agent=settings.secretary_agent,
+                bot_pid=bot_pid(settings.lock),
+            )
+        )
     if not parts:
         now = settings.now()
         today = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
