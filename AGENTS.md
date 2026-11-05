@@ -41,7 +41,7 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule)와 `#대표실`·`#비서` 보고 만들기 | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
 | `bot/locks.py` | 단일 인스턴스 락 (`flock`) | 구현 (빌드 락은 Phase 2) |
-| `bot/dashboard/` | 로컬 웹 대시보드. `python -m bot.dashboard` → http://127.0.0.1:8765. DB 읽기 전용. 교육 커리큘럼 화면(`/education`)은 학습 볼트의 월별 목표·대기열도 읽기만 한다 | 구현 |
+| `bot/dashboard/` | 로컬 웹 대시보드. `python -m bot.dashboard` → http://127.0.0.1:8765. DB 읽기 전용. 교육 커리큘럼 화면(`/education`)은 학습 볼트의 월별 목표·대기열도 읽기만 한다. 기능 화면(`/features`)은 설정과 일정 기록으로 기능 목록·구성도·흐름도를 보여 준다 | 구현 |
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
 | `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모) | 사용 중 |

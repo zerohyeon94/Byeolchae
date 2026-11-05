@@ -289,6 +289,14 @@ class StudyRow:
     done_at: str | None
 
 
+def schedule_runs(conn: sqlite3.Connection) -> dict[str, str]:
+    """일정별 마지막 실행 시각 (SPEC 6.6). 테이블이 없으면 빈 사전."""
+    return {
+        row["job"]: row["last_run_at"]
+        for row in _optional(conn, "SELECT job, last_run_at FROM schedule_runs")
+    }
+
+
 def study_days(conn: sqlite3.Connection, *, limit: int = 30) -> list[StudyRow]:
     """교육 학습 기록 (ADR-009). 최근 날짜부터. 스키마 v8 전이면 빈 목록."""
     rows = _optional(

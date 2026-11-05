@@ -373,3 +373,78 @@ def test_education_page_shows_curriculum_queue_and_study(settings, tmp_path):
 def test_education_page_without_config_says_so(settings):
     status, body = get(settings, "/education")
     assert status == HTTPStatus.OK and "교육 설정" in body
+
+
+# 기능 화면 (/features)
+
+
+def test_features_page_shows_config_schedules_and_flows(settings, tmp_path):
+    """기능 화면: 설정에서 만든 파이프라인·일정, DB의 최근 실행, 봇 실행 여부, 흐름도."""
+    import os
+    from dataclasses import replace
+
+    from bot.dashboard.features import scheduled_jobs
+    from bot.pipeline import default_pipelines
+
+    async def add():
+        conn = await connect(settings.db)
+        repo = Repository(conn, FixedClock(T0))
+        try:
+            await repo.record_schedule_run("morning_report", T0.isoformat())
+        finally:
+            await conn.close()
+
+    asyncio.run(add())
+    lock = tmp_path / "bot.lock"
+    lock.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    pipelines = default_pipelines()
+    features = replace(
+        settings,
+        pipelines=pipelines,
+        projects=("gagaessi", "jday"),
+        schedules=scheduled_jobs(
+            pipelines, ["gagaessi", "jday"], education=("30 7 * * *", "0 20 * * 0")
+        ),
+        education_agent="eta",
+        lock=lock,
+    )
+    status, body = get(features, "/features")
+    assert status is HTTPStatus.OK
+    assert f"PID {os.getpid()}" in body
+    assert "기능 개발" in body and "/task feature" in body
+    assert "정기 테스트 · jday" in body and "매일 03:00" in body
+    assert "교육 주간 보고" in body and "일요일 20:00" in body
+    assert "비서 하루 정리" not in body  # 비서 설정이 없으면 일정도 없다
+    assert "아직 실행 기록 없음" in body  # 아침 보고 말고는 기록이 없다
+    assert "화면 변경이 있을 때만" in body  # 화면 디자인 단계의 조건
+    assert "확인: Alpha · 개발팀장" in body  # 구현 팀장 확인
+    assert "<svg" in body and 'href="/features" class="on"' in body
+
+
+def test_features_page_says_bot_is_off_without_live_pid(settings, tmp_path):
+    from dataclasses import replace
+
+    lock = tmp_path / "bot.lock"
+    lock.write_text("999999999\n", encoding="utf-8")
+    _, body = get(replace(settings, lock=lock), "/features")
+    assert "꺼져 있음" in body and "봇이 꺼져 있음" in body
+
+
+def test_cron_label():
+    from bot.dashboard.features import cron_label
+
+    assert cron_label("0 8 * * *") == "매일 08:00"
+    assert cron_label("0 8 * * 1") == "월요일 08:00"
+    assert cron_label("30 7,19 * * 0,6") == "일요일, 토요일 07:30, 19:30"
+
+
+def test_feature_commands_match_discord_client():
+    """기능 화면의 명령 목록은 client.py에 등록된 슬래시 명령과 같아야 한다."""
+    import re
+    from pathlib import Path
+
+    from bot.dashboard.features import COMMANDS
+
+    source = Path("bot/discord_io/client.py").read_text(encoding="utf-8")
+    registered = set(re.findall(r'tree\.command\(\s*name="([a-z]+)"', source))
+    assert registered and {name.lstrip("/") for name, _ in COMMANDS} == registered

@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from bot.config import ConfigError, load_config
+from bot.dashboard.features import scheduled_jobs
 from bot.dashboard.server import DEFAULT_PORT, HOST, DashboardSettings, serve
 
 
@@ -29,6 +30,17 @@ def main(argv: list[str] | None = None) -> int:
         pipelines=config.pipelines,
         education_agent=config.education.agent if config.education else None,
         education_vault=config.education.vault if config.education else None,
+        secretary_agent=config.secretary.agent if config.secretary else None,
+        projects=tuple(config.projects),
+        schedules=scheduled_jobs(
+            config.pipelines,
+            config.projects,
+            education=(config.education.schedule, config.education.weekly)
+            if config.education
+            else None,
+            secretary=config.secretary.schedule if config.secretary else None,
+        ),
+        lock=config.paths.lock,
     )
     server = serve(settings, args.port)
     print(f"대시보드: http://{HOST}:{args.port}  (종료: Ctrl-C)", file=sys.stderr)
