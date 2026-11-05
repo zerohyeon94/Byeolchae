@@ -245,6 +245,8 @@ def diagnosis_text(report: DiagnosisReport) -> str:
         *_lines("근거", report.evidence),
         f"- 수정 방향: {report.fix_direction}",
     ]
+    if report.action is not None:
+        lines.append(f"- 정기 테스트 판정: {report.action.label} ({report.action.value})")
     return "\n".join(lines)
 
 
@@ -384,7 +386,14 @@ def diagnose_prompt(
         )
         features_text = _section("기능 정의서 목록", _features(features))
     else:
-        rule = "3. 정기 테스트 실패 보고다. 변경 유형 관련 필드는 null로 둔다"
+        rule = (
+            "3. 정기 테스트 실패 보고다. 봇이 한 번 더 돌려도 실패했다. 변경 유형 관련 필드는 "
+            "null로 둔다. 테스트를 하나도 돌리지 못했으면 전체 로그를 읽고 실행 환경"
+            "(Xcode, 시뮬레이터, 서명 등)의 어디가 어긋났는지 밝힌다\n"
+            "4. 개선이 필요한지 action으로 정한다. report: 코드·테스트·실행 환경 중 무엇을 고쳐야 "
+            "한다. none: 고칠 것이 없다(근거를 evidence에 적는다). summary에는 무엇이 문제인지, "
+            "fix_direction에는 무엇을 개선해야 하는지를 처음 보는 사람도 알게 쓴다"
+        )
         features_text = ""
     return _template("diagnose").substitute(
         _persona(persona),

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from bot.agents import Stage
 from bot.clock import FixedClock
 from bot.org import DEFAULT_ORG
-from bot.reports import morning_report, weekly_report
+from bot.reports import morning_report, nightly_line, weekly_report
 from bot.store import Actor, EventKind, NewEvent, Repository, connect
 from bot.workflow.state import TaskState
 
@@ -104,3 +104,27 @@ def test_weekly_report_counts_per_product_and_metrics():
     assert "도달 4 / 채택 1 / 자동 제외 1" in text
     assert "#1 Beta · 기획팀장: 운영팀 운영팀장" in text
     assert report.mention is True
+
+
+def test_nightly_line_shows_unreported_results():
+    """정기 테스트는 보고하지 않은 결과(통과, 일시적 실패, 개선 불필요)도 아침에 한 줄로 보인다."""
+
+    async def body(repo):
+        for project, outcome in [("gagaessi", "flaky"), ("jday", "posted")]:
+            task = await repo.create_task(
+                project=project,
+                discord_thread=f"sched:{project}",
+                title="정기 테스트",
+                state=TaskState.DONE,
+                event=NewEvent(Actor.ZERO, EventKind.DECISION, {"text": "정기 테스트"}),
+                pipeline="nightly-test",
+            )
+            payload = {"posted": outcome == "posted", "outcome": outcome}
+            await repo.add_event(task.id, NewEvent(Actor.BOT, EventKind.REPORT, payload))
+        line = await nightly_line(repo, NOW)
+        report = await morning_report(repo, DEFAULT_ORG, NOW, url)
+        return line, report.text
+
+    line, text = run(body)
+    assert line == "정기 테스트: gagaessi 일시적 실패(다시 돌려 통과) · jday 문제 보고"
+    assert line in text

@@ -114,7 +114,7 @@ launchd (LaunchAgent, 로그인 사용자 세션)
 |---|---|
 | 버그 수정 (`bugfix.yaml`) | `DIAGNOSING`(Zeta, 읽기 전용, Delta 확인) → `AWAIT_FIX_APPROVAL` → `IMPLEMENTING`(Epsilon, Alpha 확인) → `TESTING` → `REVIEWING`(Delta) ⇄ `FIXING` → `AWAIT_MERGE` → `DONE`. 문서 반영은 하지 않는다. 기능 정의서를 고칠 일이면 `/task feature`로 연다. 작업 브랜치와 Issue 제목은 진단의 변경 필드(change_type, slug 등)로 만든다 |
 | 출시 (`release.yaml`) | `TESTING`(전체 테스트·빌드) → `RELEASE_PREPARING`(Beta, 배포 겸임) → `AWAIT_RELEASE_APPROVAL` → `/approve`로 `DONE`. 스토어 제출은 승인 뒤 Zero가 직접 한다 |
-| 정기 테스트 (`nightly-test.yaml`) | `TESTING` → 통과면 `DONE`(Discord 알림 없음). 실패면 `DIAGNOSING`(Zeta, Delta 확인) → 포럼에 보고 포스트(`확인필요` 태그) → `DONE`. 수정은 Zero가 `/task bug`로 시작한다. 실행 중에는 `sched:` 가짜 스레드를 쓰고 보고할 때 실제 포스트를 연다. [미구현] 같은 실패를 기존 보고 포스트에 덧붙이기, `확인필요` 태그 |
+| 정기 테스트 (`nightly-test.yaml`) | `TESTING` → 통과면 `DONE`(Discord 알림 없음). 실패하면 한 번 더 돌린다(`retries`, 기본 1). 다시 통과하면 일시적 실패로 기록만 한다. 그래도 실패하면 환경 오류(테스트를 하나도 못 돌림)까지 `DIAGNOSING`(Zeta, Delta 확인)으로 가고, 진단이 개선 필요 여부(`action`: report \| none)를 정한다. `REPORTING`은 report일 때만 포럼에 보고 포스트(무엇이 문제인가, 무엇을 개선해야 하나, 근거, 다음 행동)를 열고 멘션한다. 직전 정기 테스트와 같은 실패(실패한 테스트 이름, 없으면 첫 오류 줄)면 진단 없이 그 포스트에 날짜만 덧붙인다(멘션 없음). 어느 경우든 `DONE`으로 끝나 NEEDS_HUMAN이 쌓이지 않는다. 결과는 아침 보고에 한 줄로 남는다. 수정은 Zero가 `/task bug`로 시작한다. 실행 중에는 `sched:` 가짜 스레드를 쓰고 보고할 때 실제 포스트를 연다 (2026-11-05 Zero 결정). [미구현] `확인필요` 태그 |
 
 - 기획이 없는 파이프라인(버그 수정)은 진단 뒤 `gate`를 둔다 (3.5 규칙 R2)
 

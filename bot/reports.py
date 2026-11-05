@@ -63,6 +63,38 @@ async def pending_decisions(repo: Repository, org: Org, now: datetime, url: Thre
     return lines
 
 
+NIGHTLY = "nightly-test"
+# 정기 테스트 보고 단계가 남긴 결과 (bot.workflow.work._report)
+NIGHTLY_OUTCOMES = {
+    "passed": "통과",
+    "flaky": "일시적 실패(다시 돌려 통과)",
+    "quiet": "실패, 개선 불필요",
+    "posted": "문제 보고",
+    "appended": "같은 문제 계속",
+}
+
+
+async def nightly_line(repo: Repository, now: datetime) -> str:
+    """지난 24시간 정기 테스트 결과 한 줄. 보고하지 않은 결과도 여기서 보인다 (2026-11-05)."""
+    since = now - timedelta(days=1)
+    results = []
+    for task in await repo.list_tasks():
+        if task.pipeline != NIGHTLY or from_iso(task.created_at) < since:
+            continue
+        events = await repo.list_events(task.id, {EventKind.REPORT})
+        if events:
+            outcome = str(events[-1].payload.get("outcome", ""))
+            label = NIGHTLY_OUTCOMES.get(
+                outcome, "실패 보고" if events[-1].payload.get("posted") else "통과"
+            )
+        elif task.state.is_terminal:
+            label = "중지"
+        else:
+            label = "확인 필요" if task.state.waits_for_zero else "진행 중"
+        results.append(f"{task.project} {label}")
+    return f"정기 테스트: {' · '.join(results)}" if results else ""
+
+
 async def morning_brief(
     repo: Repository, org: Org, now: datetime, url: ThreadUrl, *, daily: str = "", paused: str = ""
 ) -> Report:
@@ -79,6 +111,9 @@ async def morning_brief(
     lines.append(f"**오늘 결정할 것** ({len(decisions)})")
     lines += [f"- {line}" for line in decisions] or ["- 없음"]
     lines += ["", f"진행 중 {running}건 · 어제 끝난 일 {finished}건"]
+    nightly = await nightly_line(repo, now)
+    if nightly:
+        lines.append(nightly)
     if daily:
         lines.append(f"어제 하루 정리: `{daily}`")
     if paused:
@@ -113,6 +148,9 @@ async def morning_report(
     lines += ["", f"**어제 끝난 일** ({len(finished)})"]
     lines += [_task_line(t, url) for t in finished] or ["- 없음"]
     lines += ["", f"**에이전트 실행 (어제부터)**: {_runs_line(org, stats)}"]
+    nightly = await nightly_line(repo, now)
+    if nightly:
+        lines.append(nightly)
     if paused:
         lines.append(f"**사용량 한도 정지**: {paused}까지")
     return Report("\n".join(lines), mention=bool(waiting or proposals))

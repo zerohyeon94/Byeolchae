@@ -31,6 +31,7 @@ from bot.schemas.stages import (
     DocSyncProposal,
     PlanSummary,
     ReleasePrep,
+    ReportAction,
     UiDesignSummary,
 )
 
@@ -42,6 +43,7 @@ __all__ = [
     "ChangeSummary",
     "CheckState",
     "DiagnosisReport",
+    "ReportAction",
     "DocSyncProposal",
     "ChangeType",
     "ConceptFigure",

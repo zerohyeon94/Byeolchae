@@ -218,6 +218,10 @@ class Limits:
     max_check_rounds: int = 2  # 팀장 확인 (ADR-008). 넘으면 단계 실패
 
 
+# 실패를 보고만 하는 흐름(정기 테스트)에서 진단 전에 테스트를 다시 돌리는 횟수 (2026-11-05)
+REPORT_RETRIES = 1
+
+
 class FixSource(StrEnum):
     TESTS = "tests"  # 테스트 실패
     REVIEW = "review"  # 리뷰 담당의 [필수] 지적
@@ -542,14 +546,29 @@ def _testing(
     if not isinstance(event, TestsFinished):
         return None
     stage = pipeline.stages[i]
+    implement = pipeline.first_of(StageKind.IMPLEMENT)
+    fixes_code = implement is not None and pipeline.index(implement.id) < i
+    nxt = pipeline.stages[i + 1] if i + 1 < len(pipeline.stages) else None
+    reports_failure = not fixes_code and nxt is not None and nxt.when == "test_failed"
+    if not event.passed and reports_failure:
+        # 정기 테스트: 한 번 더 돌려 보고, 그래도 실패하면 환경 오류까지 진단 단계가 다룬다
+        allowed = stage.retries if stage.retries is not None else REPORT_RETRIES
+        if task.test_retry < allowed:
+            return Transition(
+                TaskState.TESTING, (RunTests(stage.id),), {"test_retry": task.test_retry + 1}
+            )
+        flags = task.flag_set | {"test_failed"}
+        if event.environment_error:
+            flags |= {"environment_error"}
+        return _then((), enter(pipeline, i + 1, flags), flags=_flag_text(flags))
     if event.environment_error:
         # 코드로 고칠 수 없으므로 수정을 부르지 않고 재시도 횟수도 세지 않는다.
         # 환경을 고친 뒤 /resume하면 테스트만 다시 돈다
         return _needs_human(TaskState.TESTING, f"테스트 환경 오류: {event.detail}".strip())
-    implement = pipeline.first_of(StageKind.IMPLEMENT)
-    fixes_code = implement is not None and pipeline.index(implement.id) < i
     if event.passed:
         flags = task.flag_set - {"test_failed"}
+        if reports_failure and task.test_retry > 0:
+            flags |= {"test_flaky"}  # 다시 돌려 통과한 일시적 실패. 보고 단계가 기록만 한다
         result = enter(pipeline, i + 1, flags)
         if fixes_code and pipeline.first_of(StageKind.MERGE_GATE) is not None:
             # 처음 통과하면 draft PR을 열고, 이후에는 본문을 갱신한다 (운영 규약 1.9)
@@ -558,11 +577,7 @@ def _testing(
             return _then((), result, flags=_flag_text(flags))
         return result
     if not fixes_code:
-        # 출시 점검, 정기 테스트: 고칠 구현 담당이 없다. 다음 단계가 실패를 다룬다
-        nxt = pipeline.stages[i + 1] if i + 1 < len(pipeline.stages) else None
-        if nxt is not None and nxt.when == "test_failed":
-            flags = task.flag_set | {"test_failed"}
-            return _then((), enter(pipeline, i + 1, flags), flags=_flag_text(flags))
+        # 출시 점검: 고칠 구현 담당도, 실패를 다룰 다음 단계도 없다
         return _needs_human(TaskState.TESTING, f"{stage.id} 테스트가 실패했다")
     retry = task.test_retry + 1
     allowed = stage.retries if stage.retries is not None else limits.max_test_retries
