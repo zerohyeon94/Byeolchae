@@ -129,6 +129,8 @@ CODEX_STAGES = frozenset(
         Stage.DIAGNOSE,
         Stage.CONCEPT_IMAGE,
         Stage.PROJECT_REPORT,
+        Stage.IMPLEMENT,
+        Stage.FIX,
     }
 )
 

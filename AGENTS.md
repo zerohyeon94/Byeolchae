@@ -14,7 +14,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 
 ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Zero 한 사람을 위한 회사다. 회사는 교육·비서·제품 세 부서이고, 지금은 제품 부서(가게씨, 제이데이, 오롯)를 만든다. Zero가 대표 겸 제품 부서장이고 팀장(기획팀 Beta, 디자인팀 Gamma, 개발팀 Alpha, QA팀 Delta)이 기획·디자인·설계·구현·검증을 맡으며, 봇이 파이프라인 단계를 규칙대로 진행한다. 전환 배경은 [ADR-005](docs/아키텍처%20결정/ADR-005-Discord-오케스트레이터-전환.md), 회사 구조는 [ADR-006](docs/아키텍처%20결정/ADR-006-회사형-구조.md)과 [ADR-007](docs/아키텍처%20결정/ADR-007-회사-재정의.md), 회사 재정의 문서는 [docs/회사/](docs/회사/README.md)에 있다.
 
-- 봇 안의 에이전트(Beta 기획팀장, Gamma 디자인팀장, Alpha 개발팀장, Delta QA팀장)와 이 저장소를 개발하는 코딩 에이전트(Claude Code, Codex)는 별개다. 봇 에이전트의 이름·엔진은 회사 설정(`org.yaml`)이 정하고, 코딩 에이전트의 규칙은 이 문서와 `CLAUDE.md`가 정한다
+- 봇 안의 에이전트(15팀 41명, 별 이름. 예: 아르크투루스 기획팀장, 리겔 개발팀장, ADR-012)와 이 저장소를 개발하는 코딩 에이전트(Claude Code, Codex)는 별개다. 봇 에이전트의 이름·엔진은 회사 설정(`org.yaml`)이 정하고, 코딩 에이전트의 규칙은 이 문서와 `CLAUDE.md`가 정한다
 
 - 봇은 LLM이 아니라 결정론적 프로그램이다. 에이전트 출력의 JSON 블록을 검증해 옮길 뿐 해석하지 않는다
 - 판단(방향, 설계 승인, merge, 문서 반영)은 Zero만 한다
@@ -36,7 +36,7 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/prompts/` | 단계별 프롬프트 템플릿(`.md`)과 렌더링 함수 | 의견·반박·기획·화면 디자인·설계·구현·수정·리뷰·진단·출시 준비·문서 반영 구현 |
 | `bot/render/` | 스키마 → 사람이 읽는 텍스트 (Discord·Issue·PR·볼트 공용) | 구현 |
 | `bot/clock.py` | 현재 시각 인터페이스 (테스트에서 고정) | 구현 |
-| `bot/org.py` | 회사 조직 설정(`org.yaml`, 인격 파일) 로더. 에이전트 이름과 엔진 분리, 단계별 담당, R1 검사. 없으면 ADR-007~011 기본 조직(제품 팀장 넷, 개발·QA 팀원 Epsilon·Zeta, 프로젝트 담당 Kappa·Lambda·Mu, 교육팀장 Eta와 팀원 Iota, 비서팀장 Theta). 예시는 `examples/company/` | 구현 |
+| `bot/org.py` | 회사 조직 설정(`org.yaml`, 인격 파일) 로더. 에이전트 이름과 엔진 분리, 예전 이름(`former`) 연결, 단계별 담당, R1 검사. 없으면 ADR-007~011 기본 조직(제품 팀장 넷, 개발·QA 팀원 Epsilon·Zeta, 프로젝트 담당 Kappa·Lambda·Mu, 교육팀장 Eta와 팀원 Iota, 비서팀장 Theta). 예시는 `examples/company/` | 구현 |
 | `bot/pipeline.py` | 파이프라인 선언(기능 개발·버그 수정·출시·정기 테스트) 로더와 규칙 검사(R1~R6, 팀장 확인 `check`). 회사 설정에 `pipelines/`가 없으면 기본 선언. 예시는 `examples/company/pipelines/` | 구현 |
 | `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule)와 `#대표실`·`#비서` 보고 만들기 | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
@@ -94,7 +94,7 @@ v1 메뉴바 앱을 수정할 때만 Xcode 명령을 쓴다. 저장소 루트에
 ## 문서
 
 - `docs/README.md`가 문서 인덱스다
-- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-012)
+- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-013)
 - 작업한 날에는 `docs/개발 일지/YYYY-MM-DD.md`에 한 것 / 막힌 것·발견한 것 / 다음 할 것을 기록한다
 - 개발 일지는 작업 PR 안에서 함께 갱신한다. 일지만 바꾸는 PR은 따로 만들지 않는다. 이전 PR의 merge 결과는 다음 작업 PR의 일지에 적는다
 - 문제 해결 기록은 `docs/트러블슈팅/`에 남긴다

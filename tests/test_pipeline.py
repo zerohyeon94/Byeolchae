@@ -142,3 +142,11 @@ def test_example_company_pipelines_match_defaults():
     """examples/company/pipelines는 기본 선언을 그대로 옮긴 것이다. 한쪽만 바꾸지 않는다."""
     example = Path(__file__).resolve().parent.parent / "examples" / "company"
     assert load_pipelines(example, DEFAULT_ORG) == default_pipelines()
+
+
+def test_codex_agent_may_implement(tmp_path):
+    codex_epsilon = DEFAULT_ORG.agents["epsilon"].model_copy(update={"engine": "codex"})
+    org = DEFAULT_ORG.model_copy(
+        update={"agents": {**DEFAULT_ORG.agents, "epsilon": codex_epsilon}}
+    )
+    assert load_pipelines(write(tmp_path), org)

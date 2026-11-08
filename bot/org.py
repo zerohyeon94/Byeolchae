@@ -4,7 +4,9 @@
 - 에이전트 이름(beta, alpha …)은 엔진(claude, codex)과 분리한다. 엔진은 에이전트마다 설정으로 정한다
 - 인격·역량 전문은 `agents/<이름>.md`에 두고 프롬프트에 그대로 넣는다
 - org.yaml이 없으면 ADR-007의 기본 조직(모두 Claude)을 쓴다. 이름과 직책은 공개해도 되는 값이다
-- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1), Codex 엔진은 읽기 전용 일만(R4)
+- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1),
+  Codex 엔진은 읽기 일과 구현·수정만(R4, ADR-012)
+- 이름을 바꾼 에이전트는 예전 이름(`former`)을 남겨, 예전 기록도 새 이름으로 보이게 한다
 """
 
 import re
@@ -15,7 +17,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from bot.agents.base import Stage
+from bot.agents.base import CODEX_WRITE_STAGES, Stage
 
 EngineName = Literal["claude", "codex"]
 
@@ -25,7 +27,7 @@ LEGACY_AGENTS: dict[str, tuple[str, EngineName]] = {
     "codex": ("Alpha · Codex", "codex"),
 }
 
-# Codex 러너는 읽기 전용 샌드박스로만 실행된다 (운영 규약 1.3)
+# Codex 러너가 읽기 전용 샌드박스로 실행하는 단계. 쓰기는 CODEX_WRITE_STAGES만 (운영 규약 1.3)
 READ_ONLY_STAGES = frozenset(
     {
         Stage.OPINION,
@@ -67,6 +69,7 @@ class AgentSpec(_Model):
     hired: str = ""
     proposed_by: str | None = None
     reason: str = ""
+    former: tuple[str, ...] = ()  # 예전 에이전트 이름 (기록 표시용)
 
     @field_validator("hired", mode="before")
     @classmethod
@@ -123,10 +126,17 @@ class Org(_Model):
             if agent.team not in self.teams:
                 raise ValueError(f"{key}의 팀 {agent.team!r}이 teams에 없다")
             if agent.engine == "codex":
-                writes = {s for a, s in self.roles.assigned.items() if a == key} - READ_ONLY_STAGES
+                writes = {s for a, s in self.roles.assigned.items() if a == key}
+                writes -= READ_ONLY_STAGES | CODEX_WRITE_STAGES
                 if writes:
                     names = ", ".join(sorted(s.value for s in writes))
                     raise ValueError(f"{key}는 Codex 엔진이라 쓰기 단계({names})를 맡을 수 없다")
+        seen: set[str] = set()
+        for key, agent in self.agents.items():
+            for old in agent.former:
+                if old in self.agents or old in seen or old in LEGACY_AGENTS:
+                    raise ValueError(f"{key}의 예전 이름 {old!r}이 다른 이름과 겹친다")
+                seen.add(old)
         for key, team in self.teams.items():
             if team.lead not in self.agents:
                 raise ValueError(f"팀 {key}의 팀장 {team.lead!r}이 agents에 없다")
@@ -143,11 +153,19 @@ class Org(_Model):
 
     # 조회
 
+    def current(self, agent: str) -> str:
+        """예전 이름이면 지금 이름으로 바꾼다. 아니면 그대로."""
+        for key, spec in self.agents.items():
+            if agent in spec.former:
+                return key
+        return agent
+
     def has(self, agent: str) -> bool:
-        return agent in self.agents or agent in LEGACY_AGENTS
+        return self.current(agent) in self.agents or agent in LEGACY_AGENTS
 
     def display(self, agent: str) -> str:
         """표시 이름 `이름 · 직책` (SPEC Q16). 예: Beta · 기획팀장."""
+        agent = self.current(agent)
         if agent in self.agents:
             spec = self.agents[agent]
             return f"{spec.display} · {self.teams[spec.team].name}{spec.title}"
@@ -156,6 +174,7 @@ class Org(_Model):
         return {"zero": "Zero", "bot": "ZeroSync"}.get(agent, agent)
 
     def engine(self, agent: str) -> EngineName:
+        agent = self.current(agent)
         if agent in self.agents:
             return self.agents[agent].engine
         if agent in LEGACY_AGENTS:

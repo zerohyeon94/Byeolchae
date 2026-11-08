@@ -139,3 +139,17 @@ def test_example_company_config_is_valid():
     assert org.display("theta") == "Theta · 비서팀장"
     assert all(org.profile(agent) for agent in org.agent_names)
     assert org.roles == DEFAULT_ORG.roles
+
+
+def test_former_name_shows_current_agent(tmp_path):
+    text = ORG_YAML.replace("    display: Beta\n", "    display: Beta\n    former: [oldbeta]\n")
+    org = load_org(write(tmp_path, text))
+    assert org.display("oldbeta") == org.display("beta")
+    assert org.has("oldbeta") and org.engine("oldbeta") == "claude"
+    assert org.current("delta") == "delta"
+
+
+def test_former_name_must_not_clash(tmp_path):
+    text = ORG_YAML.replace("    display: Beta\n", "    display: Beta\n    former: [delta]\n")
+    with pytest.raises(OrgError, match="예전 이름"):
+        load_org(write(tmp_path, text))

@@ -36,6 +36,10 @@ class Stage(StrEnum):
     SECRETARY_DAILY = "secretary_daily"  # 비서 저녁 하루 정리 요약 (ADR-010)
 
 
+# Codex가 작업 worktree에 쓸 수 있는 단계. 기획·설계 문서 단계는 Claude만 쓴다 (ADR-012)
+CODEX_WRITE_STAGES = frozenset({Stage.IMPLEMENT, Stage.FIX})
+
+
 class RunStatus(StrEnum):
     """러너가 판정하는 실행 결과.
 

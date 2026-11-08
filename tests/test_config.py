@@ -283,7 +283,7 @@ def test_cli_models_by_stage(tmp_path):
 @pytest.mark.parametrize(
     ("extra", "match"),
     [
-        ("cli:\n  codex_models:\n    implement: gpt\n", "Codex가 맡지 않는 단계: implement"),
+        ("cli:\n  codex_models:\n    plan: gpt\n", "Codex가 맡지 않는 단계: plan"),
         ("cli:\n  claude_models:\n    opinon: sonnet\n", "cli.claude_models"),
         ("cli:\n  claude_models:\n    opinion: ''\n", "cli.claude_models"),
     ],

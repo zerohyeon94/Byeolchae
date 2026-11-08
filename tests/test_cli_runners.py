@@ -21,7 +21,7 @@ from bot.agents import (
     Stage,
 )
 from bot.agents.claude import DENIED_TOOLS
-from bot.agents.codex import strict_schema
+from bot.agents.codex import git_common_dir, strict_schema
 from bot.schemas import Opinion, Review, parse_agent_output
 
 OPINION = {
@@ -271,9 +271,31 @@ def test_codex_args(tmp_path, process):
     assert "--model" not in runner.build_argv(request(tmp_path, Stage.OPINION))
 
 
-def test_codex_rejects_write_mode(tmp_path, process):
-    with pytest.raises(ValueError, match="읽기 전용"):
+def test_codex_rejects_write_mode_outside_implement(tmp_path, process):
+    with pytest.raises(ValueError, match="쓰기 모드"):
         CodexCliRunner(process).build_argv(request(tmp_path, Stage.REVIEW, "write_worktree"))
+
+
+@pytest.mark.parametrize("stage", [Stage.IMPLEMENT, Stage.FIX])
+def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
+    # 저장소/.git/worktrees/w1 을 가리키는 worktree
+    common = tmp_path / "repo" / ".git"
+    (common / "worktrees" / "w1").mkdir(parents=True)
+    (common / "worktrees" / "w1" / "commondir").write_text("../..\n")
+    worktree = tmp_path / "w1"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {common / 'worktrees' / 'w1'}\n")
+    argv = CodexCliRunner(process).build_argv(
+        request(worktree, stage, "write_worktree", run_id="w")
+    )
+    assert value_after(argv, "--sandbox") == "workspace-write"
+    assert value_after(argv, "--add-dir") == str(common.resolve())
+
+
+def test_git_common_dir_of_plain_repo_is_none(tmp_path):
+    (tmp_path / ".git").mkdir()
+    assert git_common_dir(tmp_path) is None
+    assert git_common_dir(tmp_path / "없음") is None
 
 
 CODEX_BODY = """\
