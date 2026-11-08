@@ -153,6 +153,11 @@ class Org(_Model):
 
     # 조회
 
+    @property
+    def renames(self) -> dict[str, str]:
+        """예전 이름 → 지금 이름."""
+        return {old: key for key, spec in self.agents.items() for old in spec.former}
+
     def current(self, agent: str) -> str:
         """예전 이름이면 지금 이름으로 바꾼다. 아니면 그대로."""
         for key, spec in self.agents.items():

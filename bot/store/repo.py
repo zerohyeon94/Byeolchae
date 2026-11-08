@@ -195,6 +195,17 @@ class HiringRecord:
     decided_at: str | None
 
 
+# 에이전트 이름을 담는 열. 이름을 바꿀 때 함께 옮긴다 (ADR-012)
+_AGENT_COLUMNS = (
+    ("agent_runs", "agent"),
+    ("events", "actor"),
+    ("chat_turns", "actor"),
+    ("hiring_proposals", "proposed_by"),
+    ("project_reports", "owner"),
+    ("project_reports", "lead"),
+)
+
+
 class Repository:
     def __init__(self, conn: aiosqlite.Connection, clock: Clock):
         self._conn = conn
@@ -214,6 +225,23 @@ class Repository:
                 await self._conn.execute("ROLLBACK")
                 raise
             await self._conn.execute("COMMIT")
+
+    # 에이전트 이름 바꾸기 (ADR-012)
+
+    async def rename_agents(self, renames: Mapping[str, str]) -> int:
+        """기록에 남은 예전 에이전트 이름을 새 이름으로 바꾼다. 바뀐 줄 수를 돌려준다.
+
+        봇 시작 때마다 부른다. 이미 바뀐 기록은 다시 걸리지 않는다.
+        """
+        changed = 0
+        async with self._transaction():
+            for table, column in _AGENT_COLUMNS:
+                for old, new in renames.items():
+                    cursor = await self._conn.execute(
+                        f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new, old)
+                    )
+                    changed += cursor.rowcount
+        return changed
 
     # tasks
 

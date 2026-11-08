@@ -868,9 +868,10 @@ async def run_bot(config: Config) -> None:
             concurrent=config.limits.concurrent_builds,
             timeout_sec=config.limits.cli_timeout_sec,
         )
-        bot = ZeroSyncBot(
-            config, Repository(conn, SystemClock()), runners, git=GitOps(), tests=tests
-        )
+        repo = Repository(conn, SystemClock())
+        if renamed := await repo.rename_agents(config.org.renames):
+            log.info("예전 에이전트 이름 기록 %d줄을 새 이름으로 옮겼다", renamed)
+        bot = ZeroSyncBot(config, repo, runners, git=GitOps(), tests=tests)
         async with bot:
             await bot.start(config.secrets.discord_token.get_secret_value())
         if bot.startup_error is not None:
