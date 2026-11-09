@@ -166,7 +166,7 @@ def test_summary_counts_across_projects(settings):
 
 def test_company_home_links_open_work_and_latest_event_per_task(settings):
     status, body = get(settings, "/")
-    assert status == HTTPStatus.OK and "Zero 한 사람을 위한 회사" in body
+    assert status == HTTPStatus.OK and "<h1>ZeroSync</h1>" in body
     work, history = body.split("<h3>최근 작업 기록</h3>")
     assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
     assert "여행 &lt;소비&gt;" in work

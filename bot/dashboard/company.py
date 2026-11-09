@@ -63,11 +63,12 @@ def _hero(org: Org) -> str:
     departments = len({team.department for team in org.teams.values()})
     return (
         '<section class="home-intro"><div class="sky" aria-hidden="true"></div><div>'
-        '<p class="eyebrow">Zero 한 사람을 위한 회사</p><h1>ZeroSync</h1>'
-        '<p class="mission">Zero가 방향을 정하고, 별직원들이 제품을 만듭니다.</p>'
-        '<p class="home-lede">교육팀과 비서팀은 대표의 배움과 판단을 돕습니다. '
-        "유튜브에서는 제품을 만들며 오간 대화와 결정, "
-        "그 일을 맡은 직원들의 이야기를 전할 계획입니다.</p>"
+        '<p class="eyebrow">별직원들이 모여 일하는 곳</p><h1>ZeroSync</h1>'
+        '<p class="mission">앱 하나, 이야기 한 편이 누군가의 밤에 작은 빛이 되기를.</p>'
+        '<p class="home-lede">침착한 폴라리스와 궁금한 게 많은 샤울라는 '
+        "같은 문제를 보고도 서로 다른 질문을 해요. 우리는 그렇게 함께 앱을 만들고, "
+        "만들면서 겪은 일들도 영상으로 나누고 싶어요. "
+        "그 빛이 하나씩 모이면 언젠가 밤하늘이 가득 차겠지요.</p>"
         f'<p class="home-facts">대표 Zero <span>·</span> {departments}개 부문 <span>·</span> '
         f"{len(org.teams)}개 팀 <span>·</span> 별직원 {len(org.agents)}명</p>"
         '<div class="home-actions"><a class="tour" href="/org">회사 조직도 →</a>'
@@ -137,9 +138,15 @@ def _work_section(org: Org, conn: sqlite3.Connection | None) -> str:
 def home(org: Org, projects: Sequence[str], conn: sqlite3.Connection | None) -> str:
     principles = (
         '<section class="home-section home-charter"><div><h2>어떻게 일하나요?</h2>'
-        "<p>팀원들이 근거를 모으고 팀장이 기획안을 검토합니다. "
-        "의견이 갈리면 선택지와 이유를 대표에게 올립니다. Zero가 방향을 결정하면 "
-        "처음 일을 맡은 사람이 실행 결과까지 모아 보고합니다.</p></div>"
+        "<p>테스트 하나가 실패한 날, 샤울라는 자기 계산으로는 이유를 설명할 수 없다고 했어요. "
+        "미자르가 놓친 조건을 짚어 주자 둘은 답을 찾았죠. "
+        "이렇게 서로 다른 의견을 꺼내고, 선택이 필요한 날엔 Zero가 그 이유를 듣고 결정해요.</p>"
+        + (
+            '<a href="/org/stars/shaula">샤울라의 이야기 읽기 →</a>'
+            if "shaula" in org.agents
+            else ""
+        )
+        + "</div>"
         "<div><h2>2027년 10월에 돌아볼 목표</h2><ul>"
         "<li><b>제품</b> 출시와 업데이트를 이어가고, "
         "테스트 통과율과 장애 대응 시간을 살핍니다.</li>"
