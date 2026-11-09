@@ -193,16 +193,13 @@ def _name(agent: str) -> str:
     return _e(DEFAULT_ORG.display(agent))
 
 
-def _speaker(actor: str) -> str:
-    return "Zero" if actor == "zero" else _name(actor)
-
-
 def page(title: str, body: str, *, active: str = "") -> str:
     nav = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
         for key, href, label in (
             ("summary", "/", "요약"),
             ("tasks", "/tasks", "작업"),
+            ("org", "/org", "별자리 조직도"),
             ("team", "/team", "직원"),
             ("education", "/education", "교육"),
             ("runs", "/runs", "실행 기록"),
@@ -210,11 +207,13 @@ def page(title: str, body: str, *, active: str = "") -> str:
             ("features", "/features", "기능"),
         )
     )
+    atlas_style = '<link rel="stylesheet" href="/org/assets/atlas.css">' if active == "org" else ""
     return (
         '<!doctype html><html lang="ko"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{_e(title)} · ZeroSync</title><style>{_CSS}</style></head>"
-        f"<body><header><strong>ZeroSync</strong>{nav}</header><main>{body}</main></body></html>"
+        f"<title>{_e(title)} · ZeroSync</title><style>{_CSS}</style>{atlas_style}</head>"
+        f'<body class="{_e(active)}"><header><strong>ZeroSync</strong>{nav}</header>'
+        f"<main>{body}</main></body></html>"
     )
 
 
@@ -552,7 +551,12 @@ def _work_event(kind: str, payload: dict[str, Any]) -> str | None:
 
 
 def task_page(
-    task: TaskRow, events: Sequence[EventRow], runs: Sequence[RunRow], *, discord_url: str | None
+    task: TaskRow,
+    events: Sequence[EventRow],
+    runs: Sequence[RunRow],
+    *,
+    discord_url: str | None,
+    org: Org = DEFAULT_ORG,
 ) -> str:
     facts = _table(
         [
@@ -582,8 +586,8 @@ def task_page(
     )
     timeline = (
         "".join(
-            f'<div class="event"><div class="meta">{local_time(e.created_at)} · '
-            f"{_speaker(e.actor)} · {_e(KIND_LABELS.get(e.kind, e.kind))}"
+            f'<div class="event" id="event-{e.id}"><div class="meta">{local_time(e.created_at)} · '
+            f"{_e(org.display(e.actor))} · {_e(KIND_LABELS.get(e.kind, e.kind))}"
             f"</div>{_event_body(e)}</div>"
             for e in events
         )

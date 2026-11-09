@@ -32,6 +32,7 @@ include = ["bot*"]
 "bot.prompts" = ["*.md"]
 # 그림 이름표 글자 인식 (ADR-009)
 "bot.education" = ["*.swift"]
+"bot.dashboard" = ["assets/*.css", "assets/portraits/*.webp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

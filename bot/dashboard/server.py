@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from bot.dashboard import queries, views
+from bot.dashboard import atlas, queries, views
 from bot.dashboard.features import ScheduledJob, bot_pid
 from bot.education.daily import QUEUE_FILE, DailyError, goals_file, parse_months, parse_queue
 from bot.org import DEFAULT_ORG, Org
@@ -51,7 +51,7 @@ class DashboardSettings:
 @dataclass(frozen=True)
 class Response:
     status: HTTPStatus
-    body: str
+    body: str | bytes
     content_type: str = "text/html; charset=utf-8"
 
 
@@ -60,9 +60,13 @@ def handle(settings: DashboardSettings, path: str) -> Response:
     url = urlsplit(path)
     params = {key: values[0] for key, values in parse_qs(url.query).items()}
     parts = [unquote(part) for part in url.path.strip("/").split("/") if part]
+    if parts[:2] == ["org", "assets"]:
+        return _atlas_asset(settings.org, parts[2:])
     try:
         conn = queries.open_readonly(settings.db)
     except queries.DatabaseMissing as error:
+        if parts[:1] == ["org"]:
+            return _atlas(settings.org, None, parts)
         return Response(HTTPStatus.OK, views.message_page("기록 없음", str(error)))
     try:
         return _route(settings, conn, parts, params)
@@ -76,6 +80,8 @@ def _route(
     parts: list[str],
     params: dict[str, str],
 ) -> Response:
+    if parts[:1] == ["org"]:
+        return _atlas(settings.org, conn, parts)
     if parts == ["team"]:
         now = settings.now()
         today = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -146,6 +152,7 @@ def _route(
                 queries.task_events(conn, task.id),
                 queries.list_runs(conn, task_id=task.id, limit=1000),
                 discord_url=settings.discord_url(task.discord_thread),
+                org=settings.org,
             )
         )
     if parts == ["runs"]:
@@ -169,6 +176,26 @@ def _route(
     if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
         return _log(settings, conn, parts[1])
     return _not_found("없는 주소다")
+
+
+def _atlas(org: Org, conn: sqlite3.Connection | None, parts: list[str]) -> Response:
+    if parts == ["org"]:
+        return _ok(atlas.chart(org, conn))
+    if len(parts) == 3 and parts[1] == "teams" and parts[2] in org.teams:
+        return _ok(atlas.team_page(org, parts[2]))
+    if len(parts) == 3 and parts[1] == "stars" and parts[2] in org.agents:
+        return _ok(atlas.star_page(org, parts[2], conn))
+    return _not_found("조직도에 없는 주소다")
+
+
+def _atlas_asset(org: Org, parts: list[str]) -> Response:
+    if parts == ["atlas.css"]:
+        return Response(HTTPStatus.OK, (atlas.ASSETS / "atlas.css").read_bytes(), "text/css")
+    if len(parts) == 1 and parts[0].endswith(".webp") and parts[0][:-5] in org.agents:
+        path = atlas.ASSETS / "portraits" / parts[0]
+        if path.is_file():
+            return Response(HTTPStatus.OK, path.read_bytes(), "image/webp")
+    return _not_found("등록된 캐릭터 이미지가 없다")
 
 
 def _member(
@@ -251,7 +278,9 @@ def make_handler(settings: DashboardSettings) -> Callable[..., BaseHTTPRequestHa
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server 규약
             response = handle(settings, self.path)
-            body = response.body.encode("utf-8")
+            body = (
+                response.body.encode("utf-8") if isinstance(response.body, str) else response.body
+            )
             self.send_response(response.status)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(body)))

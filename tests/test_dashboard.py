@@ -1,7 +1,9 @@
 """로컬 대시보드 테스트. 봇 저장소로 DB를 만들고 handle()로 각 주소를 확인한다."""
 
 import asyncio
+import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 
@@ -10,6 +12,7 @@ import pytest
 from bot.agents.base import RunStatus, Stage
 from bot.clock import FixedClock
 from bot.dashboard import queries
+from bot.dashboard.atlas import _SCENE
 from bot.dashboard.server import DashboardSettings, handle
 from bot.org import DEFAULT_ORG
 from bot.store import INVALID_OUTPUT, Actor, EventKind, NewEvent, Repository, connect
@@ -99,6 +102,44 @@ def settings(tmp_path):
 def get(settings, path):
     response = handle(settings, path)
     return response.status, response.body
+
+
+def test_atlas_story_requires_the_recorded_speakers_in_order(settings):
+    # 작업 번호는 운영 DB와 달라도 된다. 예전 이름으로 쓴 원문도 현재 직원에게 연결한다.
+    agents = dict(DEFAULT_ORG.agents)
+    for key, display, former in (("shaula", "샤울라", "oldqa"), ("mizar", "미자르", "oldlead")):
+        agents[key] = agents["zeta"].model_copy(update={"display": display, "former": (former,)})
+    org = DEFAULT_ORG.model_copy(update={"agents": agents})
+    settings = replace(settings, org=org)
+    with sqlite3.connect(settings.db) as db:
+        for label, speaker, kind, field, sentence in _SCENE:
+            payload = json.dumps({field: {"summary": sentence}})
+            event = db.execute(
+                "INSERT INTO events(task_id, actor, kind, payload, created_at) VALUES(1,?,?,?,?)",
+                (
+                    "oldqa" if speaker == "shaula" else "oldlead",
+                    kind,
+                    payload,
+                    "2026-10-29T18:13:38.995897+00:00" if label == "첫 진단" else T0.isoformat(),
+                ),
+            )
+            if label == "첫 진단":
+                source = event.lastrowid
+    status, body = get(settings, "/org/stars/shaula")
+    assert status == 200 and "기록 속 한마디" in body and f"/tasks/1#event-{source}" in body
+    assert "다시 확인 · 미자르" in body
+    with sqlite3.connect(settings.db) as db:
+        db.execute("UPDATE events SET actor='zero' WHERE id=?", (source,))
+    assert "기록 속 한마디" not in get(settings, "/org/stars/shaula")[1]
+
+
+def test_atlas_without_a_database_still_serves_the_roster(settings):
+    settings = replace(settings, db=settings.db.with_name("missing.db"))
+    assert 'href="/org/teams/qa"' in get(settings, "/org")[1]
+    assert 'href="/org/stars/zeta"' in get(settings, "/org/teams/qa")[1]
+    assert "원인을 끝까지 좁히기" in get(settings, "/org/stars/zeta")[1]
+    assert get(settings, "/org/assets/..%2Fserver.py")[0] == HTTPStatus.NOT_FOUND
+    assert get(settings, "/org/teams/unknown")[0] == HTTPStatus.NOT_FOUND
 
 
 def test_summary_counts_across_projects(settings):
