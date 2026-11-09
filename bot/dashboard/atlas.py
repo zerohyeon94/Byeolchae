@@ -10,6 +10,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from bot.dashboard import queries, views
+from bot.dashboard.characters import CHARACTERS, Character
 from bot.org import Org
 
 ASSETS = Path(__file__).with_name("assets")
@@ -38,27 +39,6 @@ TEAM_WORK = {
     "cs": "사용자 문의",
     "channel": "채널과 커뮤니티",
     "video": "대본과 편집",
-}
-# 원화와 기존 인격 설정에서 골라 쓴 소개 문구다.
-CHARACTERS = {
-    "polaris": (
-        "비서실장",
-        "모두가 바쁜 날에도 침착하다. 흩어진 보고를 모아 대표가 오늘 결정할 한 가지를 짚어 준다.",
-    ),
-    "mizar": (
-        "검증을 맡은 팀장",
-        "꼼꼼하고 단호하다. 결론이 그럴듯해도 숫자 하나가 어긋나면 근거를 다시 펼쳐 본다.",
-    ),
-    "alcor": (
-        "자동 테스트 담당",
-        "같은 동작을 몇 번이고 확인하는 끈기가 있다. "
-        "한 번 잡은 문제가 다시 나타나면 곧바로 알아챌 검사를 만든다.",
-    ),
-    "shaula": (
-        "원인 진단 담당",
-        "작은 어긋남을 그냥 지나치지 못한다. "
-        "설명과 결과가 맞아떨어질 때까지 가설을 바꿔 가며 원인을 좁힌다.",
-    ),
 }
 
 
@@ -91,6 +71,47 @@ def _crumb(team: tuple[str, str] | None = None, member: str | None = None) -> st
 def _team_members(org: Org, key: str) -> list[str]:
     members = [name for name, spec in org.agents.items() if spec.team == key]
     return sorted(members, key=lambda name: name != org.teams[key].lead)
+
+
+def _character(org: Org, key: str) -> Character:
+    if key in CHARACTERS:
+        return CHARACTERS[key]
+    spec = org.agents[key]
+    return Character(spec.title, spec.perspective, "")
+
+
+def _profile_link(org: Org, key: str) -> str:
+    return (
+        f'<a class="portrait-link" href="/org/stars/{key}">'
+        f'<span class="thumb">{_portrait(key, org)}</span>'
+        f"<span><b>{escape(org.agents[key].display)}</b>"
+        f"<small>{escape(_character(org, key).role)}</small></span></a>"
+    )
+
+
+def directory(org: Org) -> str:
+    jumps, teams = [], []
+    for key, team in org.teams.items():
+        name = escape(_team_name(org, key))
+        anchor = f"team-{quote(key, safe='')}"
+        members = _team_members(org, key)
+        jumps.append(f'<a href="#{anchor}">{name}</a>')
+        links = "".join(_profile_link(org, member) for member in members)
+        department = escape(DEPARTMENTS.get(team.department, team.department))
+        teams.append(
+            f'<section id="{anchor}" class="directory-team"><div class="directory-label">'
+            f"<p>{department} · {len(members)}명</p><h2>{name}</h2></div>"
+            f'<div class="portrait-links">{links}</div></section>'
+        )
+    body = (
+        '<nav class="crumb" aria-label="현재 위치"><a href="/org">별자리 조직도</a>'
+        "<span>›</span>별직원 소개</nav>"
+        f'<div class="team-head"><p class="eyebrow">{len(org.teams)}개 팀 · {len(org.agents)}명</p>'
+        "<h1>별직원 소개</h1></div>"
+        f'<nav class="team-jumps" aria-label="팀 바로가기">{"".join(jumps)}</nav>'
+        f"{''.join(teams)}"
+    )
+    return views.page("별직원 소개", body, active="org")
 
 
 def chart(org: Org, conn: sqlite3.Connection | None) -> str:
@@ -126,7 +147,9 @@ def chart(org: Org, conn: sqlite3.Connection | None) -> str:
     hero = (
         '<section class="night"><div class="sky" aria-hidden="true"></div><div class="intro">'
         '<p class="eyebrow">별직원 도감</p><h1>별자리 조직도</h1>'
-        f'<p class="hello">{intro}</p>{cta}</div>{figure}</section>'
+        f'<p class="hello">{intro}</p><div class="tour-links">{cta}'
+        '<a class="tour-directory" href="/org/stars">별직원 전체 보기 →</a></div>'
+        f"</div>{figure}</section>"
     )
     lanes = []
     for dept, team_keys in departments.items():
@@ -169,12 +192,13 @@ def team_page(org: Org, key: str) -> str:
     cards = []
     for member in members:
         spec = org.agents[member]
-        role, description = CHARACTERS.get(member, (spec.title, spec.perspective))
+        character = _character(org, member)
         cards.append(
             f'<a class="person" href="/org/stars/{member}">'
             f'<span class="paper">{_portrait(member, org, eager=True)}</span>'
-            f'<div class="person-copy"><small>{escape(role)}</small><h2>{escape(spec.display)}</h2>'
-            f'<p>{escape(description)}</p><span class="text-link">직원 만나기 →</span></div></a>'
+            f'<div class="person-copy"><small>{escape(character.role)}</small>'
+            f"<h2>{escape(spec.display)}</h2><p>{escape(character.personality)}</p>"
+            '<span class="text-link">직원 만나기 →</span></div></a>'
         )
     sub = (
         "어디서 문제가 생겼는지 찾아내고, 같은 실수가 반복되지 않도록 확인하는 팀이에요."
@@ -278,18 +302,30 @@ def _shaula_scene(org: Org, conn: sqlite3.Connection) -> str:
 def star_page(org: Org, key: str, conn: sqlite3.Connection | None) -> str:
     spec = org.agents[key]
     team = _team_name(org, spec.team)
-    role, personality = CHARACTERS.get(key, (spec.title, spec.perspective))
+    character = _character(org, key)
+    caption = f"<figcaption>{escape(character.caption)}</figcaption>" if character.caption else ""
+    peers = "".join(
+        _profile_link(org, member) for member in _team_members(org, spec.team) if member != key
+    )
     story = _shaula_scene(org, conn) if key == "shaula" and conn is not None else ""
     if key == "shaula" and not story:
         story = '<p class="empty">이 대시보드에는 소개할 진단 장면의 원문이 아직 없습니다.</p>'
     body = (
         _crumb((spec.team, team), spec.display)
-        + '<section class="profile"><div class="profile-paper">'
-        f'{_portrait(key, org, eager=True)}</div><div class="profile-copy">'
-        f'<p class="eyebrow">{escape(team)} · {escape(role)}</p><h1>{escape(spec.display)}</h1>'
-        f"<p>{escape(personality)}</p><h2>늘 던지는 질문</h2><p>{escape(spec.basic_question)}</p>"
-        f"</div></section>{story}"
+        + '<section class="profile"><figure class="star-art"><div class="profile-paper">'
+        f'{_portrait(key, org, eager=True)}</div>{caption}</figure><div class="profile-copy">'
+        f'<p class="eyebrow">{escape(character.role)}</p><h1>{escape(spec.display)}</h1>'
+        f'<p>{escape(character.personality)}</p><div class="star-question"><h2>늘 던지는 질문</h2>'
+        f"<p>{escape(spec.basic_question)}</p></div></div></section>{story}"
+    )
+    if peers:
+        body += (
+            '<section class="teammates"><h2>같은 팀의 별직원</h2>'
+            f'<div class="portrait-links">{peers}</div></section>'
+        )
+    body += (
         f'<p class="back"><a href="/org/teams/{quote(spec.team, safe="")}">← {escape(team)}으로</a>'
+        '<a href="/org/stars">별직원 전체 보기</a>'
         f'<a href="/team/{key}">업무 기록 보기 →</a></p>'
     )
     return views.page(spec.display, body, active="org")

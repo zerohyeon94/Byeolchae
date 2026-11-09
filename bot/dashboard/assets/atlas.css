@@ -155,3 +155,43 @@ body.org {
   .profile-copy > p:not(.eyebrow) { font-size: 14px; }
   .scene blockquote { padding: 15px; }
 }
+.tour-links, .team-jumps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tour-links { gap: 12px 19px; }
+.org .tour-directory { color: #fff2d7; font-weight: 650; text-decoration: underline; text-underline-offset: 4px; }
+.team-jumps { margin-bottom: 22px; }
+.team-jumps a { padding: 5px 12px; border: 1px solid var(--hairline); border-radius: 20px; background: var(--paper); }
+.team-jumps a:hover { background: #efe9f6; }
+.directory-team { display: grid; grid-template-columns: 152px 1fr; gap: 16px; align-items: start; padding: 18px 0; border-top: 1px solid var(--hairline); scroll-margin-top: 16px; }
+.directory-label p, .portrait-link small { color: var(--muted-ink); font-size: 12px; }
+.directory-label h2, .teammates h2 { font-size: 23px; letter-spacing: -.04em; }
+.directory-label h2 { margin-top: 4px; }
+.portrait-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px,100%),1fr)); gap: 9px; }
+.portrait-link { display: flex; align-items: center; gap: 13px; padding: 9px; background: var(--paper); border: 1px solid var(--hairline); border-radius: 14px; }
+.portrait-link:hover { background: #fff; border-color: #85769a; }
+.portrait-link .thumb { flex: none; display: grid; place-items: center; width: 57px; height: 57px; background: #fbeede; border-radius: 50%; overflow: hidden; }
+.portrait-link img { height: 100%; width: 100%; object-fit: contain; }
+.portrait-link b, .portrait-link small { display: block; }
+.portrait-link b { font-size: 17px; }
+.star-art { margin: 0; padding: 20px; background: #fbeede; display: grid; align-content: center; gap: 10px; }
+.star-art .profile-paper { height: clamp(170px, 23vw, 270px); }
+.star-art img { max-height: 100%; }
+.star-art figcaption { text-align: center; font-size: 13px; color: #665344; }
+.star-question { border-left: 3px solid #c5ae7b; padding: 0 0 0 15px; margin-top: 21px; }
+.star-question h2 { margin: 0 0 3px; }
+.star-question p { font-size: 17px; }
+.teammates { margin-top: 26px; }
+.teammates h2 { margin-bottom: 10px; }
+.back { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .directory-team { grid-template-columns: 1fr; gap: 9px; padding-block: 15px; }
+  .directory-label { display: flex; flex-direction: row-reverse; justify-content: start; align-items: baseline; gap: 8px; }
+  .directory-label h2 { margin: 0; }
+  .portrait-links { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+  .portrait-link { padding: 6px; gap: 6px; }
+  .portrait-link .thumb { width: 38px; height: 38px; }
+  .portrait-link b { font-size: 15px; }
+  .profile { grid-template-columns: 1fr; }
+  .star-art { padding: 13px 18px; }
+  .star-art .profile-paper { height: 170px; }
+  .back { justify-content: start; gap: 8px 18px; }
+}

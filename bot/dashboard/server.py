@@ -181,6 +181,8 @@ def _route(
 def _atlas(org: Org, conn: sqlite3.Connection | None, parts: list[str]) -> Response:
     if parts == ["org"]:
         return _ok(atlas.chart(org, conn))
+    if parts == ["org", "stars"]:
+        return _ok(atlas.directory(org))
     if len(parts) == 3 and parts[1] == "teams" and parts[2] in org.teams:
         return _ok(atlas.team_page(org, parts[2]))
     if len(parts) == 3 and parts[1] == "stars" and parts[2] in org.agents:
