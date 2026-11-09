@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from bot.dashboard import queries, views
 from bot.dashboard.characters import CHARACTERS, Character
+from bot.dashboard.identity import FOUNDER_NAME, staff_description
 from bot.org import Org
 
 ASSETS = Path(__file__).with_name("assets")
@@ -77,7 +78,7 @@ def _character(org: Org, key: str) -> Character:
     if key in CHARACTERS:
         return CHARACTERS[key]
     spec = org.agents[key]
-    return Character(spec.title, spec.perspective, "")
+    return Character(spec.title, staff_description(spec.perspective), "")
 
 
 def _profile_link(org: Org, key: str) -> str:
@@ -179,7 +180,7 @@ def chart(org: Org, conn: sqlite3.Connection | None) -> str:
         f"<p>{len(departments)}개 부문 · {len(org.teams)}개 팀 · "
         f"별직원 {len(org.agents)}명</p></div>"
         '<small class="legend"><i class="signal lit"></i> 활동 기록 있음</small></div>'
-        '<div class="tree"><div class="chief">Zero 대표</div>'
+        f'<div class="tree"><div class="chief">{FOUNDER_NAME} 대표</div>'
         f'<div class="lanes" style="--lanes:{len(lanes)}">{"".join(lanes)}</div></div></section>'
     )
     return views.page("별자리 조직도", body, active="org")
@@ -203,7 +204,7 @@ def team_page(org: Org, key: str) -> str:
     sub = (
         "어디서 문제가 생겼는지 찾아내고, 같은 실수가 반복되지 않도록 확인하는 팀이에요."
         if key == "qa"
-        else org.agents[team.lead].basic_question
+        else staff_description(org.agents[team.lead].basic_question)
     )
     department = DEPARTMENTS.get(team.department, team.department)
     body = (
@@ -316,7 +317,7 @@ def star_page(org: Org, key: str, conn: sqlite3.Connection | None) -> str:
         f'{_portrait(key, org, eager=True)}</div>{caption}</figure><div class="profile-copy">'
         f'<p class="eyebrow">{escape(character.role)}</p><h1>{escape(spec.display)}</h1>'
         f'<p>{escape(character.personality)}</p><div class="star-question"><h2>늘 던지는 질문</h2>'
-        f"<p>{escape(spec.basic_question)}</p></div></div></section>{story}"
+        f"<p>{escape(staff_description(spec.basic_question))}</p></div></div></section>{story}"
     )
     if peers:
         body += (

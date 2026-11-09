@@ -1,4 +1,4 @@
-"""ZeroSync 회사 홈. 소개는 회사 헌장·프로젝트 목록·ADR-012, 현황은 작업 DB를 따른다."""
+"""밤도란 회사 홈. 소개는 회사 헌장·프로젝트 목록·ADR-012, 현황은 작업 DB를 따른다."""
 
 import sqlite3
 from collections.abc import Sequence
@@ -6,6 +6,7 @@ from html import escape
 from urllib.parse import urlencode
 
 from bot.dashboard import queries, views
+from bot.dashboard.identity import COMPANY_NAME, FOUNDER_NAME, actor_name
 from bot.org import Org
 
 # docs/회사/02-프로젝트.md의 우선순위와 다음 목표.
@@ -63,13 +64,14 @@ def _hero(org: Org) -> str:
     departments = len({team.department for team in org.teams.values()})
     return (
         '<section class="home-intro"><div class="sky" aria-hidden="true"></div><div>'
-        '<p class="eyebrow">별직원들이 모여 일하는 곳</p><h1>ZeroSync</h1>'
+        f'<p class="eyebrow">별직원들이 도란도란 모여 일하는 곳</p><h1>{COMPANY_NAME}</h1>'
         '<p class="mission">앱 하나, 이야기 한 편이 누군가의 밤에 작은 빛이 되기를.</p>'
         '<p class="home-lede">침착한 폴라리스와 궁금한 게 많은 샤울라는 '
         "같은 문제를 보고도 서로 다른 질문을 해요. 우리는 그렇게 함께 앱을 만들고, "
         "만들면서 겪은 일들도 영상으로 나누고 싶어요. "
         "그 빛이 하나씩 모이면 언젠가 밤하늘이 가득 차겠지요.</p>"
-        f'<p class="home-facts">대표 Zero <span>·</span> {departments}개 부문 <span>·</span> '
+        f'<p class="home-facts">대표 {FOUNDER_NAME} <span>·</span> '
+        f"{departments}개 부문 <span>·</span> "
         f"{len(org.teams)}개 팀 <span>·</span> 별직원 {len(org.agents)}명</p>"
         '<div class="home-actions"><a class="tour" href="/org">회사 조직도 →</a>'
         '<a href="/org/stars">직원 만나기 →</a></div></div>'
@@ -109,7 +111,7 @@ def _work_section(org: Org, conn: sqlite3.Connection | None) -> str:
                 f"{escape(row.title)}</b><small>#{row.id} · {label}</small></a></li>"
             )
         for event in queries.recent_task_updates(conn):
-            actor = org.display(event.actor).split(" · ")[0]
+            actor = actor_name(org, event.actor).split(" · ")[0]
             kind = views.KIND_LABELS.get(event.kind, event.kind)
             time = views.local_time(event.created_at)[:16]
             records.append(
@@ -140,7 +142,7 @@ def home(org: Org, projects: Sequence[str], conn: sqlite3.Connection | None) -> 
         '<section class="home-section home-charter"><div><h2>어떻게 일하나요?</h2>'
         "<p>테스트 하나가 실패한 날, 샤울라는 자기 계산으로는 이유를 설명할 수 없다고 했어요. "
         "미자르가 놓친 조건을 짚어 주자 둘은 답을 찾았죠. "
-        "이렇게 서로 다른 의견을 꺼내고, 선택이 필요한 날엔 Zero가 그 이유를 듣고 결정해요.</p>"
+        "이렇게 서로 다른 의견을 꺼내고, 선택이 필요한 날엔 노을이 그 이유를 듣고 결정해요.</p>"
         + (
             '<a href="/org/stars/shaula">샤울라의 이야기 읽기 →</a>'
             if "shaula" in org.agents
@@ -150,7 +152,7 @@ def home(org: Org, projects: Sequence[str], conn: sqlite3.Connection | None) -> 
         "<div><h2>2027년 10월에 돌아볼 목표</h2><ul>"
         "<li><b>제품</b> 출시와 업데이트를 이어가고, "
         "테스트 통과율과 장애 대응 시간을 살핍니다.</li>"
-        "<li><b>교육</b> Zero가 계획한 학습을 기간 안에 얼마나 마쳤는지 확인합니다.</li>"
+        "<li><b>교육</b> 노을이 계획한 학습을 기간 안에 얼마나 마쳤는지 확인합니다.</li>"
         "<li><b>비서</b> 브리핑을 제때 전했는지, 요청받은 조사를 얼마나 보고했는지 봅니다.</li>"
         "</ul></div></section>"
     )

@@ -166,7 +166,8 @@ def test_summary_counts_across_projects(settings):
 
 def test_company_home_links_open_work_and_latest_event_per_task(settings):
     status, body = get(settings, "/")
-    assert status == HTTPStatus.OK and "<h1>ZeroSync</h1>" in body
+    assert status == HTTPStatus.OK and "<h1>밤도란</h1>" in body
+    assert "대표 노을" in body
     work, history = body.split("<h3>최근 작업 기록</h3>")
     assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
     assert "여행 &lt;소비&gt;" in work
@@ -270,6 +271,7 @@ def test_phase2_events_are_rendered(settings):
     asyncio.run(add())
     _, body = get(settings, "/tasks/1")
     assert "테스트 통과 — 431개" in body
+    assert "밤도란 봇 · 테스트" in body and "노을 · 메시지" in body
     assert "PR #43 merge 감지" in body
 
 
@@ -314,7 +316,7 @@ def test_work_summary_puts_zero_todo_first(settings):
     status, body = get(later, "/summary")
     assert status is HTTPStatus.OK
     # 승인 대기(OPINIONS) 1건이 맨 위 표에, 대기 시간과 함께
-    todo = body.index("<h2>Zero가 할 일</h2>")
+    todo = body.index("<h2>노을이 할 일</h2>")
     assert todo < body.index("<h2>누적</h2>")
     assert "#1 여행 &lt;소비&gt;" in body[todo:] and "5시간" in body
     # 오늘 예산: 한도에 닿은 에이전트는 표시한다
@@ -328,7 +330,7 @@ def test_overview_works_on_old_schema_without_new_tables(settings):
     raw.executescript("DROP TABLE hiring_proposals; DROP TABLE bot_state;")
     raw.close()
     status, body = get(settings, "/summary")
-    assert status is HTTPStatus.OK and "Zero가 할 일" in body
+    assert status is HTTPStatus.OK and "노을이 할 일" in body
 
 
 def test_team_page_shows_status_jobs_and_persona(settings):

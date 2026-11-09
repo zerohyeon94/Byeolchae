@@ -1,6 +1,6 @@
 """대시보드 HTML.
 
-모든 데이터 값은 이스케이프한다 (에이전트 출력과 Zero 메시지가 그대로 들어온다).
+모든 데이터 값은 이스케이프한다 (에이전트 출력과 대표 메시지가 그대로 들어온다).
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from bot.dashboard.features import COMMANDS, PAGES, SAFEGUARDS, ScheduledJob, cron_label
+from bot.dashboard.identity import COMPANY_NAME, FOUNDER_NAME, actor_name, staff_description
 from bot.dashboard.queries import (
     AgentActivity,
     AgentWork,
@@ -190,7 +191,7 @@ def _counts(counts: Mapping[str, int], labels: Mapping[str, str] | None = None) 
 
 def _name(agent: str) -> str:
     # 대시보드는 DB만 읽으므로 표시 이름은 기본 조직(ADR-007) 기준이다
-    return _e(DEFAULT_ORG.display(agent))
+    return _e(actor_name(DEFAULT_ORG, agent))
 
 
 def page(title: str, body: str, *, active: str = "") -> str:
@@ -219,8 +220,8 @@ def page(title: str, body: str, *, active: str = "") -> str:
     return (
         '<!doctype html><html lang="ko"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{_e(title)} · ZeroSync</title><style>{_CSS}</style>{atlas_style}</head>"
-        f'<body class="{_e(body_class)}"><header><strong>ZeroSync</strong>{nav}</header>'
+        f"<title>{_e(title)} · {COMPANY_NAME}</title><style>{_CSS}</style>{atlas_style}</head>"
+        f'<body class="{_e(body_class)}"><header><strong>{COMPANY_NAME}</strong>{nav}</header>'
         f"<main>{body}</main></body></html>"
     )
 
@@ -306,11 +307,11 @@ def overview_section(
         else ""
     )
     cards = (
-        f'<div class="card"><div class="muted">Zero가 할 일</div>'
+        f'<div class="card"><div class="muted">노을이 할 일</div>'
         f'<div class="big {"warn" if todo else ""}">{todo}</div></div>'
         f'<div class="card"><div class="muted">실행 중</div>'
         f'<div class="big">{len(data.running)}</div></div>'
-        f'<div class="card"><div class="muted">Zero 승인 평균 대기</div>'
+        f'<div class="card"><div class="muted">대표 승인 평균 대기</div>'
         f'<div class="big">{avg_wait}</div></div>'
         f'<div class="card"><div class="muted">7일 시스템 실패</div>'
         f'<div class="big {"bad" if data.failures else ""}">{data.failures}</div></div>' + paused
@@ -373,7 +374,7 @@ def overview_section(
     )
     return (
         f'<div class="cards">{cards}</div>'
-        f"<h2>Zero가 할 일</h2>{waiting}<h2>실행 중</h2>{running}"
+        f"<h2>노을이 할 일</h2>{waiting}<h2>실행 중</h2>{running}"
         f"<h2>오늘 예산</h2>{budget}<h2>제품별 작업판</h2>{board}"
         f"<h2>지표 (7일)</h2>{metrics}"
     )
@@ -595,7 +596,7 @@ def task_page(
     timeline = (
         "".join(
             f'<div class="event" id="event-{e.id}"><div class="meta">{local_time(e.created_at)} · '
-            f"{_e(org.display(e.actor))} · {_e(KIND_LABELS.get(e.kind, e.kind))}"
+            f"{_e(actor_name(org, e.actor))} · {_e(KIND_LABELS.get(e.kind, e.kind))}"
             f"</div>{_event_body(e)}</div>"
             for e in events
         )
@@ -704,10 +705,13 @@ def _member(
         ("오늘 실행", f"{today} / {limit}" if limit else str(today)),
         ("최근 7일", _counts(activity.week if activity else {}, STATUS_LABELS)),
         ("맡은 일", _e(", ".join(jobs)) or '<span class="muted">흐름에 배정 없음</span>'),
-        ("관점", _e(spec.perspective)),
-        ("기본 질문", _e(spec.basic_question)),
+        ("관점", _e(staff_description(spec.perspective))),
+        ("기본 질문", _e(staff_description(spec.basic_question))),
         ("엔진·모델", _e(spec.engine + (f" ({models})" if models else ""))),
-        ("채용", _e(" · ".join(x for x in (spec.hired, spec.reason) if x)) or "-"),
+        (
+            "채용",
+            _e(" · ".join(x for x in (spec.hired, staff_description(spec.reason)) if x)) or "-",
+        ),
     ]
     rows = "".join(f"<dt>{_e(k)}</dt><dd>{v}</dd>" for k, v in facts)
     profile = org.profile(agent)
@@ -962,8 +966,8 @@ def message_page(title: str, message: str, status_class: str = "muted") -> str:
 # 기능 화면 (/features)
 
 _STEP_LABELS = {
-    "gate": "Zero 승인",
-    "merge_gate": "Zero merge",
+    "gate": "대표 승인",
+    "merge_gate": "대표 병합",
     "test": "테스트",
     "report": "보고",
 }
@@ -1011,7 +1015,7 @@ def _pipeline_flow(org: Org, pipeline: Pipeline) -> str:
         if stage.agent:
             steps.append(_step(_stage_label(kind), org.display(stage.agent), notes=notes))
         elif kind in ("gate", "merge_gate"):
-            steps.append(_step(_stage_label(kind), "Zero", "zero", notes))
+            steps.append(_step(_stage_label(kind), FOUNDER_NAME, "zero", notes))
         else:
             steps.append(_step(_stage_label(kind), "봇", "bot", notes))
     steps.append(_step("완료", "DONE", "bot"))
@@ -1019,20 +1023,20 @@ def _pipeline_flow(org: Org, pipeline: Pipeline) -> str:
 
 
 _COMMON_FLOW = (
-    ("제품 채팅에 글", "Zero", "zero"),
+    ("제품 채팅에 글", FOUNDER_NAME, "zero"),
     ("팀장 의견 (/debate로 반박 1회)", "팀장", ""),
-    ("/task로 포럼 포스트", "Zero", "zero"),
+    ("/task로 포럼 포스트", FOUNDER_NAME, "zero"),
     ("파이프라인 단계 진행", "봇 + 담당 직원", ""),
     ("승인 대기 시 멘션, 오래 기다리면 한 번 더", "봇", "bot"),
     ("PR merge 확인 뒤 문서 반영", "봇", "bot"),
 )
 
 _ARCHITECTURE = """
-<svg viewBox="0 0 960 440" role="img" aria-label="ZeroSync 구성도">
+<svg viewBox="0 0 960 440" role="img" aria-label="밤도란 업무 구성도">
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
  orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="head"/></marker></defs>
 <rect class="box" x="20" y="150" width="130" height="60" rx="8"/>
-<text x="85" y="176" text-anchor="middle">Zero</text>
+<text x="85" y="176" text-anchor="middle">노을</text>
 <text class="sub" x="85" y="194" text-anchor="middle">Discord 앱 · 브라우저</text>
 <rect class="box" x="200" y="40" width="180" height="200" rx="8"/>
 <text x="290" y="68" text-anchor="middle">Discord 서버</text>
@@ -1216,7 +1220,7 @@ def features_page(
     body.append('<ol class="flow">' + "".join(_step(t, w, c) for t, w, c in _COMMON_FLOW) + "</ol>")
     body.append(
         '<p class="muted">에이전트가 실패하거나 한도를 넘으면 NEEDS_HUMAN(확인 필요)으로 멈추고, '
-        "Zero가 /resume으로 다시 잇거나 /stop으로 끝낸다.</p>"
+        "노을이 /resume으로 다시 잇거나 /stop으로 끝낸다.</p>"
     )
     for pipeline in pipelines.values():
         body.append(

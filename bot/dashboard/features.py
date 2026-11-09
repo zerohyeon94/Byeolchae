@@ -133,7 +133,7 @@ SAFEGUARDS: tuple[tuple[str, str, str], ...] = (
         "bot/github/rules.py",
     ),
     ("테스트 전역 락", "앱 테스트(xcodebuild)는 한 번에 하나만 돈다", "bot/testrun.py"),
-    ("Zero 대기 재멘션", "Zero 대기가 길어진 작업을 한 번 더 멘션한다", "bot/workflow/engine.py"),
+    ("대표 확인 재알림", "확인이 늦어지는 작업은 대표를 다시 멘션한다", "bot/workflow/engine.py"),
     ("merge 확인", "AWAIT_MERGE 작업의 PR merge를 주기적으로 확인한다", "bot/discord_io/client.py"),
     ("대시보드 읽기 전용", "DB를 mode=ro로 열고 127.0.0.1에만 연다", "bot/dashboard/"),
 )
@@ -141,7 +141,7 @@ SAFEGUARDS: tuple[tuple[str, str, str], ...] = (
 # 대시보드 화면: (주소, 이름, 보여 주는 것)
 PAGES: tuple[tuple[str, str, str], ...] = (
     ("/", "회사 홈", "회사 소개, 목표, 제품, 진행 중인 작업과 최근 기록"),
-    ("/summary", "업무 요약", "Zero가 할 일, 실행 중, 오늘 예산, 제품별 작업판, 누적 통계"),
+    ("/summary", "업무 요약", "노을이 할 일, 실행 중, 오늘 예산, 제품별 작업판, 누적 통계"),
     ("/tasks", "작업", "작업 목록과 작업별 이벤트·실행 기록"),
     ("/org", "별자리 조직도", "폴라리스의 안내, 팀별 캐릭터와 업무 장면"),
     ("/team", "직원", "팀별 구성원, 맡은 일, 오늘 실행, 인격 파일"),
