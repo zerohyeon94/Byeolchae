@@ -197,7 +197,8 @@ def page(title: str, body: str, *, active: str = "") -> str:
     nav = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
         for key, href, label in (
-            ("summary", "/", "요약"),
+            ("company", "/", "회사 홈"),
+            ("summary", "/summary", "업무 요약"),
             ("tasks", "/tasks", "작업"),
             ("org", "/org", "별자리 조직도"),
             ("team", "/team", "직원"),
@@ -207,12 +208,19 @@ def page(title: str, body: str, *, active: str = "") -> str:
             ("features", "/features", "기능"),
         )
     )
-    atlas_style = '<link rel="stylesheet" href="/org/assets/atlas.css">' if active == "org" else ""
+    atlas_style = (
+        '<link rel="stylesheet" href="/org/assets/atlas.css">'
+        if active in ("org", "company")
+        else ""
+    )
+    if active == "company":
+        atlas_style += '<link rel="stylesheet" href="/org/assets/company.css">'
+    body_class = "org company" if active == "company" else active
     return (
         '<!doctype html><html lang="ko"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{_e(title)} · ZeroSync</title><style>{_CSS}</style>{atlas_style}</head>"
-        f'<body class="{_e(active)}"><header><strong>ZeroSync</strong>{nav}</header>'
+        f'<body class="{_e(body_class)}"><header><strong>ZeroSync</strong>{nav}</header>'
         f"<main>{body}</main></body></html>"
     )
 

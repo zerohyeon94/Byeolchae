@@ -167,6 +167,38 @@ def get_task(conn: sqlite3.Connection, task_id: int) -> TaskRow | None:
     return None if row is None else _task(row)
 
 
+def current_tasks(conn: sqlite3.Connection, limit: int = 3) -> list[TaskRow]:
+    rows = conn.execute(
+        _TASK_SELECT + " WHERE t.state NOT IN ('DONE','STOPPED') "
+        "ORDER BY t.updated_at DESC, t.id DESC LIMIT ?",
+        (limit,),
+    )
+    return [_task(row) for row in rows]
+
+
+@dataclass(frozen=True)
+class TaskUpdate:
+    task_id: int
+    event_id: int
+    project: str
+    title: str
+    kind: str
+    actor: str
+    created_at: str
+
+
+def recent_task_updates(conn: sqlite3.Connection, limit: int = 3) -> list[TaskUpdate]:
+    """작업마다 마지막 이벤트 한 건을 골라 최신 순으로 보여 준다."""
+    rows = conn.execute(
+        "SELECT t.id AS task_id, e.id AS event_id, t.project, t.title, "
+        "e.kind, e.actor, e.created_at FROM tasks t JOIN events e ON e.id = "
+        "(SELECT id FROM events WHERE task_id=t.id ORDER BY created_at DESC, id DESC LIMIT 1) "
+        "ORDER BY e.created_at DESC, e.id DESC LIMIT ?",
+        (limit,),
+    )
+    return [TaskUpdate(**row) for row in rows]
+
+
 def task_events(conn: sqlite3.Connection, task_id: int) -> list[EventRow]:
     rows = conn.execute("SELECT * FROM events WHERE task_id = ? ORDER BY id", (task_id,))
     return [

@@ -158,10 +158,23 @@ def test_summary_counts_across_projects(settings):
     finally:
         conn.close()
 
-    status, body = get(settings, "/")
+    status, body = get(settings, "/summary")
     assert status is HTTPStatus.OK
     assert "gagaessi" in body and "jday" in body
     assert "형식 오류 1" in body
+
+
+def test_company_home_links_open_work_and_latest_event_per_task(settings):
+    status, body = get(settings, "/")
+    assert status == HTTPStatus.OK and "Zero 한 사람을 위한 회사" in body
+    work, history = body.split("<h3>최근 작업 기록</h3>")
+    assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
+    assert "여행 &lt;소비&gt;" in work
+    assert history.count("/tasks/1#event-") == history.count("/tasks/2#event-") == 1
+    with sqlite3.connect(settings.db) as db:
+        event_id = db.execute("SELECT MAX(id) FROM events WHERE task_id=1").fetchone()[0]
+    assert f'href="/tasks/1#event-{event_id}"' in history
+    assert 'href="/summary"' in body
 
 
 def test_task_list_filters_and_links(settings):
@@ -233,9 +246,11 @@ def test_database_is_opened_read_only(settings):
 
 def test_missing_database_shows_message(tmp_path):
     settings = DashboardSettings(db=tmp_path / "none.db", runs_dir=tmp_path)
-    status, body = get(settings, "/")
+    status, body = get(settings, "/summary")
     assert status is HTTPStatus.OK
     assert "봇을 한 번 실행하면 만들어진다" in body
+    status, home = get(settings, "/")
+    assert status == HTTPStatus.OK and "제품과 목표" in home and "첫 업무 기록" in home
     assert not (tmp_path / "none.db").exists()
 
 
@@ -287,7 +302,7 @@ def test_team_stage_events_are_rendered(settings):
     assert "Zeta · QA팀원" in body and "팀장 확인" in body
 
 
-def test_home_overview_puts_zero_todo_first(settings):
+def test_work_summary_puts_zero_todo_first(settings):
     from dataclasses import replace
     from datetime import timedelta
 
@@ -296,7 +311,7 @@ def test_home_overview_puts_zero_todo_first(settings):
         daily_calls={"claude": 1, "beta": 30},
         now=lambda: T0 + timedelta(hours=5),
     )
-    status, body = get(later, "/")
+    status, body = get(later, "/summary")
     assert status is HTTPStatus.OK
     # 승인 대기(OPINIONS) 1건이 맨 위 표에, 대기 시간과 함께
     todo = body.index("<h2>Zero가 할 일</h2>")
@@ -312,7 +327,7 @@ def test_overview_works_on_old_schema_without_new_tables(settings):
     raw = sqlite3.connect(settings.db)
     raw.executescript("DROP TABLE hiring_proposals; DROP TABLE bot_state;")
     raw.close()
-    status, body = get(settings, "/")
+    status, body = get(settings, "/summary")
     assert status is HTTPStatus.OK and "Zero가 할 일" in body
 
 

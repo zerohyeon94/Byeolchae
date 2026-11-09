@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from bot.dashboard import atlas, queries, views
+from bot.dashboard import atlas, company, queries, views
 from bot.dashboard.features import ScheduledJob, bot_pid
 from bot.education.daily import QUEUE_FILE, DailyError, goals_file, parse_months, parse_queue
 from bot.org import DEFAULT_ORG, Org
@@ -65,6 +65,8 @@ def handle(settings: DashboardSettings, path: str) -> Response:
     try:
         conn = queries.open_readonly(settings.db)
     except queries.DatabaseMissing as error:
+        if not parts:
+            return _ok(company.home(settings.org, settings.projects, None))
         if parts[:1] == ["org"]:
             return _atlas(settings.org, None, parts)
         return Response(HTTPStatus.OK, views.message_page("기록 없음", str(error)))
@@ -80,6 +82,8 @@ def _route(
     parts: list[str],
     params: dict[str, str],
 ) -> Response:
+    if not parts:
+        return _ok(company.home(settings.org, settings.projects, conn))
     if parts[:1] == ["org"]:
         return _atlas(settings.org, conn, parts)
     if parts == ["team"]:
@@ -117,7 +121,7 @@ def _route(
                 bot_pid=bot_pid(settings.lock),
             )
         )
-    if not parts:
+    if parts == ["summary"]:
         now = settings.now()
         today = now.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
         data = queries.overview(
@@ -191,8 +195,8 @@ def _atlas(org: Org, conn: sqlite3.Connection | None, parts: list[str]) -> Respo
 
 
 def _atlas_asset(org: Org, parts: list[str]) -> Response:
-    if parts == ["atlas.css"]:
-        return Response(HTTPStatus.OK, (atlas.ASSETS / "atlas.css").read_bytes(), "text/css")
+    if parts in (["atlas.css"], ["company.css"]):
+        return Response(HTTPStatus.OK, (atlas.ASSETS / parts[0]).read_bytes(), "text/css")
     if len(parts) == 1 and parts[0].endswith(".webp") and parts[0][:-5] in org.agents:
         path = atlas.ASSETS / "portraits" / parts[0]
         if path.is_file():
