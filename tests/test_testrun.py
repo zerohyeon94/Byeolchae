@@ -1,8 +1,12 @@
 import asyncio
 import sys
+from types import SimpleNamespace
+
+import pytest
 
 from bot.agents import ProcessRunner, RunStatus
-from bot.testrun import TestRunner, summarize
+from bot.render.work import render_nightly_outcome, render_test_report
+from bot.testrun import CheckKind, TestReport, TestRunner, check_kind, summarize
 
 XCTEST_PASS = """\
 Test Suite 'All tests' started at 2026-10-11 10:00:00.000.
@@ -107,6 +111,96 @@ def test_runner_reports_pass_and_fail(tmp_path):
     report = asyncio.run(runner.run("t3", crash, cwd=tmp_path))
     assert not report.passed
     assert "종료 코드 70" in report.errors[0]
+
+
+@pytest.mark.parametrize(
+    ("args", "kind"),
+    [
+        (["xcodebuild", "build", "-scheme", "test"], CheckKind.BUILD),
+        (["xcodebuild", "-scheme", "build", "test"], CheckKind.TEST),
+        (["/usr/bin/xcodebuild", "-project", "test", "build"], CheckKind.BUILD),
+        (["xcrun", "--sdk", "macosx", "xcodebuild", "build"], CheckKind.BUILD),
+        (["xcodebuild", "build-for-testing"], CheckKind.BUILD),
+        (["xcodebuild", "test-without-building"], CheckKind.TEST),
+        (["xcodebuild", "clean", "build", "test"], CheckKind.TEST),
+        (["python", "build"], CheckKind.UNKNOWN),
+    ],
+)
+def test_check_kind_uses_actions_not_option_values(args, kind):
+    assert check_kind(args) is kind
+
+
+def test_runner_preserves_build_kind_even_before_project_loading(tmp_path):
+    class Process:
+        async def run(self, *args, **kwargs):
+            return SimpleNamespace(
+                status=RunStatus.ERROR,
+                exit_code=74,
+                stdout="",
+                stderr="xcodebuild: error: Unable to read project 'Jday.xcodeproj'.",
+                duration_sec=1.0,
+                log_path=tmp_path / "build.log",
+            )
+
+    runner = TestRunner(Process())
+    report = asyncio.run(
+        runner.run("build", ["xcodebuild", "build", "-scheme", "Jday_macOS"], cwd=tmp_path)
+    )
+    assert report.kind is CheckKind.BUILD and report.total is None
+    assert render_test_report(report).startswith("**빌드 실패**")
+    assert TestReport.from_payload(report.to_payload()) == report
+
+
+def test_runner_recognizes_build_output_from_wrapper_without_test_counts(tmp_path):
+    runner, argv = run_tests(tmp_path, "print('** BUILD SUCCEEDED **')")
+    report = asyncio.run(runner.run("build-wrapper", argv, cwd=tmp_path))
+    assert report.passed and report.kind is CheckKind.BUILD and report.total is None
+    assert report.result_label == "빌드 성공"
+
+
+@pytest.mark.parametrize(
+    ("kind", "total", "expected"),
+    [
+        (CheckKind.BUILD, None, "빌드 성공"),
+        (CheckKind.TEST, 12, "테스트 통과"),
+        (CheckKind.TEST, 0, "테스트 명령 성공 — 실행된 테스트 없음"),
+        (CheckKind.TEST, None, "테스트 명령 성공 — 테스트 실행 수 미확인"),
+        (CheckKind.UNKNOWN, None, "검증 명령 성공"),
+        (CheckKind.UNKNOWN, 12, "테스트 통과"),
+    ],
+)
+def test_render_does_not_claim_tests_passed_without_executed_tests(kind, total, expected):
+    report = TestReport(RunStatus.OK, 0, total, 0, kind=kind)
+    text = render_test_report(report)
+    assert text.startswith(f"**{expected}**")
+    if kind is CheckKind.BUILD:
+        assert "테스트는 실행하지 않았다" in text
+    if not total:
+        assert "테스트 통과" not in text
+    payload = report.to_payload()
+    assert payload["kind"] == kind.value and payload["result_label"] == expected
+    assert TestReport.from_payload(payload) == report
+
+
+def test_legacy_result_without_test_counts_is_not_rendered_as_test_pass():
+    report = TestReport.from_payload(
+        {"status": "ok", "exit_code": 0, "total": None, "failures": 0, "passed": True}
+    )
+    assert render_test_report(report).startswith("**검증 명령 성공**")
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        ("passed", "빌드 성공"),
+        ("flaky", "일시적 실패(다시 돌려 빌드 성공)"),
+        ("appended", "같은 문제 계속 (빌드 실패)"),
+        ("quiet", "실패, 개선 불필요 (빌드 실패)"),
+    ],
+)
+def test_nightly_display_distinguishes_build_and_report_outcome(outcome, expected):
+    verification = "빌드 성공" if outcome in ("passed", "flaky") else "빌드 실패"
+    assert render_nightly_outcome({"outcome": outcome, "verification": verification}) == expected
 
 
 DESTINATION_FAIL = """\

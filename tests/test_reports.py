@@ -128,3 +128,30 @@ def test_nightly_line_shows_unreported_results():
     line, text = run(body)
     assert line == "정기 테스트: gagaessi 일시적 실패(다시 돌려 통과) · jday 문제 보고"
     assert line in text
+
+
+def test_nightly_line_keeps_build_success_distinct_from_test_pass():
+    async def body(repo):
+        task = await repo.create_task(
+            project="jday",
+            discord_thread="sched:jday",
+            title="정기 테스트",
+            state=TaskState.DONE,
+            event=NewEvent(Actor.ZERO, EventKind.DECISION, {"text": "정기 테스트"}),
+            pipeline="nightly-test",
+        )
+        await repo.add_event(
+            task.id,
+            NewEvent(
+                Actor.BOT,
+                EventKind.REPORT,
+                {
+                    "posted": False,
+                    "outcome": "passed",
+                    "verification": "빌드 성공",
+                },
+            ),
+        )
+        return await nightly_line(repo, NOW)
+
+    assert run(body) == "정기 테스트: jday 빌드 성공"

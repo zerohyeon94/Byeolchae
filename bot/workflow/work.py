@@ -726,8 +726,8 @@ class WorkStages:
             return self._lead_problems(payload["lead"], Review.model_validate(payload["review"]))
         if source is FixSource.TESTS:
             tests = await self._latest_tests(task.id)
-            body = render_test_report(tests) if tests else "테스트 결과가 없다"
-            return f"봇이 실행한 테스트가 실패했다.\n\n{body}"
+            body = render_test_report(tests) if tests else "검증 결과가 없다"
+            return f"봇이 실행한 검증 명령이 실패했다.\n\n{body}"
         reviews = await self._reviews(task.id)
         if not reviews:
             raise RuntimeError("리뷰 결과가 없다")
@@ -930,7 +930,7 @@ class WorkStages:
         task, worktree = await self._ensure_worktree(task)
         count = len(await self._repo.list_events(task.id, {EventKind.TEST}))
         run_id = f"t{task.id}-test-{count + 1}"
-        await self._say(task, "봇이 테스트를 실행한다.", Moment.TEST_RUNNING)
+        await self._say(task, "봇이 설정된 검증 명령을 실행한다.", Moment.TEST_RUNNING)
         self._running.tests[task.id] = run_id
         try:
             report = await self._tests.run(run_id, project.test_command, cwd=worktree)
@@ -1203,6 +1203,7 @@ class WorkStages:
                 "outcome": outcome,
                 "thread": thread,
                 "signature": signature,
+                "verification": tests.result_label if tests else None,
             }
             return StageSucceeded(), NewEvent(Actor.BOT, EventKind.REPORT, payload)
 

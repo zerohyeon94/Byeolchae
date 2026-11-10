@@ -21,7 +21,7 @@ from bot.github.fake import FakeGit, FakeGitHub
 from bot.org import DEFAULT_ORG
 from bot.pipeline import default_pipelines
 from bot.store import Actor, EventKind, NewEvent, Repository, connect
-from bot.testrun import TestReport
+from bot.testrun import CheckKind, TestReport
 from bot.workflow.chat import FakeChatIO
 from bot.workflow.engine import Engine, ProjectContext
 from bot.workflow.state import CommandName, TaskState
@@ -747,6 +747,18 @@ def test_nightly_different_failure_opens_new_post():
         h.clock.advance(timedelta(days=1))
         await h.engine.start_scheduled(P, "nightly-test")
         assert len(h.claude.requests) == 2 and len(h.chat.created) == 2
+
+
+def test_nightly_build_success_records_build_instead_of_test_pass():
+    build = TestReport(RunStatus.OK, 0, None, 0, kind=CheckKind.BUILD)
+
+    @scenario(tests=[build])
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        payload = await report_payload(h, task.id)
+        assert task.state is TaskState.DONE and payload["verification"] == "빌드 성공"
+        (event,) = await h.repo.list_events(task.id, {EventKind.TEST})
+        assert event.payload["kind"] == "build" and event.payload["total"] is None
 
 
 def test_restart_opens_post_for_scheduled_task_stuck_without_one():

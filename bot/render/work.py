@@ -5,6 +5,7 @@ Discord·GitHub 모두 마크다운을 쓰므로 같은 함수를 쓴다. Discor
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from bot.schemas import (
     CauseClass,
@@ -19,7 +20,7 @@ from bot.schemas import (
     Review,
     UiDesignSummary,
 )
-from bot.testrun import TestReport
+from bot.testrun import CheckKind, TestReport
 
 
 @dataclass(frozen=True)
@@ -208,18 +209,40 @@ def render_implementation(report: ImplementationReport, *, heading: str = "구�
 
 
 def render_test_report(report: TestReport) -> str:
-    if report.passed:
-        head = f"**테스트 통과** — {report.total if report.total is not None else '?'}개"
-    else:
-        head = "**테스트 실패**"
-        if report.failures:
-            head += f" — 실패 {report.failures}개 / 전체 {report.total}개"
+    head = f"**{report.result_label}**"
+    if report.passed and report.total:
+        head += f" — {report.total}개"
+    elif not report.passed and report.failures:
+        head += f" — 실패 {report.failures}개 / 전체 {report.total}개"
     lines = [f"{head} ({report.duration_sec}초)"]
+    if report.kind is CheckKind.BUILD:
+        lines.append("빌드 검증만 실행했다. 테스트는 실행하지 않았다.")
     if report.failed_tests:
         lines += ["", "실패한 테스트", *_bullets(report.failed_tests)]
     if report.errors:
         lines += ["", "오류", *(f"- `{error}`" for error in report.errors)]
     return "\n".join(lines)
+
+
+def render_nightly_outcome(payload: dict[str, Any]) -> str:
+    """정기 검증의 게시 여부와 실제 검증 결과를 함께 표시한다."""
+    outcome = payload.get("outcome", "")
+    verification = payload.get("verification")
+    labels = {
+        "passed": "통과",
+        "flaky": "일시적 실패(다시 돌려 통과)",
+        "quiet": "실패, 개선 불필요",
+        "posted": "문제 보고",
+        "appended": "같은 문제 계속",
+    }
+    label = labels.get(outcome, "문제 보고" if payload.get("posted") else "검증 결과 미확인")
+    if verification:
+        if outcome == "passed":
+            return verification
+        if outcome == "flaky":
+            return f"일시적 실패(다시 돌려 {verification})"
+        return f"{label} ({verification})"
+    return label
 
 
 def render_findings(findings: Sequence[Finding]) -> str:
