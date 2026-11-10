@@ -523,6 +523,18 @@ def test_company_home_night_shift_runs_from_evening_to_morning(settings):
     assert "QA팀" in shift and "교육팀" in shift
 
 
+def test_staff_directory_cards_carry_department_and_filters(settings):
+    _, body = get(settings, "/org/stars")
+    cards = body.count('<a class="worker" ')
+    assert cards == len(DEFAULT_ORG.agents)
+    # 부문 버튼 수 = 전체 + 부문, 카드마다 거를 부문과 검색어가 있다
+    departments = {team.department for team in DEFAULT_ORG.teams.values()}
+    assert body.count('<button type="button" data-dept=') == len(departments) + 1
+    assert body.count("data-search=") == cards
+    assert 'href="/org/stars" class="on">팀원 소개' in body
+    assert '<div class="worker-tools" hidden>' in body  # 스크립트가 없으면 도구를 숨긴다
+
+
 def test_flow_step_groups_every_state():
     from bot.dashboard.company import FLOW_STEPS, STATE_LABELS, flow_step
 

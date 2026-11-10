@@ -90,29 +90,89 @@ def _profile_link(org: Org, key: str) -> str:
     )
 
 
-def directory(org: Org) -> str:
-    jumps, teams = [], []
-    for key, team in org.teams.items():
-        name = escape(_team_name(org, key))
-        anchor = f"team-{quote(key, safe='')}"
-        members = _team_members(org, key)
-        jumps.append(f'<a href="#{anchor}">{name}</a>')
-        links = "".join(_profile_link(org, member) for member in members)
-        department = escape(DEPARTMENTS.get(team.department, team.department))
-        teams.append(
-            f'<section id="{anchor}" class="directory-team"><div class="directory-label">'
-            f"<p>{department} · {len(members)}명</p><h2>{name}</h2></div>"
-            f'<div class="portrait-links">{links}</div></section>'
-        )
-    body = (
-        '<nav class="crumb" aria-label="현재 위치"><a href="/org">별자리 조직도</a>'
-        "<span>›</span>별직원 소개</nav>"
-        f'<div class="team-head"><p class="eyebrow">{len(org.teams)}개 팀 · {len(org.agents)}명</p>'
-        "<h1>별직원 소개</h1></div>"
-        f'<nav class="team-jumps" aria-label="팀 바로가기">{"".join(jumps)}</nav>'
-        f"{''.join(teams)}"
+ENGINES = {"claude": "Claude", "codex": "Codex"}
+
+# 부서 버튼과 검색으로 카드를 거른다. 스크립트가 없으면 도구를 숨기고 모든 카드를 보인다
+_FILTER_SCRIPT = """<script>
+(() => {
+  const grid = document.querySelector('.workers');
+  const search = document.querySelector('#worker-search');
+  const empty = document.querySelector('.workers-empty');
+  const chips = document.querySelectorAll('.dept-chips button');
+  let dept = '';
+  const apply = () => {
+    const word = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const card of grid.children) {
+      const ok = (!dept || card.dataset.dept === dept) &&
+        (!word || card.dataset.search.includes(word));
+      card.hidden = !ok;
+      shown += ok;
+    }
+    empty.hidden = shown > 0;
+  };
+  for (const chip of chips) {
+    chip.addEventListener('click', () => {
+      dept = chip.dataset.dept;
+      for (const other of chips) other.setAttribute('aria-pressed', String(other === chip));
+      apply();
+    });
+  }
+  search.addEventListener('input', apply);
+  document.querySelector('.worker-tools').hidden = false;
+})();
+</script>"""
+
+
+def _worker_card(org: Org, key: str) -> str:
+    spec = org.agents[key]
+    team = org.teams[spec.team]
+    character = _character(org, key)
+    team_name = _team_name(org, spec.team)
+    lead = '<span class="lead-badge">팀장</span>' if team.lead == key else ""
+    chips = [TEAM_WORK.get(spec.team, team_name), ENGINES.get(spec.engine, spec.engine)]
+    if spec.mbti:
+        chips.append(spec.mbti)
+    search = " ".join((spec.display, key, character.role, team_name)).lower()
+    return (
+        f'<a class="worker" href="/org/stars/{key}" data-dept="{escape(team.department)}" '
+        f'data-search="{escape(search)}">'
+        f'<span class="worker-face">{_portrait(key, org)}</span>'
+        f'<span class="worker-team">{escape(team_name)}{lead}</span>'
+        f"<b>{escape(spec.display)}</b><small>{escape(character.role)}</small>"
+        f"<p>{escape(character.personality)}</p>"
+        f'<span class="worker-question"><em>늘 던지는 질문</em>'
+        f"{escape(staff_description(spec.basic_question))}</span>"
+        f'<span class="chips">{"".join(f"<i>{escape(c)}</i>" for c in chips)}</span>'
+        '<span class="text-link">자세히 보기 →</span></a>'
     )
-    return views.page("별직원 소개", body, active="org")
+
+
+def directory(org: Org) -> str:
+    departments = list(dict.fromkeys(team.department for team in org.teams.values()))
+    chips = ['<button type="button" data-dept="" aria-pressed="true">전체</button>']
+    for dept in departments:
+        count = sum(1 for spec in org.agents.values() if org.teams[spec.team].department == dept)
+        chips.append(
+            f'<button type="button" data-dept="{escape(dept)}" aria-pressed="false">'
+            f"{escape(DEPARTMENTS.get(dept, dept))} <small>{count}</small></button>"
+        )
+    cards = [_worker_card(org, member) for key in org.teams for member in _team_members(org, key)]
+    body = (
+        '<section class="workers-head"><p class="eyebrow">'
+        f"{len(departments)}개 부문 · {len(org.teams)}개 팀 · 별직원 {len(org.agents)}명</p>"
+        "<h1>팀원 소개</h1><p>별직원마다 맡은 일과 말투, 늘 던지는 질문이 달라요. "
+        "부문을 골라 필요한 동료를 찾아보세요.</p>"
+        '<a class="text-link" href="/org">조직도에서 보기 →</a></section>'
+        '<div class="worker-tools" hidden>'
+        f'<div class="dept-chips" role="group" aria-label="부문">{"".join(chips)}</div>'
+        '<input id="worker-search" type="search" placeholder="이름·역할·팀 찾기" '
+        'aria-label="별직원 찾기"></div>'
+        f'<div class="workers">{"".join(cards)}</div>'
+        '<p class="workers-empty empty" hidden>찾는 별직원이 없어요.</p>'
+        f"{_FILTER_SCRIPT}"
+    )
+    return views.page("팀원 소개", body, active="stars")
 
 
 def chart(org: Org, conn: sqlite3.Connection | None) -> str:
@@ -329,4 +389,4 @@ def star_page(org: Org, key: str, conn: sqlite3.Connection | None) -> str:
         '<a href="/org/stars">별직원 전체 보기</a>'
         f'<a href="/team/{key}">업무 기록 보기 →</a></p>'
     )
-    return views.page(spec.display, body, active="org")
+    return views.page(spec.display, body, active="stars")

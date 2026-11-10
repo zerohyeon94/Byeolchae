@@ -195,3 +195,49 @@ body.org {
   .star-art .profile-paper { height: 170px; }
   .back { justify-content: start; gap: 8px 18px; }
 }
+
+/* 팀원 소개 (Delos식 카드 목록) */
+.workers-head { padding: 14px 0 22px; max-width: 720px; }
+.workers-head .eyebrow { color: #67508a; }
+.workers-head h1 { margin: 7px 0 12px; }
+.workers-head p:not(.eyebrow) { font-size: 16px; line-height: 1.7; color: var(--muted-ink); }
+.workers-head .text-link { display: inline-block; margin-top: 12px; font-weight: 650; color: #58457c; }
+.worker-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 2; padding: 10px 0; margin-bottom: 8px; background: #f7f4efee; backdrop-filter: blur(6px); }
+.worker-tools[hidden] { display: none; }
+.dept-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.dept-chips button { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--hairline); background: var(--paper); color: var(--ink); }
+.dept-chips button small { color: var(--muted-ink); margin-left: 3px; }
+.dept-chips button[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: #fff5e5; }
+.dept-chips button[aria-pressed="true"] small { color: #f2d399; }
+#worker-search { font: inherit; font-size: 14px; padding: 8px 14px; min-width: min(240px,100%); border-radius: 999px;
+  border: 1px solid var(--hairline); background: var(--paper); color: var(--ink); }
+#worker-search:focus-visible, .dept-chips button:focus-visible { outline: 3px solid #ad6500; outline-offset: 2px; }
+.workers { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(270px,100%),1fr)); gap: 14px; }
+.worker { display: flex; flex-direction: column; gap: 6px; padding: 18px; background: var(--paper);
+  border: 1px solid var(--hairline); border-radius: 18px; transition: transform .16s ease, box-shadow .16s ease, border-color .16s; }
+.worker[hidden] { display: none; }
+.worker:hover { transform: translateY(-3px); border-color: #85769a; box-shadow: 0 12px 28px #23264414; }
+.worker-face { width: 74px; height: 74px; border-radius: 22px; background: #fbeede; display: grid; place-items: center; overflow: hidden; margin-bottom: 6px; }
+.worker-face img { width: 92%; height: 92%; object-fit: contain; transition: transform .2s ease; }
+.worker:hover .worker-face img { transform: scale(1.08) rotate(-3deg); }
+.worker-face .monogram { font-size: 28px; font-weight: 800; color: #6c567d; }
+.worker-team { font-size: 12px; font-weight: 700; color: #67508a; display: flex; gap: 6px; align-items: center; }
+.lead-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #f6d48f; color: #4b3510; }
+.worker b { font-size: 22px; letter-spacing: -.03em; }
+.worker > small { color: var(--muted-ink); font-size: 13px; margin-top: -4px; }
+.worker > p { font-size: 14px; line-height: 1.6; color: var(--ink); }
+.worker-question { font-size: 13px; line-height: 1.55; color: var(--muted-ink); padding: 9px 11px; border-radius: 10px; background: #f3eee7; }
+.worker-question em { display: block; font-style: normal; font-size: 11px; font-weight: 700; color: #8a6a2e; margin-bottom: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 6px; }
+.chips i { font-style: normal; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--muted-ink); }
+.worker .text-link { font-size: 13px; font-weight: 650; color: #58457c; }
+.workers-empty { padding: 30px 0; text-align: center; color: var(--muted-ink); }
+@media (max-width: 640px) {
+  .worker-tools { position: static; }
+  #worker-search { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .worker, .worker-face img { transition: none; }
+}
