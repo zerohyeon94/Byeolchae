@@ -76,7 +76,8 @@ def project_contexts(config: Config) -> dict[str, ProjectContext]:
         key: ProjectContext(
             repo=project.repo,
             base_branch=project.base_branch,
-            test_command=project.test,
+            test_command=project.test or (),
+            owner=project.owner,
             github=GitHubClient(project.github),
             feature_dir=config.paths.vault_projects / project.vault_dir / "기능",
             vault_hub=project.vault_hub,
@@ -218,6 +219,7 @@ class ZeroSyncBot(discord.Client):
             asyncio.create_task(self._poll_merges()),
             asyncio.create_task(self._remind_loop()),
             asyncio.create_task(self._schedule_loop()),
+            asyncio.create_task(self._project_report_loop()),
         ]
         await self.chat.notify_ops(
             f"ZeroSync 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
@@ -246,6 +248,14 @@ class ZeroSyncBot(discord.Client):
             except Exception:
                 log.exception("재멘션 확인 실패")
             await asyncio.sleep(REMIND_CHECK_SEC)
+
+    async def _project_report_loop(self) -> None:
+        while not self.is_closed():
+            try:
+                await self.engine.process_project_reports()
+            except Exception:
+                log.exception("프로젝트 담당자 보고 확인 실패")
+            await asyncio.sleep(60)
 
     async def _schedule_loop(self) -> None:
         """내장 일정(아침·주간 보고)을 1분마다 확인한다. 놓친 실행은 한 번만 (SPEC 6.6)."""
@@ -300,7 +310,9 @@ class ZeroSyncBot(discord.Client):
         for key, pipeline in self.engine.pipelines.items():
             if pipeline.schedule is None or "schedule" not in pipeline.triggers:
                 continue
-            for project in self.config.projects:
+            for project, config in self.config.projects.items():
+                if not pipeline.scheduled_for(has_test=bool(config.test)):
+                    continue
                 job = f"{project}:{key}"
                 previous = from_iso(last[job]) if job in last else None
                 if not is_due(parse_cron(pipeline.schedule), local, previous):
@@ -856,9 +868,10 @@ async def run_bot(config: Config) -> None:
             concurrent=config.limits.concurrent_builds,
             timeout_sec=config.limits.cli_timeout_sec,
         )
-        bot = ZeroSyncBot(
-            config, Repository(conn, SystemClock()), runners, git=GitOps(), tests=tests
-        )
+        repo = Repository(conn, SystemClock())
+        if renamed := await repo.rename_agents(config.org.renames):
+            log.info("예전 에이전트 이름 기록 %d줄을 새 이름으로 옮겼다", renamed)
+        bot = ZeroSyncBot(config, repo, runners, git=GitOps(), tests=tests)
         async with bot:
             await bot.start(config.secrets.discord_token.get_secret_value())
         if bot.startup_error is not None:

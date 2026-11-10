@@ -113,7 +113,12 @@ def test_example_file_is_valid(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     environ = {key: "1" for key in ENV}
     config = load_config(EXAMPLE, Path("/nonexistent/.env"), environ)
-    assert list(config.projects) == ["gagaessi"]
+    assert {k: p.owner for k, p in config.projects.items()} == {
+        "gagaessi": "kappa",
+        "jday": "lambda",
+        "orot": "mu",
+    }
+    assert config.projects["orot"].test is None
 
 
 def test_env_example_lists_every_key():
@@ -278,7 +283,7 @@ def test_cli_models_by_stage(tmp_path):
 @pytest.mark.parametrize(
     ("extra", "match"),
     [
-        ("cli:\n  codex_models:\n    implement: gpt\n", "Codex가 맡지 않는 단계: implement"),
+        ("cli:\n  codex_models:\n    plan: gpt\n", "Codex가 맡지 않는 단계: plan"),
         ("cli:\n  claude_models:\n    opinon: sonnet\n", "cli.claude_models"),
         ("cli:\n  claude_models:\n    opinion: ''\n", "cli.claude_models"),
     ],
@@ -399,3 +404,18 @@ def test_secretary_section_is_optional_and_validated(tmp_path):
         load(tmp_path, yaml_text(extra="secretary:\n  vault: ~/vault\n  agent: omega\n"))
     with pytest.raises(ConfigError, match="schedule"):
         load(tmp_path, yaml_text(extra='secretary:\n  vault: ~/vault\n  schedule: "x"\n'))
+
+
+@pytest.mark.parametrize("owner", ["없는사람", "beta", "zeta"])
+def test_project_owner_must_be_a_planning_member(tmp_path, owner):
+    with pytest.raises(ConfigError, match="projects.gagaessi.owner"):
+        load(tmp_path, yaml_text(PROJECT + f"    owner: {owner}\n"))
+
+
+def test_project_without_test_command_only_skips_scheduled_test_flows(tmp_path):
+    config = load(tmp_path, yaml_text(PROJECT.replace(TEST_LINE, "    test: null\n")))
+    project = config.projects["gagaessi"]
+    nightly = config.pipelines["nightly-test"]
+    assert project.test is None
+    assert not nightly.scheduled_for(has_test=bool(project.test))
+    assert nightly.scheduled_for(has_test=True)

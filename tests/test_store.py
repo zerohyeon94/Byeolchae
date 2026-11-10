@@ -81,7 +81,7 @@ def test_connect_creates_schema_and_file(tmp_path):
 
     version, tables, fk = run(scenario())
     assert path.exists()
-    assert version == SCHEMA_VERSION == 10
+    assert version == SCHEMA_VERSION == 11
     assert {"tasks", "events", "agent_runs"} <= tables
     assert fk == 1
 
@@ -419,3 +419,19 @@ def test_quiz_keeps_first_answer_and_scores(tmp_path):
     assert stored == ("week:2026-W45", "[]") and week is not None and missing is None
     assert score == (2, 1) and numbers == {1, 2}
     assert notes == [(2, "note:Learning/개념/2026-11-02 가", "[1]")]
+
+
+def test_rename_agents_moves_old_names_once():
+    async def scenario():
+        conn, repo = await open_repo()
+        await repo.start_agent_run("r1", task_id=None, agent="beta", stage=Stage.OPINION)
+        await repo.start_agent_run("r2", task_id=None, agent="delta", stage=Stage.REVIEW)
+        first = await repo.rename_agents({"beta": "arcturus"})
+        again = await repo.rename_agents({"beta": "arcturus"})
+        agents = [
+            r[0] for r in await (await conn.execute("SELECT agent FROM agent_runs")).fetchall()
+        ]
+        await conn.close()
+        return first, again, sorted(agents)
+
+    assert run(scenario()) == (1, 0, ["arcturus", "delta"])

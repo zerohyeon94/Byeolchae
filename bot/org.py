@@ -4,7 +4,9 @@
 - 에이전트 이름(beta, alpha …)은 엔진(claude, codex)과 분리한다. 엔진은 에이전트마다 설정으로 정한다
 - 인격·역량 전문은 `agents/<이름>.md`에 두고 프롬프트에 그대로 넣는다
 - org.yaml이 없으면 ADR-007의 기본 조직(모두 Claude)을 쓴다. 이름과 직책은 공개해도 되는 값이다
-- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1), Codex 엔진은 읽기 전용 일만(R4)
+- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1),
+  Codex 엔진은 읽기 일과 구현·수정만(R4, ADR-012)
+- 이름을 바꾼 에이전트는 예전 이름(`former`)을 남겨, 예전 기록도 새 이름으로 보이게 한다
 """
 
 import re
@@ -15,7 +17,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from bot.agents.base import Stage
+from bot.agents.base import CODEX_WRITE_STAGES, Stage
 
 EngineName = Literal["claude", "codex"]
 
@@ -25,7 +27,7 @@ LEGACY_AGENTS: dict[str, tuple[str, EngineName]] = {
     "codex": ("Alpha · Codex", "codex"),
 }
 
-# Codex 러너는 읽기 전용 샌드박스로만 실행된다 (운영 규약 1.3)
+# Codex 러너가 읽기 전용 샌드박스로 실행하는 단계. 쓰기는 CODEX_WRITE_STAGES만 (운영 규약 1.3)
 READ_ONLY_STAGES = frozenset(
     {
         Stage.OPINION,
@@ -37,6 +39,7 @@ READ_ONLY_STAGES = frozenset(
         Stage.CONCEPT_IMAGE,
         Stage.WEEKLY_QUIZ,
         Stage.SECRETARY_DAILY,
+        Stage.PROJECT_REPORT,
     }
 )
 
@@ -66,6 +69,7 @@ class AgentSpec(_Model):
     hired: str = ""
     proposed_by: str | None = None
     reason: str = ""
+    former: tuple[str, ...] = ()  # 예전 에이전트 이름 (기록 표시용)
 
     @field_validator("hired", mode="before")
     @classmethod
@@ -122,10 +126,17 @@ class Org(_Model):
             if agent.team not in self.teams:
                 raise ValueError(f"{key}의 팀 {agent.team!r}이 teams에 없다")
             if agent.engine == "codex":
-                writes = {s for a, s in self.roles.assigned.items() if a == key} - READ_ONLY_STAGES
+                writes = {s for a, s in self.roles.assigned.items() if a == key}
+                writes -= READ_ONLY_STAGES | CODEX_WRITE_STAGES
                 if writes:
                     names = ", ".join(sorted(s.value for s in writes))
                     raise ValueError(f"{key}는 Codex 엔진이라 쓰기 단계({names})를 맡을 수 없다")
+        seen: set[str] = set()
+        for key, agent in self.agents.items():
+            for old in agent.former:
+                if old in self.agents or old in seen or old in LEGACY_AGENTS:
+                    raise ValueError(f"{key}의 예전 이름 {old!r}이 다른 이름과 겹친다")
+                seen.add(old)
         for key, team in self.teams.items():
             if team.lead not in self.agents:
                 raise ValueError(f"팀 {key}의 팀장 {team.lead!r}이 agents에 없다")
@@ -142,11 +153,24 @@ class Org(_Model):
 
     # 조회
 
+    @property
+    def renames(self) -> dict[str, str]:
+        """예전 이름 → 지금 이름."""
+        return {old: key for key, spec in self.agents.items() for old in spec.former}
+
+    def current(self, agent: str) -> str:
+        """예전 이름이면 지금 이름으로 바꾼다. 아니면 그대로."""
+        for key, spec in self.agents.items():
+            if agent in spec.former:
+                return key
+        return agent
+
     def has(self, agent: str) -> bool:
-        return agent in self.agents or agent in LEGACY_AGENTS
+        return self.current(agent) in self.agents or agent in LEGACY_AGENTS
 
     def display(self, agent: str) -> str:
         """표시 이름 `이름 · 직책` (SPEC Q16). 예: Beta · 기획팀장."""
+        agent = self.current(agent)
         if agent in self.agents:
             spec = self.agents[agent]
             return f"{spec.display} · {self.teams[spec.team].name}{spec.title}"
@@ -155,6 +179,7 @@ class Org(_Model):
         return {"zero": "Zero", "bot": "ZeroSync"}.get(agent, agent)
 
     def engine(self, agent: str) -> EngineName:
+        agent = self.current(agent)
         if agent in self.agents:
             return self.agents[agent].engine
         if agent in LEGACY_AGENTS:
@@ -279,6 +304,42 @@ def _default_org() -> Org:
                 basic_question="Zero가 이것만 읽고 하루를 알 수 있는가",
                 hired="2026-11-02",
                 reason="비서 부서 저녁 Daily와 아침 보고 (ADR-010)",
+            ),
+            "kappa": AgentSpec(
+                display="Kappa",
+                team="planning",
+                title="팀원",
+                mbti="ISTJ",
+                perspective="첫 출시까지 남은 작업과 출시를 막는 문제",
+                basic_question="첫 출시에 필요한 일 중 무엇이 남았는가",
+                models={Stage.PROJECT_REPORT: "sonnet"},
+                daily_calls=12,
+                hired="2026-11-06",
+                reason="가게씨 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
+            ),
+            "lambda": AgentSpec(
+                display="Lambda",
+                team="planning",
+                title="팀원",
+                mbti="ISFJ",
+                perspective="운영 중인 제품의 버그와 다음 업데이트 후보",
+                basic_question="사용자에게 영향을 주는 문제와 다음 업데이트 후보는 무엇인가",
+                models={Stage.PROJECT_REPORT: "sonnet"},
+                daily_calls=12,
+                hired="2026-11-06",
+                reason="제이데이 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
+            ),
+            "mu": AgentSpec(
+                display="Mu",
+                team="planning",
+                title="팀원",
+                mbti="INTP",
+                perspective="개선 아이디어와 이를 검토할 근거",
+                basic_question="어떤 개선을 다음에 검토할 근거가 있는가",
+                models={Stage.PROJECT_REPORT: "sonnet"},
+                daily_calls=12,
+                hired="2026-11-06",
+                reason="오롯 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
             ),
         },
     )

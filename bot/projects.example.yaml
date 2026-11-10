@@ -4,6 +4,7 @@
 
 projects:
   gagaessi:                                  # 프로젝트 키: 영문 소문자·숫자·-, 40자 이내
+    owner: kappa
     forum_channel_id: "000000000000000000"   # 포럼 채널 ID (따옴표로 감싼 숫자)
     chat_channel_id: "000000000000000001"    # 제품 채팅 채널 ID (ADR-007). 생략하면 채팅을 받지 않는다
     repo: ~/Developer/GagaeSsi               # 앱 저장소 로컬 경로
@@ -15,7 +16,31 @@ projects:
     vault_tag: brain/gagaessi
     vault_slug: gagaessi
     design_system_url: null                  # 제품의 Claude 디자인 시스템 링크 (화면 디자인 단계가 참고)
-  # orot, jday도 같은 형식 (운영 규약 3.4 표)
+  jday:
+    owner: lambda
+    forum_channel_id: "000000000000000002"
+    chat_channel_id: "000000000000000003"
+    repo: ~/Developer/Jday
+    github: owner/Jday
+    base_branch: develop
+    test: xcodebuild build -project Jday.xcodeproj -scheme Jday_macOS -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+    vault_dir: Jday
+    vault_hub: Jday.md
+    vault_tag: brain/jday
+    vault_slug: jday
+  orot:
+    owner: mu
+    forum_channel_id: "000000000000000004"
+    chat_channel_id: "000000000000000005"
+    repo: ~/Developer/FocusSense
+    github: owner/FocusSense
+    base_branch: develop
+    # 저장소에 iOS Xcode 프로젝트가 들어오면 검증된 테스트 명령을 넣는다
+    test: null
+    vault_dir: FocusOps
+    vault_hub: 집중.md
+    vault_tag: brain/focus
+    vault_slug: focus
 
 paths:
   vault_projects: ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/vault/Projects

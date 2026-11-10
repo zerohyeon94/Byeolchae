@@ -1,7 +1,9 @@
 """로컬 대시보드 테스트. 봇 저장소로 DB를 만들고 handle()로 각 주소를 확인한다."""
 
 import asyncio
+import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 
@@ -10,6 +12,7 @@ import pytest
 from bot.agents.base import RunStatus, Stage
 from bot.clock import FixedClock
 from bot.dashboard import queries
+from bot.dashboard.atlas import _SCENE
 from bot.dashboard.server import DashboardSettings, handle
 from bot.org import DEFAULT_ORG
 from bot.store import INVALID_OUTPUT, Actor, EventKind, NewEvent, Repository, connect
@@ -101,6 +104,44 @@ def get(settings, path):
     return response.status, response.body
 
 
+def test_atlas_story_requires_the_recorded_speakers_in_order(settings):
+    # 작업 번호는 운영 DB와 달라도 된다. 예전 이름으로 쓴 원문도 현재 직원에게 연결한다.
+    agents = dict(DEFAULT_ORG.agents)
+    for key, display, former in (("shaula", "샤울라", "oldqa"), ("mizar", "미자르", "oldlead")):
+        agents[key] = agents["zeta"].model_copy(update={"display": display, "former": (former,)})
+    org = DEFAULT_ORG.model_copy(update={"agents": agents})
+    settings = replace(settings, org=org)
+    with sqlite3.connect(settings.db) as db:
+        for label, speaker, kind, field, sentence in _SCENE:
+            payload = json.dumps({field: {"summary": sentence}})
+            event = db.execute(
+                "INSERT INTO events(task_id, actor, kind, payload, created_at) VALUES(1,?,?,?,?)",
+                (
+                    "oldqa" if speaker == "shaula" else "oldlead",
+                    kind,
+                    payload,
+                    "2026-10-29T18:13:38.995897+00:00" if label == "첫 진단" else T0.isoformat(),
+                ),
+            )
+            if label == "첫 진단":
+                source = event.lastrowid
+    status, body = get(settings, "/org/stars/shaula")
+    assert status == 200 and "기록 속 한마디" in body and f"/tasks/1#event-{source}" in body
+    assert "다시 확인 · 미자르" in body
+    with sqlite3.connect(settings.db) as db:
+        db.execute("UPDATE events SET actor='zero' WHERE id=?", (source,))
+    assert "기록 속 한마디" not in get(settings, "/org/stars/shaula")[1]
+
+
+def test_atlas_without_a_database_still_serves_the_roster(settings):
+    settings = replace(settings, db=settings.db.with_name("missing.db"))
+    assert 'href="/org/teams/qa"' in get(settings, "/org")[1]
+    assert 'href="/org/stars/zeta"' in get(settings, "/org/teams/qa")[1]
+    assert "원인을 끝까지 좁히기" in get(settings, "/org/stars/zeta")[1]
+    assert get(settings, "/org/assets/..%2Fserver.py")[0] == HTTPStatus.NOT_FOUND
+    assert get(settings, "/org/teams/unknown")[0] == HTTPStatus.NOT_FOUND
+
+
 def test_summary_counts_across_projects(settings):
     conn = queries.open_readonly(settings.db)
     try:
@@ -117,10 +158,24 @@ def test_summary_counts_across_projects(settings):
     finally:
         conn.close()
 
-    status, body = get(settings, "/")
+    status, body = get(settings, "/summary")
     assert status is HTTPStatus.OK
     assert "gagaessi" in body and "jday" in body
     assert "형식 오류 1" in body
+
+
+def test_company_home_links_open_work_and_latest_event_per_task(settings):
+    status, body = get(settings, "/")
+    assert status == HTTPStatus.OK and "<h1>밤도란</h1>" in body
+    assert "대표 노을" in body
+    work, history = body.split("<h3>최근 작업 기록</h3>")
+    assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
+    assert "여행 &lt;소비&gt;" in work
+    assert history.count("/tasks/1#event-") == history.count("/tasks/2#event-") == 1
+    with sqlite3.connect(settings.db) as db:
+        event_id = db.execute("SELECT MAX(id) FROM events WHERE task_id=1").fetchone()[0]
+    assert f'href="/tasks/1#event-{event_id}"' in history
+    assert 'href="/summary"' in body
 
 
 def test_task_list_filters_and_links(settings):
@@ -192,9 +247,11 @@ def test_database_is_opened_read_only(settings):
 
 def test_missing_database_shows_message(tmp_path):
     settings = DashboardSettings(db=tmp_path / "none.db", runs_dir=tmp_path)
-    status, body = get(settings, "/")
+    status, body = get(settings, "/summary")
     assert status is HTTPStatus.OK
     assert "봇을 한 번 실행하면 만들어진다" in body
+    status, home = get(settings, "/")
+    assert status == HTTPStatus.OK and "제품과 목표" in home and "첫 업무 기록" in home
     assert not (tmp_path / "none.db").exists()
 
 
@@ -214,6 +271,7 @@ def test_phase2_events_are_rendered(settings):
     asyncio.run(add())
     _, body = get(settings, "/tasks/1")
     assert "테스트 통과 — 431개" in body
+    assert "밤도란 봇 · 테스트" in body and "노을 · 메시지" in body
     assert "PR #43 merge 감지" in body
 
 
@@ -246,7 +304,7 @@ def test_team_stage_events_are_rendered(settings):
     assert "Zeta · QA팀원" in body and "팀장 확인" in body
 
 
-def test_home_overview_puts_zero_todo_first(settings):
+def test_work_summary_puts_zero_todo_first(settings):
     from dataclasses import replace
     from datetime import timedelta
 
@@ -255,10 +313,10 @@ def test_home_overview_puts_zero_todo_first(settings):
         daily_calls={"claude": 1, "beta": 30},
         now=lambda: T0 + timedelta(hours=5),
     )
-    status, body = get(later, "/")
+    status, body = get(later, "/summary")
     assert status is HTTPStatus.OK
     # 승인 대기(OPINIONS) 1건이 맨 위 표에, 대기 시간과 함께
-    todo = body.index("<h2>Zero가 할 일</h2>")
+    todo = body.index("<h2>노을이 할 일</h2>")
     assert todo < body.index("<h2>누적</h2>")
     assert "#1 여행 &lt;소비&gt;" in body[todo:] and "5시간" in body
     # 오늘 예산: 한도에 닿은 에이전트는 표시한다
@@ -271,8 +329,8 @@ def test_overview_works_on_old_schema_without_new_tables(settings):
     raw = sqlite3.connect(settings.db)
     raw.executescript("DROP TABLE hiring_proposals; DROP TABLE bot_state;")
     raw.close()
-    status, body = get(settings, "/")
-    assert status is HTTPStatus.OK and "Zero가 할 일" in body
+    status, body = get(settings, "/summary")
+    assert status is HTTPStatus.OK and "노을이 할 일" in body
 
 
 def test_team_page_shows_status_jobs_and_persona(settings):
@@ -294,6 +352,7 @@ def test_team_page_shows_status_jobs_and_persona(settings):
     team = replace(
         settings,
         org=org,
+        owners={"orot": "mu"},
         pipelines=default_pipelines(),
         daily_calls={"epsilon": 30},
         now=lambda: T0,
@@ -307,7 +366,8 @@ def test_team_page_shows_status_jobs_and_persona(settings):
     alpha = body[body.index('id="alpha"') : body.index('id="epsilon"')]
     assert "쉬는 중" in alpha and "기능 개발 · 구현 (확인)" in alpha
     assert "# Zeta &lt;성격&gt;" in body  # 인격 파일은 이스케이프해 보인다
-    assert "9명 중 1명이 일하는 중" in body
+    assert "12명 중 1명이 일하는 중" in body
+    assert "orot 담당 · 기획팀장에게 진행·막힘 보고" in body
 
 
 # 교육 커리큘럼 (ADR-009)

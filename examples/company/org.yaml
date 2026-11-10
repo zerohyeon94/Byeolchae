@@ -126,6 +126,45 @@ agents:
     daily_calls: 3             # 하루 정리 요약 1개 (형식 오류 재요청 포함)
     hired: 2026-11-02
     reason: 비서 부서 저녁 Daily와 아침 보고 (ADR-010)
+  kappa:
+    display: Kappa
+    team: planning
+    title: 팀원
+    engine: claude
+    mbti: ISTJ
+    perspective: 첫 출시까지 남은 작업과 출시를 막는 문제
+    basic_question: 첫 출시에 필요한 일 중 무엇이 남았는가
+    persona: agents/kappa.md
+    models: {project_report: sonnet}
+    daily_calls: 12
+    hired: 2026-11-06
+    reason: 가게씨 프로젝트 진행·막힘 보고 (Zero 직접 채용)
+  lambda:
+    display: Lambda
+    team: planning
+    title: 팀원
+    engine: claude
+    mbti: ISFJ
+    perspective: 운영 중인 제품의 버그와 다음 업데이트 후보
+    basic_question: 사용자에게 영향을 주는 문제와 다음 업데이트 후보는 무엇인가
+    persona: agents/lambda.md
+    models: {project_report: sonnet}
+    daily_calls: 12
+    hired: 2026-11-06
+    reason: 제이데이 프로젝트 진행·막힘 보고 (Zero 직접 채용)
+  mu:
+    display: Mu
+    team: planning
+    title: 팀원
+    engine: claude
+    mbti: INTP
+    perspective: 개선 아이디어와 이를 검토할 근거
+    basic_question: 어떤 개선을 다음에 검토할 근거가 있는가
+    persona: agents/mu.md
+    models: {project_report: sonnet}
+    daily_calls: 12
+    hired: 2026-11-06
+    reason: 오롯 프로젝트 진행·막힘 보고 (Zero 직접 채용)
 
 # 기능 개발 흐름의 단계별 담당 (Phase 5에서 pipelines/*.yaml로 옮긴다)
 roles:

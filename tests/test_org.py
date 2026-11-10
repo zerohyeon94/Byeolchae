@@ -54,6 +54,9 @@ def test_default_org_is_product_education_and_secretary_departments():
         "Eta · 교육팀장",
         "Iota · 교육팀원",
         "Theta · 비서팀장",
+        "Kappa · 기획팀원",
+        "Lambda · 기획팀원",
+        "Mu · 기획팀원",
     ]
     assert org.teams["education"].department == "education"
     assert org.teams["secretary"].department == "secretary"
@@ -136,3 +139,17 @@ def test_example_company_config_is_valid():
     assert org.display("theta") == "Theta · 비서팀장"
     assert all(org.profile(agent) for agent in org.agent_names)
     assert org.roles == DEFAULT_ORG.roles
+
+
+def test_former_name_shows_current_agent(tmp_path):
+    text = ORG_YAML.replace("    display: Beta\n", "    display: Beta\n    former: [oldbeta]\n")
+    org = load_org(write(tmp_path, text))
+    assert org.display("oldbeta") == org.display("beta")
+    assert org.has("oldbeta") and org.engine("oldbeta") == "claude"
+    assert org.current("delta") == "delta"
+
+
+def test_former_name_must_not_clash(tmp_path):
+    text = ORG_YAML.replace("    display: Beta\n", "    display: Beta\n    former: [delta]\n")
+    with pytest.raises(OrgError, match="예전 이름"):
+        load_org(write(tmp_path, text))

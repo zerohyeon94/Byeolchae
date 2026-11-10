@@ -1,6 +1,7 @@
 """Codex CLI 러너 (SPEC 5.2).
 
-`codex exec`를 read-only 샌드박스로 실행한다. Codex는 의견·토론·리뷰만 맡으므로 쓰기 모드는 없다.
+`codex exec`를 read-only 샌드박스로 실행한다. 구현·수정 단계만 작업 worktree에 쓰는
+workspace-write 샌드박스로 실행한다 (ADR-012).
 - 프롬프트는 stdin으로 넘긴다 (`-` 인자)
 - 마지막 메시지는 `-o <runs_dir>/<run_id>.last.txt`로 받아 응답 본문으로 쓴다.
   진행 기록은 stderr로 나와 실행 로그에만 남는다
@@ -17,8 +18,23 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bot.agents.base import AgentRequest, AgentResult, EngineName, Stage
+from bot.agents.base import CODEX_WRITE_STAGES, AgentRequest, AgentResult, EngineName, Stage
 from bot.agents.process import ProcessRunner
+
+
+def git_common_dir(worktree: Path) -> Path | None:
+    """git worktree이면 원래 저장소의 .git 폴더. 일반 저장소면 .git이 안에 있으니 None."""
+    marker = worktree / ".git"
+    if not marker.is_file():
+        return None
+    text = marker.read_text(encoding="utf-8").strip()
+    if not text.startswith("gitdir:"):
+        return None
+    gitdir = (worktree / text.removeprefix("gitdir:").strip()).resolve()
+    commondir = gitdir / "commondir"
+    if commondir.is_file():
+        return (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve()
+    return gitdir
 
 
 class CodexCliRunner:
@@ -41,15 +57,21 @@ class CodexCliRunner:
         return self._process.runs_dir / f"{run_id}.schema.json"
 
     def build_argv(self, request: AgentRequest) -> list[str]:
-        if request.mode != "read_only":
-            raise ValueError("Codex는 읽기 전용 단계만 맡는다")
+        if request.mode == "read_only":
+            sandbox = ["--sandbox", "read-only"]
+        elif request.stage in CODEX_WRITE_STAGES:
+            sandbox = ["--sandbox", "workspace-write"]
+            # worktree의 커밋은 원래 저장소의 .git에 쓰인다. 그곳도 쓸 수 있게 연다
+            if common := git_common_dir(request.cwd):
+                sandbox += ["--add-dir", str(common)]
+        else:
+            raise ValueError(f"Codex는 {request.stage} 단계를 쓰기 모드로 실행하지 않는다")
         argv = [
             self._executable,
             "exec",
             "--cd",
             str(request.cwd),
-            "--sandbox",
-            "read-only",
+            *sandbox,
             "--ephemeral",
             "--ignore-user-config",
             "--color",

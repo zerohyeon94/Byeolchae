@@ -17,6 +17,7 @@ Mode = Literal["read_only", "write_worktree"]
 
 
 class Stage(StrEnum):
+    PROJECT_REPORT = "project_report"  # 제품 담당자가 기획팀장에게 보내는 보고
     OPINION = "opinion"
     DEBATE = "debate"
     PLAN = "plan"
@@ -33,6 +34,10 @@ class Stage(StrEnum):
     CONCEPT_IMAGE = "concept_image"  # 개념 노트 그림 (Codex 이미지 생성)
     WEEKLY_QUIZ = "weekly_quiz"  # 교육 주간 문제와 한마디
     SECRETARY_DAILY = "secretary_daily"  # 비서 저녁 하루 정리 요약 (ADR-010)
+
+
+# Codex가 작업 worktree에 쓸 수 있는 단계. 기획·설계 문서 단계는 Claude만 쓴다 (ADR-012)
+CODEX_WRITE_STAGES = frozenset({Stage.IMPLEMENT, Stage.FIX})
 
 
 class RunStatus(StrEnum):

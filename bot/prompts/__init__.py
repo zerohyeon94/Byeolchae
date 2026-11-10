@@ -32,6 +32,7 @@ from bot.schemas import (
     WeeklyReview,
 )
 from bot.schemas.education import QUIZ_MAX, QUIZ_MIN
+from bot.schemas.project_report import ProjectReport
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 
@@ -596,4 +597,17 @@ def weekly_quiz_prompt(persona: Persona, *, facts: str, notes: list[str]) -> str
         count_min=QUIZ_MIN,
         count_max=QUIZ_MAX,
         schema=_schema(WeeklyReview),
+    )
+
+
+def project_report_prompt(
+    persona: Persona, *, project: str, lead: str, subject: str, facts: str
+) -> str:
+    return _template("project_report").substitute(
+        _persona(persona, hiring_guide=False),
+        project=project,
+        lead=lead,
+        subject=subject,
+        facts=facts,
+        schema=_schema(ProjectReport),
     )

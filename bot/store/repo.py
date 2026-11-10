@@ -89,6 +89,25 @@ class NotFoundError(LookupError):
 
 
 @dataclass(frozen=True)
+class ReportAssignment:
+    owner: str
+    lead: str
+    subject: str
+
+
+@dataclass(frozen=True)
+class PendingReport:
+    id: int
+    project: str
+    owner: str
+    lead: str
+    subject: str
+    event_id: int | None
+    task_id: int | None
+    turn_id: int | None
+
+
+@dataclass(frozen=True)
 class NewEvent:
     actor: ActorName
     kind: EventKind
@@ -176,6 +195,17 @@ class HiringRecord:
     decided_at: str | None
 
 
+# 에이전트 이름을 담는 열. 이름을 바꿀 때 함께 옮긴다 (ADR-012)
+_AGENT_COLUMNS = (
+    ("agent_runs", "agent"),
+    ("events", "actor"),
+    ("chat_turns", "actor"),
+    ("hiring_proposals", "proposed_by"),
+    ("project_reports", "owner"),
+    ("project_reports", "lead"),
+)
+
+
 class Repository:
     def __init__(self, conn: aiosqlite.Connection, clock: Clock):
         self._conn = conn
@@ -195,6 +225,23 @@ class Repository:
                 await self._conn.execute("ROLLBACK")
                 raise
             await self._conn.execute("COMMIT")
+
+    # 에이전트 이름 바꾸기 (ADR-012)
+
+    async def rename_agents(self, renames: Mapping[str, str]) -> int:
+        """기록에 남은 예전 에이전트 이름을 새 이름으로 바꾼다. 바뀐 줄 수를 돌려준다.
+
+        봇 시작 때마다 부른다. 이미 바뀐 기록은 다시 걸리지 않는다.
+        """
+        changed = 0
+        async with self._transaction():
+            for table, column in _AGENT_COLUMNS:
+                for old, new in renames.items():
+                    cursor = await self._conn.execute(
+                        f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new, old)
+                    )
+                    changed += cursor.rowcount
+        return changed
 
     # tasks
 
@@ -261,6 +308,7 @@ class Repository:
         new_state: TaskState,
         event: NewEvent,
         updates: Mapping[str, object] | None = None,
+        report: ReportAssignment | None = None,
     ) -> TaskRecord:
         """상태와 필드를 바꾸고 이벤트를 기록한다. 현재 상태가 expected_state가 아니면 실패한다.
 
@@ -290,13 +338,20 @@ class Repository:
                 raise StaleStateError(
                     f"작업 {task_id}의 상태가 {expected_state}가 아니라 {current['state']}이다"
                 )
-            await self._insert_event(task_id, event, now)
+            event_id = await self._insert_event(task_id, event, now)
             if new_state is not expected_state:
                 await self._conn.execute(
                     "INSERT INTO task_transitions (task_id, from_state, to_state, created_at) "
                     "VALUES (?, ?, ?, ?)",
                     (task_id, expected_state.value, new_state.value, now),
                 )
+                if report is not None:
+                    await self._conn.execute(
+                        "INSERT INTO project_reports "
+                        "(project, event_id, owner, lead, subject, retry_at) "
+                        "SELECT project, ?, ?, ?, ?, ? FROM tasks WHERE id = ?",
+                        (event_id, report.owner, report.lead, report.subject, now, task_id),
+                    )
         return await self.get_task(task_id)
 
     async def update_fields(self, task_id: int, updates: Mapping[str, object]) -> TaskRecord:
@@ -558,6 +613,8 @@ class Repository:
         kind: str,
         payload: Any,
         discord_message: str | None = None,
+        *,
+        report: ReportAssignment | None = None,
     ) -> int:
         async with self._transaction():
             cursor = await self._conn.execute(
@@ -573,8 +630,16 @@ class Repository:
                     self._now(),
                 ),
             )
-        assert cursor.lastrowid is not None
-        return cursor.lastrowid
+            turn_id = cursor.lastrowid
+            assert turn_id is not None
+            if report is not None:
+                await self._conn.execute(
+                    "INSERT INTO project_reports "
+                    "(project, turn_id, owner, lead, subject, retry_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (project, turn_id, report.owner, report.lead, report.subject, self._now()),
+                )
+        return turn_id
 
     async def recent_chat_turns(self, project: str, limit: int = 20) -> list[dict[str, Any]]:
         """작업으로 옮기지 않은 최근 대화. 오래된 것부터."""
@@ -594,6 +659,83 @@ class Repository:
             await self._conn.execute(
                 "UPDATE chat_turns SET task_id = ? WHERE project = ? AND task_id IS NULL",
                 (task_id, project),
+            )
+
+    # 제품 담당자 보고 (ADR-011)
+
+    async def queue_existing_blocker(self, task_id: int, report: ReportAssignment) -> None:
+        """배정 전에 멈춰 있던 작업만 접수한다. 이후의 막힘은 상태 전이 때마다 따로 기록한다."""
+        async with self._transaction():
+            await self._conn.execute(
+                "INSERT INTO project_reports (project, event_id, owner, lead, subject, retry_at) "
+                "SELECT t.project, e.id, ?, ?, ?, ? FROM tasks t JOIN events e ON e.task_id = t.id "
+                "WHERE t.id = ? AND t.state = ? AND NOT EXISTS ("
+                "SELECT 1 FROM project_reports r JOIN events s ON s.id = r.event_id "
+                "WHERE s.task_id = t.id) ORDER BY e.id DESC LIMIT 1",
+                (
+                    report.owner,
+                    report.lead,
+                    report.subject,
+                    self._now(),
+                    task_id,
+                    TaskState.NEEDS_HUMAN.value,
+                ),
+            )
+
+    async def pending_project_reports(self) -> list[PendingReport]:
+        rows = await self._fetchall(
+            "SELECT r.id, r.project, r.owner, r.lead, r.subject, r.event_id, e.task_id, r.turn_id "
+            "FROM project_reports r LEFT JOIN events e ON e.id = r.event_id "
+            "WHERE r.body IS NULL AND r.retry_at <= ? ORDER BY r.id LIMIT 20",
+            (self._now(),),
+        )
+        return [PendingReport(**dict(row)) for row in rows]
+
+    async def project_report_evidence(self, job: PendingReport) -> list[dict[str, Any]]:
+        if job.turn_id is not None:
+            rows = await self._fetchall(
+                "SELECT actor, kind, payload FROM chat_turns WHERE id = ?", (job.turn_id,)
+            )
+        else:
+            rows = await self._fetchall(
+                "SELECT actor, kind, payload FROM events WHERE task_id = ? AND id <= ? "
+                "ORDER BY id DESC LIMIT 24",
+                (job.task_id, job.event_id),
+            )
+        return [dict(row) | {"payload": json.loads(row["payload"])} for row in reversed(rows)]
+
+    async def deliver_project_report(self, job_id: int, body: dict[str, Any]) -> bool:
+        async with self._transaction():
+            cursor = await self._conn.execute(
+                "UPDATE project_reports SET body = ? WHERE id = ? AND body IS NULL",
+                (json.dumps(body, ensure_ascii=False), job_id),
+            )
+            return cursor.rowcount == 1
+
+    async def defer_project_report(self, job_id: int, until: str) -> None:
+        async with self._transaction():
+            await self._conn.execute(
+                "UPDATE project_reports SET retry_at = ? WHERE id = ? AND body IS NULL",
+                (until, job_id),
+            )
+
+    async def project_report_inbox(self, project: str, lead: str) -> list[dict[str, Any]]:
+        rows = await self._fetchall(
+            "SELECT id, owner, subject, body FROM project_reports WHERE project = ? AND lead = ? "
+            "AND body IS NOT NULL ORDER BY read_at IS NOT NULL, "
+            "CASE WHEN read_at IS NULL THEN id ELSE -id END LIMIT 5",
+            (project, lead),
+        )
+        return [
+            dict(row) | {"body": json.loads(row["body"])}
+            for row in sorted(rows, key=lambda r: r["id"])
+        ]
+
+    async def mark_project_reports_read(self, ids: list[int]) -> None:
+        async with self._transaction():
+            await self._conn.executemany(
+                "UPDATE project_reports SET read_at = ? WHERE id = ? AND read_at IS NULL",
+                [(self._now(), number) for number in ids],
             )
 
     # ideas (/idea, ADR-007)

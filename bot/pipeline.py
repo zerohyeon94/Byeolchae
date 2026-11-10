@@ -9,7 +9,7 @@ YAML을 해석해 판단하지 않는다.
 - R1: 리뷰 담당은 같은 파이프라인의 기획·화면 디자인·설계·구현 담당과 다르다
 - R2: 구현 앞에 승인 게이트가 최소 1개 있다
 - R3: 구현 뒤에는 merge_gate가 있다 (봇은 merge하지 않는다)
-- R4: 담당은 org.yaml에 있는 에이전트다. Codex 엔진은 읽기 전용 단계만 맡는다
+- R4: 담당은 org.yaml에 있는 에이전트다. Codex 엔진은 읽기 단계와 구현만 맡는다 (ADR-012)
 - R5: triggers는 정해진 값(discord_task, schedule)이다
 - R6: 팀장 확인(check)은 구현·진단 단계에만 두고, 담당 팀원의 팀장이 맡는다 (ADR-008)
 
@@ -53,7 +53,7 @@ class StageKind(StrEnum):
 
     @property
     def writes(self) -> bool:
-        """작업 worktree에 쓰는 단계. Codex 엔진은 맡을 수 없다 (R4)."""
+        """작업 worktree에 쓰는 단계. Codex 엔진은 구현만 맡을 수 있다 (R4, ADR-012)."""
         return self in _WRITING_KINDS
 
 
@@ -182,6 +182,9 @@ class Pipeline(_Model):
 
     # 조회
 
+    def scheduled_for(self, *, has_test: bool) -> bool:
+        return "schedule" in self.triggers and (has_test or self.first_of(StageKind.TEST) is None)
+
     def index(self, stage_id: str) -> int:
         for i, stage in enumerate(self.stages):
             if stage.id == stage_id:
@@ -216,7 +219,8 @@ def check_against_org(pipeline: Pipeline, org: Org) -> None:
                     f"{pipeline.key}: {stage.id}의 check는 {stage.agent}의 팀장({lead})이어야 "
                     "하고 담당과 달라야 한다 (R6)"
                 )
-        if stage.kind.writes and org.engine(stage.agent) == "codex":
+        codex_ok = stage.kind is StageKind.IMPLEMENT  # 구현·수정만 Codex가 쓴다 (ADR-012)
+        if stage.kind.writes and not codex_ok and org.engine(stage.agent) == "codex":
             raise PipelineError(
                 f"{pipeline.key}: {stage.id}는 쓰기 단계라 "
                 f"Codex 엔진({stage.agent})이 맡을 수 없다 (R4)"

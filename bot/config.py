@@ -63,6 +63,7 @@ class _Model(BaseModel):
 
 
 class ProjectConfig(_Model):
+    owner: str | None = None  # 기획팀의 프로젝트 담당자
     forum_channel_id: DiscordId
     # 제품 채팅 채널: 팀장과 의견을 나누고 /task로 일을 시작한다 (ADR-007)
     chat_channel_id: DiscordId | None = None
@@ -72,7 +73,7 @@ class ProjectConfig(_Model):
     github: str = Field(pattern=_GITHUB_REPO.pattern)
     base_branch: str = "develop"
     # 셸을 거치지 않고 실행하므로 인자 목록으로 나눠 둔다 (SPEC 2.1)
-    test: tuple[str, ...]
+    test: tuple[str, ...] | None  # 명시적으로 null이면 테스트 준비 중
     vault_dir: str = Field(min_length=1)
     vault_hub: str = Field(min_length=1)
     vault_tag: str = Field(min_length=1)
@@ -89,6 +90,8 @@ class ProjectConfig(_Model):
     @field_validator("test", mode="before")
     @classmethod
     def _split_test(cls, value: object) -> object:
+        if value is None:
+            return None
         if isinstance(value, str):
             try:
                 value = shlex.split(value)
@@ -119,7 +122,16 @@ ModelName = Annotated[str, Field(min_length=1)]
 # 단계별 기본 모델을 둘 수 있는 단계 (SPEC 5.2). Codex는 읽기 전용 단계만 맡는다
 CLAUDE_STAGES = frozenset(Stage)
 CODEX_STAGES = frozenset(
-    {Stage.OPINION, Stage.DEBATE, Stage.REVIEW, Stage.DIAGNOSE, Stage.CONCEPT_IMAGE}
+    {
+        Stage.OPINION,
+        Stage.DEBATE,
+        Stage.REVIEW,
+        Stage.DIAGNOSE,
+        Stage.CONCEPT_IMAGE,
+        Stage.PROJECT_REPORT,
+        Stage.IMPLEMENT,
+        Stage.FIX,
+    }
 )
 
 
@@ -343,6 +355,18 @@ def load_config(
         pipelines = load_pipelines(projects.paths.company, org)
     except (OrgError, PipelineError) as error:
         raise ConfigError(str(error)) from None
+    for key, project in projects.projects.items():
+        if project.owner is None:
+            continue
+        owner = org.agents.get(project.owner)
+        planning = org.teams.get("planning")
+        if (
+            owner is None
+            or owner.team != "planning"
+            or planning is None
+            or planning.lead == project.owner
+        ):
+            raise ConfigError(f"projects.{key}.owner는 조직에 등록된 기획팀원이어야 한다")
     education = projects.education
     if education is not None and education.agent not in org.agents:
         raise ConfigError(f"education.agent {education.agent!r}가 조직(org.yaml)에 없다")
