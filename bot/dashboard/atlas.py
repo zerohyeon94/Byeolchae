@@ -187,63 +187,134 @@ def chart(org: Org, conn: sqlite3.Connection | None) -> str:
         )
         active = {org.current(actor) for (actor,) in actors}
 
-    guide = "polaris" if "polaris" in org.agents else None
-    cta = (
-        '<a class="tour" href="/org/teams/qa">QA팀 만나기 <span>→</span></a>'
-        if "qa" in org.teams
-        else ""
-    )
-    intro = (
-        "비서실장 폴라리스예요. 오늘은 작은 오류 하나를 끝까지 따라간 QA팀을 소개할게요."
-        if guide and cta
-        else "별자리를 골라 그 팀의 직원들을 만나 보세요."
-    )
-    figure = ""
-    if guide:
-        figure = (
-            '<a class="guide-orbit" href="/org/stars/polaris" aria-label="폴라리스 만나기">'
-            f'<span class="planet">{_portrait(guide, org, eager=True)}</span>'
-            '<span class="guide-name">폴라리스 · 비서실장</span></a>'
-        )
-    hero = (
-        '<section class="night"><div class="sky" aria-hidden="true"></div><div class="intro">'
-        '<p class="eyebrow">별직원 도감</p><h1>별자리 조직도</h1>'
-        f'<p class="hello">{intro}</p><div class="tour-links">{cta}'
-        '<a class="tour-directory" href="/org/stars">별직원 전체 보기 →</a></div>'
-        f"</div>{figure}</section>"
-    )
-    lanes = []
+    branches = []
     for dept, team_keys in departments.items():
-        cards = []
+        teams = []
         for key in team_keys:
             team = org.teams[key]
             members = _team_members(org, key)
             lit = any(name in active for name in members)
             state = "활동 기록 있음" if lit else "활동 기록 없음"
             leader = org.agents[team.lead].display
-            work = TEAM_WORK.get(key, leader)
-            cards.append(
-                f'<a class="team-node" href="/org/teams/{quote(key, safe="")}">'
-                f'<span class="node-face">{_portrait(team.lead, org)}</span>'
+            faces = "".join(
+                f'<a href="/org/stars/{member}" title="{escape(org.agents[member].display)}">'
+                f"{_portrait(member, org, eager=True)}</a>"
+                for member in members
+            )
+            teams.append(
+                f'<li><div class="ot-team"><a class="ot-team-link" '
+                f'href="/org/teams/{quote(key, safe="")}">'
+                f'<span class="node-face">{_portrait(team.lead, org, eager=True)}</span>'
                 f'<span class="node-copy"><b>{escape(_team_name(org, key))}</b>'
-                f"<small>{escape(work)}</small>"
-                f"<small>{escape(leader)} · {len(members)}명</small></span>"
+                f"<small>{escape(TEAM_WORK.get(key, leader))}</small>"
+                f"<small>팀장 {escape(leader)} · {len(members)}명</small></span>"
                 f'<i class="signal {"lit" if lit else ""}" role="img" '
                 f'aria-label="{state}" title="{state}"></i></a>'
+                f'<span class="ot-faces" aria-label="팀원">{faces}</span></div></li>'
             )
-        lanes.append(
-            f'<section class="lane"><h3>{escape(DEPARTMENTS.get(dept, dept))}</h3>'
-            f"{''.join(cards)}</section>"
+        count = sum(len(_team_members(org, key)) for key in team_keys)
+        branches.append(
+            f'<li class="ot-dept"><button type="button" class="ot-node dept" aria-expanded="true">'
+            f"<b>{escape(DEPARTMENTS.get(dept, dept))}</b>"
+            f"<small>{len(team_keys)}개 팀 · {count}명</small></button>"
+            f"<ul>{''.join(teams)}</ul></li>"
         )
     body = (
-        hero + '<section class="map"><div class="section-heading"><div><h2>회사 조직도</h2>'
-        f"<p>{len(departments)}개 부문 · {len(org.teams)}개 팀 · "
-        f"별직원 {len(org.agents)}명</p></div>"
-        '<small class="legend"><i class="signal lit"></i> 활동 기록 있음</small></div>'
-        f'<div class="tree"><div class="chief">{FOUNDER_NAME} 대표</div>'
-        f'<div class="lanes" style="--lanes:{len(lanes)}">{"".join(lanes)}</div></div></section>'
+        '<section class="ot-head"><div><p class="eyebrow">'
+        f"{len(departments)}개 부문 · {len(org.teams)}개 팀 · 별직원 {len(org.agents)}명</p>"
+        "<h1>조직도</h1><p>끌어서 옮기고, 휠이나 버튼으로 확대해 보세요. "
+        "부문을 누르면 접히고, 팀을 누르면 그 팀으로 갑니다.</p></div>"
+        '<small class="legend"><i class="signal lit"></i> 활동 기록 있음</small></section>'
+        '<div class="ot-tools" hidden>'
+        '<button type="button" data-zoom="out" aria-label="축소">−</button>'
+        '<output class="ot-scale">100%</output>'
+        '<button type="button" data-zoom="in" aria-label="확대">+</button>'
+        '<button type="button" data-zoom="fit">화면에 맞춤</button>'
+        '<button type="button" data-fold="open">모두 펼치기</button>'
+        '<button type="button" data-fold="close">모두 접기</button></div>'
+        '<div class="ot-view"><div class="ot-canvas"><ul class="ot">'
+        f'<li><div class="ot-node chief"><b>{FOUNDER_NAME}</b><small>대표</small></div>'
+        f"<ul>{''.join(branches)}</ul></li></ul></div></div>"
+        f"{_CHART_SCRIPT}"
     )
-    return views.page("별자리 조직도", body, active="org")
+    return views.page("조직도", body, active="org")
+
+
+# 끌어서 이동, 휠·버튼 확대, 부문 접기. 스크립트가 없으면 상자 안에서 스크롤로 본다
+_CHART_SCRIPT = """<script>
+(() => {
+  const view = document.querySelector('.ot-view');
+  const canvas = document.querySelector('.ot-canvas');
+  const label = document.querySelector('.ot-scale');
+  const tools = document.querySelector('.ot-tools');
+  let x = 0, y = 0, s = 1;
+  const draw = () => {
+    canvas.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+    label.textContent = Math.round(s * 100) + '%';
+  };
+  const zoomAt = (next, cx, cy) => {
+    next = Math.min(2, Math.max(0.3, next));
+    x = cx - (cx - x) * next / s;
+    y = cy - (cy - y) * next / s;
+    s = next;
+    draw();
+  };
+  const fit = () => {
+    const w = canvas.scrollWidth, h = canvas.scrollHeight;
+    s = Math.min(1, Math.max(0.3, Math.min(view.clientWidth / w, view.clientHeight / h) * 0.95));
+    x = Math.max(12, (view.clientWidth - w * s) / 2);
+    y = Math.max(12, (view.clientHeight - h * s) / 2);
+    draw();
+  };
+  view.classList.add('live');
+  tools.hidden = false;
+  let drag = null;
+  view.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('a, button')) return;
+    drag = { px: e.clientX - x, py: e.clientY - y };
+    view.setPointerCapture(e.pointerId);
+    view.classList.add('grabbing');
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    x = e.clientX - drag.px;
+    y = e.clientY - drag.py;
+    draw();
+  });
+  const stop = () => { drag = null; view.classList.remove('grabbing'); };
+  view.addEventListener('pointerup', stop);
+  view.addEventListener('pointercancel', stop);
+  view.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const box = view.getBoundingClientRect();
+    zoomAt(s * Math.exp(-e.deltaY * 0.0015), e.clientX - box.left, e.clientY - box.top);
+  }, { passive: false });
+  tools.addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    if (!button) return;
+    const mid = [view.clientWidth / 2, view.clientHeight / 2];
+    if (button.dataset.zoom === 'in') zoomAt(s * 1.2, ...mid);
+    if (button.dataset.zoom === 'out') zoomAt(s / 1.2, ...mid);
+    if (button.dataset.zoom === 'fit') fit();
+    if (button.dataset.fold) {
+      const open = button.dataset.fold === 'open';
+      for (const node of document.querySelectorAll('.ot-dept')) {
+        node.classList.toggle('folded', !open);
+        node.querySelector('.dept').setAttribute('aria-expanded', String(open));
+      }
+      fit();
+    }
+  });
+  for (const dept of document.querySelectorAll('.ot-node.dept')) {
+    dept.addEventListener('click', () => {
+      const folded = dept.parentElement.classList.toggle('folded');
+      dept.setAttribute('aria-expanded', String(!folded));
+    });
+  }
+  fit();
+  addEventListener('resize', fit);
+})();
+</script>"""
 
 
 def team_page(org: Org, key: str) -> str:

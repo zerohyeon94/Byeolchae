@@ -535,6 +535,17 @@ def test_staff_directory_cards_carry_department_and_filters(settings):
     assert '<div class="worker-tools" hidden>' in body  # 스크립트가 없으면 도구를 숨긴다
 
 
+def test_org_chart_is_one_tree_from_founder_to_teams(settings):
+    _, body = get(settings, "/org")
+    assert '<div class="ot-node chief"><b>노을</b>' in body
+    departments = {team.department for team in DEFAULT_ORG.teams.values()}
+    assert body.count('class="ot-dept"') == len(departments)
+    assert body.count('class="ot-team-link"') == len(DEFAULT_ORG.teams)
+    for key in DEFAULT_ORG.agents:
+        assert f'href="/org/stars/{key}"' in body
+    assert 'href="/org" class="on">조직도' in body
+
+
 def test_flow_step_groups_every_state():
     from bot.dashboard.company import FLOW_STEPS, STATE_LABELS, flow_step
 
