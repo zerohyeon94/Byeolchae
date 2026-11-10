@@ -26,7 +26,7 @@ from bot.discord_io.rules import (
 from bot.org import DEFAULT_ORG
 from bot.render.status import render_ping, render_status
 from bot.store.repo import TaskRecord
-from bot.workflow.chat import Attachment
+from bot.workflow.chat import Attachment, ThreadNotFound
 from bot.workflow.state import CommandName, TaskState
 
 ZERO = 42
@@ -164,6 +164,33 @@ def test_post_silent_without_mention():
     assert kwargs["wait"] is True
     assert kwargs["files"] == []
     assert kwargs["allowed_mentions"].users is False
+
+
+@pytest.mark.parametrize("when", ["lookup", "send"])
+@pytest.mark.parametrize("code", [10003, 10015])
+def test_post_translates_only_missing_channel(when, code):
+    error = discord.NotFound(
+        SimpleNamespace(status=404, reason="Not Found"),
+        {"code": code, "message": "Unknown Channel" if code == 10003 else "Unknown Webhook"},
+    )
+
+    class MissingSender:
+        async def send(self, *args, **kwargs):
+            raise error
+
+    async def webhook_for(thread_id):
+        if when == "lookup":
+            raise error
+        return MissingSender()
+
+    async def ops_channel():
+        return FakeSender()
+
+    chat = DiscordChat(zero_user_id=ZERO, webhook_for=webhook_for, ops_channel=ops_channel)
+    with pytest.raises(ThreadNotFound if code == 10003 else discord.NotFound) as caught:
+        run(chat.post("500", "bot", "결과"))
+    if code == 10003:
+        assert caught.value.thread == "500" and caught.value.__cause__ is error
 
 
 def test_post_with_mention_splits_and_attaches_on_last():

@@ -13,6 +13,14 @@ from typing import Protocol
 Author = str
 
 
+class ThreadNotFound(RuntimeError):
+    """게시 대상 글이 없다. 입출력 계층이 서비스별 오류를 이 예외로 바꾼다."""
+
+    def __init__(self, thread: str):
+        self.thread = thread
+        super().__init__(f"보고 글을 찾을 수 없다: {thread}")
+
+
 @dataclass(frozen=True)
 class Attachment:
     filename: str

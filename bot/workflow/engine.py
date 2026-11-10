@@ -60,7 +60,7 @@ from bot.store import (
     Repository,
 )
 from bot.store.repo import PendingReport, ReportAssignment, StaleStateError, TaskRecord
-from bot.workflow.chat import Attachment, Author, ChatIO
+from bot.workflow.chat import Attachment, Author, ChatIO, ThreadNotFound
 from bot.workflow.gate import AgentGate, Priority
 from bot.workflow.mentions import Moment, should_mention
 from bot.workflow.project_reports import report_facts
@@ -408,11 +408,15 @@ class Engine(WorkStages):
             if now - from_iso(task.waiting_since) < after:
                 continue
             hours = int((now - from_iso(task.waiting_since)).total_seconds() // 3600)
-            await self._say(
-                task,
-                render_notice(NoticeCode.REMINDER, f"현재 상태: {task.state} ({hours}시간째)"),
-                Moment.REMINDER,
-            )
+            try:
+                await self._say(
+                    task,
+                    render_notice(NoticeCode.REMINDER, f"현재 상태: {task.state} ({hours}시간째)"),
+                    Moment.REMINDER,
+                )
+            except Exception:
+                log.exception("작업 %s 재알림 실패", task.id)
+                continue
             await self._repo.update_fields(task.id, {"reminded_at": to_iso(now)})
             sent += 1
         return sent
@@ -561,9 +565,20 @@ class Engine(WorkStages):
                 f"일정으로 실행한 {task.title}이 Zero의 확인을 기다린다. "
                 "이 포스트에서 /resume 또는 /stop을 쓴다.",
             )
-        return await self._chat.post(
-            task.discord_thread, "bot", text, mention=should_mention(moment)
-        )
+        try:
+            return await self._chat.post(
+                task.discord_thread, "bot", text, mention=should_mention(moment)
+            )
+        except ThreadNotFound:
+            task = await self._open_post(
+                task,
+                f"{task.title} 보고 글 복구",
+                f"작업 #{task.id}의 이전 글을 찾을 수 없어 이 글에서 이어 간다. "
+                f"현재 상태: {task.state}. 이 포스트에서 /status로 상태를 확인한다.",
+            )
+            return await self._chat.post(
+                task.discord_thread, "bot", text, mention=should_mention(moment)
+            )
 
     async def _post(
         self,

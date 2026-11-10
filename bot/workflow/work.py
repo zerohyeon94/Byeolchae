@@ -76,7 +76,7 @@ from bot.schemas import (
 from bot.store import Actor, EventKind, NewEvent
 from bot.store.repo import TaskRecord
 from bot.testrun import TestReport
-from bot.workflow.chat import Attachment
+from bot.workflow.chat import Attachment, ThreadNotFound
 from bot.workflow.mentions import Moment, should_mention
 from bot.workflow.state import (
     FixSource,
@@ -1216,10 +1216,16 @@ class WorkStages:
             if not thread:
                 return done("quiet")  # 직전에도 개선 불필요로 본 같은 실패
             day = self._clock.now().astimezone().strftime("%m-%d")
-            await self._chat.post(
-                thread, "bot", f"{day} 정기 테스트에서도 같은 문제로 실패했다.", mention=False
-            )
-            return done("appended", thread)
+            try:
+                await self._chat.post(
+                    thread, "bot", f"{day} 정기 테스트에서도 같은 문제로 실패했다.", mention=False
+                )
+            except ThreadNotFound:
+                # 예전 글이 사라졌으면 아래에서 전체 진단을 담은 대체 글을 연다.
+                # REPORT에 새 글을 남겨 다음 일정부터 같은 실패를 새 글에 묶는다.
+                pass
+            else:
+                return done("appended", thread)
         if diagnosis is not None and diagnosis.action is ReportAction.NONE:
             return done("quiet")
         title = f"{task.title}: {diagnosis.cause.label}" if diagnosis else f"{task.title} 실패"
