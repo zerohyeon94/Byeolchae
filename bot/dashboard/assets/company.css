@@ -61,3 +61,66 @@
   .home-products, .home-work, .home-charter { grid-template-columns: 1fr; }
   .home-charter { gap: 20px; }
 }
+
+/* 회사 홈 (Notion 밤 근무 + Linear 작업 흐름) */
+.home-intro h1 { font-size: clamp(38px,5.4vw,72px); }
+.home-intro .eyebrow { letter-spacing: .04em; }
+.home-sub { color: var(--muted-ink); margin-top: 6px !important; max-width: 640px; line-height: 1.65; }
+.home-heading .eyebrow { color: #8a6a2e; margin-bottom: 4px; }
+.home-heading { align-items: end; }
+.home-intro .sky { animation: drift 90s linear infinite; }
+@keyframes drift { to { background-position: 237px 173px, -397px 291px, 193px -113px, -319px 141px; } }
+
+.home-pulse { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1px; margin-top: 14px;
+  background: var(--hairline); border: 1px solid var(--hairline); border-radius: 16px; overflow: hidden; }
+.home-pulse a { display: grid; gap: 3px; padding: 14px 20px; background: var(--paper); }
+.home-pulse a:hover { background: #fff6e6; }
+.home-pulse small { color: var(--muted-ink); font-size: 12px; }
+.home-pulse b { font-size: clamp(22px,2.4vw,30px); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+
+.home-work { grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) !important; }
+.flows { display: grid; gap: 10px; align-content: start; }
+.flow { display: grid; gap: 9px; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: 12px;
+  background: #fffaf1; transition: transform .15s ease, box-shadow .15s ease; }
+.flow:hover { transform: translateY(-2px); box-shadow: 0 8px 22px #2326440f; }
+.flow > small { color: var(--muted-ink); }
+.flow-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.turn { flex: none; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  background: #e8e4f4; color: #51478c; white-space: nowrap; }
+.turn.founder { background: #fbe2bd; color: #8a4b00; }
+.rail { display: flex; list-style: none; padding: 0; margin: 0; }
+.rail li { flex: 1; display: grid; justify-items: center; gap: 5px; position: relative; font-size: 11px; color: #a3a0ad; }
+.rail li::before { content: ""; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: #e3ded8; z-index: 0; }
+.rail li:first-child::before { display: none; }
+.rail li.done::before, .rail li.now::before { background: #8b7cc4; }
+.rail i { width: 12px; height: 12px; border-radius: 50%; background: #fffaf1; border: 2px solid #d5cfc8; position: relative; z-index: 1; }
+.rail li.done i { background: #8b7cc4; border-color: #8b7cc4; }
+.rail li.done, .rail li.now { color: var(--ink); }
+.rail li.now i { background: #f6c96f; border-color: #c48a1d; box-shadow: 0 0 0 0 #f6c96f99; animation: beacon 1.8s ease-out infinite; }
+.rail li.now span { font-weight: 700; }
+@keyframes beacon { to { box-shadow: 0 0 0 9px #f6c96f00; } }
+
+.shift { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 10px; }
+.shift li { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 11px; align-items: center;
+  padding: 13px 15px; border-radius: 14px; color: #fff3df; background: linear-gradient(140deg,#262a47,#383a5a); }
+.shift time { grid-column: 1 / -1; font-size: 12px; color: #f2d399; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.shift-face { width: 38px; height: 38px; border-radius: 50%; background: #fbeede; overflow: hidden; display: grid; place-items: center; }
+.shift-face:empty::after { content: "봇"; color: #6c567d; font-size: 13px; font-weight: 700; }
+.shift-face img { width: 88%; height: 88%; object-fit: contain; }
+.shift b { display: block; font-size: 15px; }
+.shift small { color: #cfcadf; font-size: 12px; }
+
+@media (max-width: 720px) {
+  .home-pulse { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .home-work { grid-template-columns: 1fr !important; }
+  .rail span { font-size: 10px; }
+  .rail li:nth-child(even) span { visibility: hidden; }
+  .rail li.now span, .rail li.stop span { visibility: visible; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-intro .sky, .rail li.now i { animation: none; }
+  .flow { transition: none; }
+}
+.rail li.stop::before { background: #8b7cc4; }
+.rail li.stop i { background: #fff; border-color: #c2412d; box-shadow: inset 0 0 0 2px #c2412d; }
+.rail li.stop { color: #a3321f; font-weight: 700; }

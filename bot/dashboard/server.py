@@ -66,7 +66,9 @@ def handle(settings: DashboardSettings, path: str) -> Response:
         conn = queries.open_readonly(settings.db)
     except queries.DatabaseMissing as error:
         if not parts:
-            return _ok(company.home(settings.org, settings.projects, None))
+            return _ok(
+                company.home(settings.org, settings.projects, None, schedules=settings.schedules)
+            )
         if parts[:1] == ["org"]:
             return _atlas(settings.org, None, parts)
         return Response(HTTPStatus.OK, views.message_page("기록 없음", str(error)))
@@ -83,7 +85,16 @@ def _route(
     params: dict[str, str],
 ) -> Response:
     if not parts:
-        return _ok(company.home(settings.org, settings.projects, conn))
+        today = settings.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        return _ok(
+            company.home(
+                settings.org,
+                settings.projects,
+                conn,
+                schedules=settings.schedules,
+                today_start=today.astimezone(UTC).isoformat(),
+            )
+        )
     if parts[:1] == ["org"]:
         return _atlas(settings.org, conn, parts)
     if parts == ["team"]:
