@@ -547,7 +547,7 @@ class Engine(WorkStages):
         return await self._repo.update_fields(task.id, {"discord_thread": thread})
 
     async def _say(self, task: TaskRecord, text: str, moment: Moment = Moment.NOTICE) -> str:
-        """작업 포스트에 [ZeroSync]로 게시한다.
+        """작업 포스트에 [별채]로 게시한다.
 
         포스트가 없는 일정 작업은 Zero의 행동이 필요할 때 포스트를 연다.
         그래야 그 포스트에서 /resume, /stop을 쓸 수 있다. 그 밖의 안내는 게시하지 않는다.
@@ -1047,7 +1047,7 @@ class Engine(WorkStages):
             rendered = render_format_error(answer.raw, answer.error)
             payload = {"reason": INVALID_OUTPUT, "error": answer.error, "raw": answer.raw}
             return _Outgoing(answer.agent, rendered.text, rendered.attachments, "error", payload)
-        # CLI 실행 실패: [ZeroSync] 안내 + 운영 채널 알림 (운영 규약 2.5)
+        # CLI 실행 실패: [별채] 안내 + 운영 채널 알림 (운영 규약 2.5)
         name = self._name(answer.agent)
         alert = (
             f"[{project}] {name} {kind} 실행 실패: {answer.failure}. 로그: {answer.log_path}"

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 # 게시 주체: 에이전트 이름(beta, alpha …) 또는 "bot". 에이전트는 웹훅 이름 `[이름 · 직책]`으로,
-# 봇은 [ZeroSync]로 게시한다 (운영 규약 1.2, SPEC Q16)
+# 봇은 [별채]로 게시한다 (운영 규약 1.2, SPEC Q16)
 Author = str
 
 

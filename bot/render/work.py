@@ -58,7 +58,7 @@ def render_issue_body(
             lines += [f"- 위험: {risk}" for risk in opinion.risks]
             lines.append("")
     lines += ["## 링크", "", f"- Discord 게시글: {discord_url or '-'}", ""]
-    lines.append("_ZeroSync 봇이 만든 Issue_")
+    lines.append("_별채 봇이 만든 Issue_")
     return "\n".join(lines)
 
 

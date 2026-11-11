@@ -120,7 +120,7 @@ class DiscordChat:
         return first_id
 
     async def create_post(self, project: str, title: str, text: str) -> str:
-        """포럼에 [ZeroSync] 이름으로 포스트를 연다. 첫 조각이 포스트 본문이다."""
+        """포럼에 [별채] 이름으로 포스트를 연다. 첫 조각이 포스트 본문이다."""
         if self._forum_webhook is None:
             raise RuntimeError("포럼 웹훅이 없다")
         webhook = await self._forum_webhook(project)

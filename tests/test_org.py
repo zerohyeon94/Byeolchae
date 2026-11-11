@@ -90,7 +90,7 @@ def test_legacy_agent_names_still_resolve():
     # ADR-005 기준 기록(엔진 이름이 곧 에이전트 이름)을 읽을 수 있어야 한다
     assert DEFAULT_ORG.display("claude") == "Beta · Claude"
     assert DEFAULT_ORG.engine("codex") == "codex"
-    assert DEFAULT_ORG.display("zero") == "Zero" and DEFAULT_ORG.display("bot") == "ZeroSync"
+    assert DEFAULT_ORG.display("zero") == "Zero" and DEFAULT_ORG.display("bot") == "별채"
 
 
 @pytest.mark.parametrize(

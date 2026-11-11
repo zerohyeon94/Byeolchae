@@ -324,7 +324,7 @@ class NoticeCode(StrEnum):
 
 @dataclass(frozen=True)
 class PostNotice:
-    """[ZeroSync] 이름으로 포스트에 짧은 안내를 남긴다."""
+    """[별채] 이름으로 포스트에 짧은 안내를 남긴다."""
 
     code: NoticeCode
     detail: str = ""

@@ -4,16 +4,17 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
 
+from bot import BOT_NAME
 from bot.org import Org
 from bot.workflow.chat import Author
 
 
 def author_name(org: Org, author: Author) -> str:
-    """웹훅 게시 이름 `[이름 · 직책]` (운영 규약 1.2, SPEC Q16). 봇은 [ZeroSync]."""
+    """웹훅 게시 이름 `[이름 · 직책]` (운영 규약 1.2, SPEC Q16). 봇은 [별채]."""
     return f"[{org.display(author)}]"
 
 
-WEBHOOK_NAME = "ZeroSync"
+WEBHOOK_NAME = BOT_NAME
 # Discord 메시지 최대 2,000자. 분할은 안전장치이고,
 # 게시용 요약은 render가 1,500자로 맞춘다 (운영 규약 2.6)
 SPLIT_LIMIT = 1900

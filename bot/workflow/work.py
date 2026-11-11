@@ -1171,7 +1171,7 @@ class WorkStages:
             await self._vault.commit(
                 root,
                 written,
-                f"docs({task.project}): ZeroSync 기능 - {task.title}",
+                f"docs({task.project}): 별채 기능 - {task.title}",
                 f"ZeroSync-Task: {task.project}-{task.issue_number or task.id}",
             )
         await self._say(task, f"볼트에 반영했다: {', '.join(written)}")
@@ -1252,7 +1252,7 @@ class WorkStages:
             await github.close_issue(
                 task.issue_number,
                 not_planned=False,
-                comment=f"develop merge 완료 (PR #{task.pr_number}). ZeroSync가 Issue를 닫는다.",
+                comment=f"develop merge 완료 (PR #{task.pr_number}). 별채가 Issue를 닫는다.",
             )
         await self._say(
             task, f"PR #{task.pr_number} merge를 확인하고 Issue #{task.issue_number}을 닫았다."

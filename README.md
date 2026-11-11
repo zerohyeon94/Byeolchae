@@ -1,4 +1,4 @@
-# ZeroSync
+# 별채 (Byeolchae)
 
 Discord 기반 멀티 에이전트 오케스트레이터 (v2).
 
@@ -9,7 +9,7 @@ Zero가 Discord 포럼 게시글에 아이디어를 올리면, Beta · Claude와
 | Zero | 질문, 결정, 승인, merge. 유일한 명령 권한자 |
 | Beta · Claude (ISFJ) | 의견(설계·유지보수), 설계, 구현, 리뷰 반영, 문서 반영안 |
 | Alpha · Codex (INTJ) | 의견(실행·위험), 리뷰, 판정 |
-| 봇 `[ZeroSync]` | 호출, 테스트 실행, Issue·push·PR, 볼트 쓰기, 기록, 알림 |
+| 봇 `[별채]` | 호출, 테스트 실행, Issue·push·PR, 볼트 쓰기, 기록, 알림 |
 
 봇은 LLM이 아닌 결정론적 프로그램이며, 판단은 Zero만 한다.
 
@@ -28,3 +28,5 @@ Phase 1 (MVP) 진행 중. 봇 코드는 골격, 에이전트 출력 스키마, �
 ## 별채 웹 대시보드
 
 웹 화면·자산·테스트는 별도 프로젝트 `Byeolchae-Web`에 있다. 해당 폴더의 `README.md`에 설치 방법이 있으며, `.venv/bin/python -m byeolchae_web`으로 실행한다. 회사 봇은 이 저장소에서 기존 명령인 `python -m bot`으로 실행한다.
+
+봇 실행 명령은 `byeolchae` 또는 `python -m bot`이다. 기존 설치와 웹 대시보드의 호환을 위해 Python 배포 이름 `zerosync-bot`, 예전 명령 `zerosync`, 데이터 경로 `~/.zerosync/`는 계속 사용한다.

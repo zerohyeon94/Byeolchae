@@ -207,7 +207,7 @@ class ZeroSyncBot(discord.Client):
             self.startup_error = error
             try:
                 await self.chat.notify_ops(
-                    f"ZeroSync 봇 시작 실패: {error}", mention=should_mention(Moment.BOT_ERROR)
+                    f"별채 봇 시작 실패: {error}", mention=should_mention(Moment.BOT_ERROR)
                 )
             except Exception:
                 log.exception("운영 채널 알림 실패")
@@ -222,7 +222,7 @@ class ZeroSyncBot(discord.Client):
             asyncio.create_task(self._project_report_loop()),
         ]
         await self.chat.notify_ops(
-            f"ZeroSync 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
+            f"별채 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
             f"조직: {', '.join(self.config.org.display(a) for a in self.config.org.agent_names)}",
             mention=should_mention(Moment.NOTICE),
         )
@@ -504,19 +504,7 @@ class ZeroSyncBot(discord.Client):
                     f"{project}의 forum_channel_id가 포럼 채널이 아니다 "
                     f"(#{name}, 종류 {getattr(channel, 'type', '?')})"
                 )
-            hooks = await channel.webhooks()
-            hook = next(
-                (
-                    h
-                    for h in hooks
-                    if h.name == WEBHOOK_NAME and h.user is not None and h.user.id == self.user.id
-                ),
-                None,
-            )
-            if hook is None:
-                hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="ZeroSync 게시용")
-                log.info("웹훅 생성: %s", project)
-            self._webhooks[forum_id] = hook
+            self._webhooks[forum_id] = await self._own_webhook(channel, project)
         for chat_id, project in self.chats.items():
             try:
                 channel = self.get_channel(chat_id) or await self.fetch_channel(chat_id)
@@ -535,12 +523,14 @@ class ZeroSyncBot(discord.Client):
             (
                 h
                 for h in hooks
-                if h.name == WEBHOOK_NAME and h.user is not None and h.user.id == self.user.id
+                if h.name in (WEBHOOK_NAME, "ZeroSync")
+                and h.user is not None
+                and h.user.id == self.user.id
             ),
             None,
         )
         if hook is None:
-            hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="ZeroSync 게시용")
+            hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="별채 게시용")
             log.info("웹훅 생성: %s #%s", project, getattr(channel, "name", "?"))
         return hook
 
