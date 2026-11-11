@@ -165,9 +165,17 @@ def test_summary_counts_across_projects(settings):
 
 
 def test_company_home_links_open_work_and_latest_event_per_task(settings):
+    settings = replace(settings, now=lambda: T0)
     status, body = get(settings, "/")
-    assert status == HTTPStatus.OK and "<h1>밤도란</h1>" in body
+    assert status == HTTPStatus.OK and "밤도란 · 별직원들이" in body
     assert "대표 노을" in body
+    # 오늘 숫자 띠: T0에 시작한 실행 3회, 열린 작업 1건(의견 수렴은 대표 차례)
+    assert "<small>오늘 실행</small><b>3회</b>" in body
+    assert "<small>진행 중인 작업</small><b>1건</b>" in body
+    assert "<small>노을 대표 차례</small><b>1건</b>" in body
+    # 작업 흐름 띠: 의견 단계가 지금 단계
+    assert '<li class="now"><i></i><span>의견</span></li>' in body
+    assert "노을 대표 차례</span>" in body
     work, history = body.split("<h3>최근 작업 기록</h3>")
     assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
     assert "여행 &lt;소비&gt;" in work
@@ -496,6 +504,56 @@ def test_cron_label():
     assert cron_label("0 8 * * *") == "매일 08:00"
     assert cron_label("0 8 * * 1") == "월요일 08:00"
     assert cron_label("30 7,19 * * 0,6") == "일요일, 토요일 07:30, 19:30"
+
+
+def test_company_home_night_shift_runs_from_evening_to_morning(settings):
+    from bot.dashboard.features import scheduled_jobs
+    from bot.pipeline import default_pipelines
+
+    jobs = scheduled_jobs(
+        default_pipelines(),
+        ["gagaessi"],
+        education=("30 7 * * *", "0 20 * * 0"),
+        secretary="30 23 * * *",
+    )
+    _, body = get(replace(settings, schedules=jobs), "/")
+    shift = body.split('<ol class="shift">')[1].split("</ol>")[0]
+    order = ["비서 하루 정리", "정기 테스트 · gagaessi", "교육 아침 학습", "아침 보고"]
+    assert [shift.index(name) for name in order] == sorted(shift.index(name) for name in order)
+    assert "QA팀" in shift and "교육팀" in shift
+
+
+def test_staff_directory_cards_carry_department_and_filters(settings):
+    _, body = get(settings, "/org/stars")
+    cards = body.count('<a class="worker" ')
+    assert cards == len(DEFAULT_ORG.agents)
+    # 부문 버튼 수 = 전체 + 부문, 카드마다 거를 부문과 검색어가 있다
+    departments = {team.department for team in DEFAULT_ORG.teams.values()}
+    assert body.count('<button type="button" data-dept=') == len(departments) + 1
+    assert body.count("data-search=") == cards
+    assert 'href="/org/stars" class="on">팀원 소개' in body
+    assert '<div class="worker-tools" hidden>' in body  # 스크립트가 없으면 도구를 숨긴다
+
+
+def test_org_chart_is_one_tree_from_founder_to_teams(settings):
+    _, body = get(settings, "/org")
+    assert '<div class="ot-node chief"><b>노을</b>' in body
+    departments = {team.department for team in DEFAULT_ORG.teams.values()}
+    assert body.count('class="ot-dept"') == len(departments)
+    assert body.count('class="ot-team-link"') == len(DEFAULT_ORG.teams)
+    for key in DEFAULT_ORG.agents:
+        assert f'href="/org/stars/{key}"' in body
+    assert 'href="/org" class="on">조직도' in body
+
+
+def test_flow_step_groups_every_state():
+    from bot.dashboard.company import FLOW_STEPS, STATE_LABELS, flow_step
+
+    assert flow_step("OPINIONS") == 0 and flow_step("AWAIT_MERGE") == 7
+    assert flow_step("NEEDS_HUMAN") == -1
+    grouped = set().union(*(states for _, states in FLOW_STEPS))
+    assert grouped | {"NEEDS_HUMAN"} == set(STATE_LABELS)
+    assert {state.name for state in TaskState} - {"DONE", "STOPPED"} <= set(STATE_LABELS)
 
 
 def test_feature_commands_match_discord_client():

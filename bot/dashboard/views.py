@@ -199,10 +199,11 @@ def page(title: str, body: str, *, active: str = "") -> str:
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
         for key, href, label in (
             ("company", "/", "회사 홈"),
+            ("stars", "/org/stars", "팀원 소개"),
+            ("org", "/org", "조직도"),
             ("summary", "/summary", "업무 요약"),
             ("tasks", "/tasks", "작업"),
-            ("org", "/org", "별자리 조직도"),
-            ("team", "/team", "직원"),
+            ("team", "/team", "직원 업무"),
             ("education", "/education", "교육"),
             ("runs", "/runs", "실행 기록"),
             ("ideas", "/ideas", "아이디어"),
@@ -211,12 +212,12 @@ def page(title: str, body: str, *, active: str = "") -> str:
     )
     atlas_style = (
         '<link rel="stylesheet" href="/org/assets/atlas.css">'
-        if active in ("org", "company")
+        if active in ("org", "stars", "company")
         else ""
     )
     if active == "company":
         atlas_style += '<link rel="stylesheet" href="/org/assets/company.css">'
-    body_class = "org company" if active == "company" else active
+    body_class = {"company": "org company", "stars": "org stars"}.get(active, active)
     return (
         '<!doctype html><html lang="ko"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
