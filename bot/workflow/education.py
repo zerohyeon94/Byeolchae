@@ -54,6 +54,7 @@ from bot.education.weekly import (
     QuizScore,
     WeekFacts,
     render_weekly,
+    studied_days,
     week_facts,
     week_key,
     week_start,
@@ -368,7 +369,8 @@ class EducationDesk:
         studies = await self._repo.study_days(start.isoformat(), today.isoformat())
         queue_path = root / QUEUE_FILE
         queue = parse_queue(_read(queue_path)) if queue_path.exists() else []
-        facts = week_facts(today, studies, queue)
+        studied = await studied_since(self._repo, start)
+        facts = week_facts(today, studies, queue, studied=studied)
         last = await self._score(WEEK_KEY + week_key(today - timedelta(days=7)))
         daily = await self._daily_score(start, today)
         week = WEEK_KEY + week_key(today)
@@ -511,6 +513,20 @@ async def daily_quiz_score(repo: Any, start: date, end: date) -> QuizScore | Non
             done, ok = await repo.quiz_score(quiz_id)
             answered, correct = answered + done, correct + ok
     return QuizScore(total, answered, correct) if total else None
+
+
+async def studied_since(repo: Any, start: date) -> set[str]:
+    """start 이후의 학습한 날 (studied_days). 교육 주간 보고와 비서 Daily가 같은 값을 쓴다.
+
+    학습일의 끝은 다음 아침이므로 start 뒤의 기록을 끝 없이 읽는다.
+    """
+    answered = [
+        at
+        for kind in ("note", "review")
+        for quiz_id, _, _ in await repo.list_quizzes(kind)
+        for at, _ in await repo.quiz_answers(quiz_id)
+    ]
+    return studied_days(await repo.study_days(start.isoformat()), answered)
 
 
 def _payload(questions: list[QuizQuestion]) -> str:

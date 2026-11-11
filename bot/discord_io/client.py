@@ -419,6 +419,7 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.mark_done(day)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
 
     async def mark_optional_done(self, interaction: discord.Interaction, day: str) -> None:
         """선택 했음 버튼. Zero만 누를 수 있고, 결과는 Zero에게만 보인다."""
@@ -430,6 +431,7 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.mark_optional(day)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
 
     async def answer_quiz(
         self, interaction: discord.Interaction, quiz_id: int, number: int, choice: str
@@ -443,6 +445,16 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.answer(quiz_id, number, choice)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
+
+    async def refresh_daily(self) -> None:
+        """버튼 뒤 낮 갱신. 실패해도 DB 기록은 남고 저녁판이 다시 쓰므로 로그만 남긴다."""
+        if self.secretary is None:
+            return
+        try:
+            await self.secretary.refresh_daily()
+        except Exception:
+            log.exception("Daily 낮 갱신 실패")
 
     async def run_daily(self, interaction: discord.Interaction) -> None:
         """오늘 개념 노트와 문제를 지금 낸다 (/daily). 이미 냈으면 다시 내지 않는다."""
