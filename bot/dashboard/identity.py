@@ -1,11 +1,23 @@
-"""밤도란 대시보드의 공개 이름."""
+"""대시보드의 공개 이름."""
 
 import re
 
 from bot.org import Org
 
-COMPANY_NAME = "밤도란"
-FOUNDER_NAME = "노을"
+COMPANY_NAME = "별채"
+COMPANY_NAME_EN = "Byeolchae"
+FOUNDER_NAME = "라군"
+FOUNDER_NAME_EN = "Lagoon"
+
+
+def _subject(name: str) -> str:
+    """이름 뒤에 받침에 맞는 주격 조사를 붙인다 (라군 → 라군이)."""
+    last = ord(name[-1]) - 0xAC00
+    has_final = 0 <= last < 11172 and last % 28 != 0
+    return name + ("이" if has_final else "가")
+
+
+FOUNDER_SUBJECT = _subject(FOUNDER_NAME)
 
 
 def actor_name(org: Org, actor: str) -> str:

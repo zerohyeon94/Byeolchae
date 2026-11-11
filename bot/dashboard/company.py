@@ -1,4 +1,4 @@
-"""밤도란 회사 홈. 소개는 회사 헌장·프로젝트 목록·ADR-012, 현황은 작업 DB와 봇 일정을 따른다."""
+"""회사 홈. 소개는 회사 헌장·프로젝트 목록·ADR-012, 현황은 작업 DB와 봇 일정을 따른다."""
 
 import sqlite3
 from collections.abc import Sequence
@@ -7,7 +7,14 @@ from urllib.parse import urlencode
 
 from bot.dashboard import queries, views
 from bot.dashboard.features import ScheduledJob, cron_label
-from bot.dashboard.identity import COMPANY_NAME, FOUNDER_NAME, actor_name
+from bot.dashboard.identity import (
+    COMPANY_NAME,
+    COMPANY_NAME_EN,
+    FOUNDER_NAME,
+    FOUNDER_NAME_EN,
+    FOUNDER_SUBJECT,
+    actor_name,
+)
 from bot.org import Org
 from bot.scheduler import MORNING_REPORT, WEEKLY_REPORT, parse_cron
 
@@ -69,17 +76,10 @@ FLOW_STEPS: tuple[tuple[str, frozenset[str]], ...] = (
     ("병합", frozenset({"AWAIT_MERGE"})),
     ("문서", frozenset({"DOC_DRAFTING", "AWAIT_DOC_APPROVAL", "REPORTING"})),
 )
-# 대표가 승인·결정해야 다음으로 넘어가는 상태 (업무 요약의 "Zero가 할 일"과 모든 승인 대기)
+# 대표가 승인·결정해야 다음으로 넘어가는 상태 (업무 요약의 대표 할 일과 모든 승인 대기)
 FOUNDER_TURN = tuple(
     state for state in STATE_LABELS if state in queries.WAITING_STATES or state.startswith("AWAIT_")
 )
-
-
-def _subject(name: str) -> str:
-    """이름 뒤에 받침에 맞는 주격 조사를 붙인다 (노을 → 노을이)."""
-    last = ord(name[-1]) - 0xAC00
-    has_final = 0 <= last < 11172 and last % 28 != 0
-    return name + ("이" if has_final else "가")
 
 
 def _hero(org: Org) -> str:
@@ -95,13 +95,14 @@ def _hero(org: Org) -> str:
     departments = len({team.department for team in org.teams.values()})
     return (
         '<section class="home-intro"><div class="sky" aria-hidden="true"></div><div>'
-        f'<p class="eyebrow">{COMPANY_NAME} · 별직원들이 도란도란 모여 일하는 곳</p>'
-        f"<h1>{_subject(FOUNDER_NAME)} 잠든 사이에도<br>별들은 일해요</h1>"
+        f'<p class="eyebrow">{COMPANY_NAME}({COMPANY_NAME_EN}) · '
+        "별직원들이 도란도란 모여 일하는 곳</p>"
+        f"<h1>{FOUNDER_SUBJECT} 잠든 사이에도<br>별들은 일해요</h1>"
         '<p class="mission">앱 하나, 이야기 한 편이 누군가의 밤에 작은 빛이 되기를.</p>'
         '<p class="home-lede">새벽에는 QA팀이 앱을 시험하고, 아침이 오기 전에 교육팀이 '
         "오늘 배울 노트를 펼쳐 둬요. 침착한 폴라리스와 궁금한 게 많은 샤울라는 "
         "같은 문제를 보고도 서로 다른 질문을 하고, 선택이 필요한 날엔 대표가 결정해요.</p>"
-        f'<p class="home-facts">대표 {FOUNDER_NAME} <span>·</span> '
+        f'<p class="home-facts">대표 {FOUNDER_NAME}({FOUNDER_NAME_EN}) <span>·</span> '
         f"{departments}개 부문 <span>·</span> "
         f"{len(org.teams)}개 팀 <span>·</span> 별직원 {len(org.agents)}명</p>"
         '<div class="home-actions"><a class="tour" href="/org/stars">팀원 만나기 →</a>'
@@ -290,7 +291,8 @@ def home(
         '<section class="home-section home-charter"><div><h2>어떻게 일하나요?</h2>'
         "<p>테스트 하나가 실패한 날, 샤울라는 자기 계산으로는 이유를 설명할 수 없다고 했어요. "
         "미자르가 놓친 조건을 짚어 주자 둘은 답을 찾았죠. "
-        "이렇게 서로 다른 의견을 꺼내고, 선택이 필요한 날엔 노을이 그 이유를 듣고 결정해요.</p>"
+        "이렇게 서로 다른 의견을 꺼내고, 선택이 필요한 날엔 "
+        f"{FOUNDER_SUBJECT} 그 이유를 듣고 결정해요.</p>"
         + (
             '<a href="/org/stars/shaula">샤울라의 이야기 읽기 →</a>'
             if "shaula" in org.agents
@@ -300,7 +302,8 @@ def home(
         "<div><h2>2027년 10월에 돌아볼 목표</h2><ul>"
         "<li><b>제품</b> 출시와 업데이트를 이어가고, "
         "테스트 통과율과 장애 대응 시간을 살핍니다.</li>"
-        "<li><b>교육</b> 노을이 계획한 학습을 기간 안에 얼마나 마쳤는지 확인합니다.</li>"
+        f"<li><b>교육</b> {FOUNDER_SUBJECT} 계획한 학습을 기간 안에 "
+        "얼마나 마쳤는지 확인합니다.</li>"
         "<li><b>비서</b> 브리핑을 제때 전했는지, 요청받은 조사를 얼마나 보고했는지 봅니다.</li>"
         "</ul></div></section>"
     )

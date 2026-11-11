@@ -10,7 +10,13 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from bot.dashboard.features import COMMANDS, PAGES, SAFEGUARDS, ScheduledJob, cron_label
-from bot.dashboard.identity import COMPANY_NAME, FOUNDER_NAME, actor_name, staff_description
+from bot.dashboard.identity import (
+    COMPANY_NAME,
+    FOUNDER_NAME,
+    FOUNDER_SUBJECT,
+    actor_name,
+    staff_description,
+)
 from bot.dashboard.queries import (
     AgentActivity,
     AgentWork,
@@ -308,7 +314,7 @@ def overview_section(
         else ""
     )
     cards = (
-        f'<div class="card"><div class="muted">노을이 할 일</div>'
+        f'<div class="card"><div class="muted">{FOUNDER_SUBJECT} 할 일</div>'
         f'<div class="big {"warn" if todo else ""}">{todo}</div></div>'
         f'<div class="card"><div class="muted">실행 중</div>'
         f'<div class="big">{len(data.running)}</div></div>'
@@ -375,7 +381,7 @@ def overview_section(
     )
     return (
         f'<div class="cards">{cards}</div>'
-        f"<h2>노을이 할 일</h2>{waiting}<h2>실행 중</h2>{running}"
+        f"<h2>{FOUNDER_SUBJECT} 할 일</h2>{waiting}<h2>실행 중</h2>{running}"
         f"<h2>오늘 예산</h2>{budget}<h2>제품별 작업판</h2>{board}"
         f"<h2>지표 (7일)</h2>{metrics}"
     )
@@ -1032,12 +1038,12 @@ _COMMON_FLOW = (
     ("PR merge 확인 뒤 문서 반영", "봇", "bot"),
 )
 
-_ARCHITECTURE = """
-<svg viewBox="0 0 960 440" role="img" aria-label="밤도란 업무 구성도">
+_ARCHITECTURE = f"""
+<svg viewBox="0 0 960 440" role="img" aria-label="{COMPANY_NAME} 업무 구성도">
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
  orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="head"/></marker></defs>
 <rect class="box" x="20" y="150" width="130" height="60" rx="8"/>
-<text x="85" y="176" text-anchor="middle">노을</text>
+<text x="85" y="176" text-anchor="middle">{FOUNDER_NAME}</text>
 <text class="sub" x="85" y="194" text-anchor="middle">Discord 앱 · 브라우저</text>
 <rect class="box" x="200" y="40" width="180" height="200" rx="8"/>
 <text x="290" y="68" text-anchor="middle">Discord 서버</text>
@@ -1221,7 +1227,7 @@ def features_page(
     body.append('<ol class="flow">' + "".join(_step(t, w, c) for t, w, c in _COMMON_FLOW) + "</ol>")
     body.append(
         '<p class="muted">에이전트가 실패하거나 한도를 넘으면 NEEDS_HUMAN(확인 필요)으로 멈추고, '
-        "노을이 /resume으로 다시 잇거나 /stop으로 끝낸다.</p>"
+        f"{FOUNDER_SUBJECT} /resume으로 다시 잇거나 /stop으로 끝낸다.</p>"
     )
     for pipeline in pipelines.values():
         body.append(

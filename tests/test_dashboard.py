@@ -167,15 +167,15 @@ def test_summary_counts_across_projects(settings):
 def test_company_home_links_open_work_and_latest_event_per_task(settings):
     settings = replace(settings, now=lambda: T0)
     status, body = get(settings, "/")
-    assert status == HTTPStatus.OK and "밤도란 · 별직원들이" in body
-    assert "대표 노을" in body
+    assert status == HTTPStatus.OK and "별채(Byeolchae) · 별직원들이" in body
+    assert "대표 라군(Lagoon)" in body
     # 오늘 숫자 띠: T0에 시작한 실행 3회, 열린 작업 1건(의견 수렴은 대표 차례)
     assert "<small>오늘 실행</small><b>3회</b>" in body
     assert "<small>진행 중인 작업</small><b>1건</b>" in body
-    assert "<small>노을 대표 차례</small><b>1건</b>" in body
+    assert "<small>라군 대표 차례</small><b>1건</b>" in body
     # 작업 흐름 띠: 의견 단계가 지금 단계
     assert '<li class="now"><i></i><span>의견</span></li>' in body
-    assert "노을 대표 차례</span>" in body
+    assert "라군 대표 차례</span>" in body
     work, history = body.split("<h3>최근 작업 기록</h3>")
     assert 'href="/tasks/1"' in work and 'href="/tasks/2"' not in work
     assert "여행 &lt;소비&gt;" in work
@@ -279,7 +279,7 @@ def test_phase2_events_are_rendered(settings):
     asyncio.run(add())
     _, body = get(settings, "/tasks/1")
     assert "테스트 통과 — 431개" in body
-    assert "밤도란 봇 · 테스트" in body and "노을 · 메시지" in body
+    assert "별채 봇 · 테스트" in body and "라군 · 메시지" in body
     assert "PR #43 merge 감지" in body
 
 
@@ -324,7 +324,7 @@ def test_work_summary_puts_zero_todo_first(settings):
     status, body = get(later, "/summary")
     assert status is HTTPStatus.OK
     # 승인 대기(OPINIONS) 1건이 맨 위 표에, 대기 시간과 함께
-    todo = body.index("<h2>노을이 할 일</h2>")
+    todo = body.index("<h2>라군이 할 일</h2>")
     assert todo < body.index("<h2>누적</h2>")
     assert "#1 여행 &lt;소비&gt;" in body[todo:] and "5시간" in body
     # 오늘 예산: 한도에 닿은 에이전트는 표시한다
@@ -338,7 +338,7 @@ def test_overview_works_on_old_schema_without_new_tables(settings):
     raw.executescript("DROP TABLE hiring_proposals; DROP TABLE bot_state;")
     raw.close()
     status, body = get(settings, "/summary")
-    assert status is HTTPStatus.OK and "노을이 할 일" in body
+    assert status is HTTPStatus.OK and "라군이 할 일" in body
 
 
 def test_team_page_shows_status_jobs_and_persona(settings):
@@ -486,6 +486,8 @@ def test_features_page_shows_config_schedules_and_flows(settings, tmp_path):
     assert "아직 실행 기록 없음" in body  # 아침 보고 말고는 기록이 없다
     assert "화면 변경이 있을 때만" in body  # 화면 디자인 단계의 조건
     assert "확인: Alpha · 개발팀장" in body  # 구현 팀장 확인
+    assert 'aria-label="별채 업무 구성도"' in body
+    assert ">라군</text>" in body
     assert "<svg" in body and 'href="/features" class="on"' in body
 
 
@@ -537,7 +539,7 @@ def test_staff_directory_cards_carry_department_and_filters(settings):
 
 def test_org_chart_is_one_tree_from_founder_to_teams(settings):
     _, body = get(settings, "/org")
-    assert '<div class="ot-node chief"><b>노을</b>' in body
+    assert '<div class="ot-node chief"><b>라군</b>' in body
     departments = {team.department for team in DEFAULT_ORG.teams.values()}
     assert body.count('class="ot-dept"') == len(departments)
     assert body.count('class="ot-team-link"') == len(DEFAULT_ORG.teams)
