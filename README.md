@@ -24,3 +24,7 @@ Phase 1 (MVP) 진행 중. 봇 코드는 골격, 에이전트 출력 스키마, �
 - [문서 인덱스](docs/README.md) — 개발 일지, ADR, 트러블슈팅 등
 - [AGENTS.md](AGENTS.md) — 이 저장소에서 작업하는 에이전트용 개발 규칙
 - [SPEC](docs/SPEC.md) — 봇 설계 (상태 머신, 명령어, 모듈, 데이터 모델, 로드맵)
+
+## 별채 웹 대시보드
+
+웹 화면·자산·테스트는 별도 프로젝트 `Byeolchae-Web`에 있다. 해당 폴더의 `README.md`에 설치 방법이 있으며, `.venv/bin/python -m byeolchae_web`으로 실행한다. 회사 봇은 이 저장소에서 기존 명령인 `python -m bot`으로 실행한다.
