@@ -10,8 +10,11 @@
 
 비서는 그 사실로 한 줄 요약만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
 요약을 받지 못해도 사실만으로 Daily를 쓴다.
-아침에는 교육 노트가 나온 뒤 아침판 Daily(오늘 학습과 노트 링크)를 먼저 쓴다.
-에이전트는 부르지 않는다. 저녁에는 아침판(또는 Obsidian이 만든 빈 파일)을 하루 정리로
+아침에는 교육 노트가 나온 뒤 아침판 Daily(오늘 학습 `· 0/m`,
+어제까지의 이번 주)를 먼저 쓴다. 에이전트는 부르지 않는다.
+낮에는 교육 버튼을 누를 때마다 가장 최근 아침판 Daily의
+오늘 학습과 이번 주 줄만 DB 기준으로 다시 쓴다 (refresh_daily, 커밋하지 않는다).
+저녁에는 아침판(또는 Obsidian이 만든 빈 파일)을 하루 정리로
 다시 쓴다. 저녁판이 이미 있으면 다시 쓰지 않는다.
 저녁 Daily를 커밋한 뒤 볼트를 GitHub에 한 번 올린다.
 """
@@ -33,6 +36,7 @@ from bot.education.daily import (
     optional_for,
     parse_month,
     parse_queue,
+    weekly_goal,
 )
 from bot.education.weekly import week_facts, week_start
 from bot.org import Org
@@ -49,11 +53,15 @@ from bot.secretary.daily import (
     WeekLine,
     curriculum_id,
     daily_path,
+    day_score,
     is_morning,
     render_daily,
     render_discord,
     render_facts,
     render_morning,
+    study_lines,
+    update_daily,
+    week_lines,
 )
 from bot.secretary.tokens import (
     EngineUsage,
@@ -68,7 +76,7 @@ from bot.secretary.tokens import (
     weekly_limit,
 )
 from bot.store import EventKind
-from bot.workflow.education import daily_quiz_score
+from bot.workflow.education import daily_quiz_score, studied_since
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +133,7 @@ class SecretaryDesk:
             decisions=[],
             tokens=[],
             month=self._month(day),
+            week=await self._week(day, day - timedelta(days=1)),  # 어제까지
         )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_morning(facts), encoding="utf-8")
@@ -180,25 +189,59 @@ class SecretaryDesk:
             decisions=await pending_decisions(self._repo, self._org, end, lambda _: None),
             tokens=await self._tokens(start, end),
             month=self._month(day),
-            week=await self._week(day),
+            week=await self._week(day, day),
         )
 
-    async def _week(self, day: date) -> WeekLine:
-        """이번 주 누적. 학습 셈은 교육 주간 보고(week_facts, daily_quiz_score)와 같다."""
+    async def refresh_daily(self) -> bool:
+        """낮 갱신: 가장 최근 아침판 Daily의 오늘 학습과 이번 주 줄을 DB 기준으로 다시 쓴다.
+
+        교육 버튼("다 읽었다", 문제 A~D, "선택 했음")을 누른 뒤 부른다. 저녁판 뒤에 눌렀으면
+        저녁판의 말투로 그 줄만 고친다. 커밋하지 않는다 (다음 저녁판·아침판 커밋에 담긴다).
+        파일이나 줄이 없으면 아무것도 하지 않는다. 바꿨으면 True.
+        """
+        rows = await self._repo.study_days()
+        if not rows:
+            return False
+        day = date.fromisoformat(rows[-1]["day"])
+        path = self._root / daily_path(day)
+        try:
+            evening = not is_morning(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return False
+        study = study_lines(await self._study(day), evening=evening)
+        # 토큰 줄은 저녁에만 채우므로 건드리지 않는다
+        week = week_lines(await self._week(day, day), [])
+        changed = update_daily(path, "오늘 학습", study)
+        return update_daily(path, "이번 주", week) or changed
+
+    async def _week(self, day: date, through: date) -> WeekLine:
+        """day가 속한 주의 월요일~through 누적. 셈은 교육 주간 보고와 같다.
+
+        아침판은 through가 어제다 (월요일 아침은 모두 0).
+        """
         monday = week_start(day)
-        rows = await self._repo.study_days(monday.isoformat(), day.isoformat())
-        counted = week_facts(day, rows, [])
-        quiz = await daily_quiz_score(self._repo, monday, day)
+        rows = await self._repo.study_days(monday.isoformat(), through.isoformat())
+        counted = week_facts(through, rows, [], studied=await studied_since(self._repo, monday))
+        quiz = await daily_quiz_score(self._repo, monday, through) if rows else None
         optional = [row for row in rows if row.get("optional")]
         return WeekLine(
             start=monday,
-            end=day,
+            end=through,
             study_days=counted.study_days,
             done=counted.done,
             quiz=None if quiz is None else Score(quiz.total, quiz.answered, quiz.correct),
             optional_days=len(optional),
             optional_done=sum(1 for row in optional if row.get("optional_done_at")),
+            goal=self._goal(day),
         )
+
+    def _goal(self, day: date) -> int | None:
+        """월별 목표 그달 절의 `**주간 목표:** 학습한 날 N일`. 못 읽으면 None."""
+        try:
+            goals = goals_file(self._root).read_text(encoding="utf-8")
+        except (DailyError, OSError):
+            return None
+        return weekly_goal(goals, f"{day:%Y-%m}")
 
     def _month(self, day: date) -> MonthLine | None:
         """머리말. 볼트의 월별 목표나 대기열을 못 읽으면 None (머리말을 빼고 쓴다)."""
@@ -241,31 +284,35 @@ class SecretaryDesk:
             return ""
 
     async def _study(self, day: date) -> StudyFact | None:
-        rows = await self._repo.study_days(day.isoformat(), day.isoformat())
-        if not rows:
+        """그 학습일(그날 아침부터 다음 아침 전까지)의 학습 기록."""
+        rows = (await self._repo.study_days(day.isoformat()))[:2]
+        if not rows or rows[0]["day"] != day.isoformat():
             return None
         row = rows[0]
+        start = row["created_at"]
+        end = rows[1]["created_at"] if len(rows) > 1 else None
+        done_at = row["done_at"]
         return StudyFact(
             target=row["target"],
             label=row["label"],
             carried=bool(row["carried"]),
-            done=row["done_at"] is not None,
-            note=await self._score(NOTE_KEY + row["target"]),
-            review=await self._score(REVIEW_KEY + day.isoformat()),
+            done=done_at is not None and (end is None or done_at < end),
+            note=await self._score(NOTE_KEY + row["target"], start, end),
+            review=await self._score(REVIEW_KEY + day.isoformat(), start, end),
             concept_id=curriculum_id(self._vault_text(CURRICULUM_FILE), row["label"]),
             # 아침에 정해 둔 선택 항목. v10 전 기록은 아침 규칙으로 다시 정하고 했는지는 모른다
             optional=row["optional"] or self._optional(day, row["target"]),
             optional_done=(row["optional_done_at"] is not None) if row["optional"] else None,
         )
 
-    async def _score(self, key: str) -> Score | None:
+    async def _score(self, key: str, start: str, end: str | None) -> Score | None:
+        """학습일 [start, end)의 점수. 이어 하는 날은 남은 문제만 센다 (day_score)."""
         quiz_id = await self._repo.quiz_by_key(key)
         if quiz_id is None:
             return None
         stored = await self._repo.get_quiz(quiz_id)
         total = len(json.loads(stored[1])) if stored is not None else 0
-        answered, correct = await self._repo.quiz_score(quiz_id)
-        return Score(total, answered, correct)
+        return day_score(total, await self._repo.quiz_answers(quiz_id), start, end)
 
     async def _tokens(self, start: datetime, end: datetime) -> list[EngineUsage]:
         day = start.date()

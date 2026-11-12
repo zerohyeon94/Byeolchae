@@ -17,6 +17,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from bot import BOT_NAME
 from bot.agents.base import CODEX_WRITE_STAGES, Stage
 
 EngineName = Literal["claude", "codex"]
@@ -176,7 +177,7 @@ class Org(_Model):
             return f"{spec.display} · {self.teams[spec.team].name}{spec.title}"
         if agent in LEGACY_AGENTS:
             return LEGACY_AGENTS[agent][0]
-        return {"zero": "Zero", "bot": "ZeroSync"}.get(agent, agent)
+        return {"zero": "Zero", "bot": BOT_NAME}.get(agent, agent)
 
     def engine(self, agent: str) -> EngineName:
         agent = self.current(agent)

@@ -1,4 +1,4 @@
-너는 ZeroSync의 $persona다.
+너는 별채의 $persona다.
 관점: $perspective
 $profile
 $project 프로젝트 담당자로서 $lead에게 보고한다.

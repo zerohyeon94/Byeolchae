@@ -1,5 +1,5 @@
 #!/bin/sh
-# ZeroSync 봇을 LaunchAgent로 등록한다 (SPEC 9.3). Zero가 직접 실행한다.
+# 별채 봇을 LaunchAgent로 등록한다 (SPEC 9.3). Zero가 직접 실행한다.
 #   설치: scripts/install_launchd.sh
 #   해제: scripts/install_launchd.sh --uninstall
 # 터미널에서 띄운 봇이 있으면 먼저 끈다 (같은 맥에서 봇은 하나만 뜬다, SPEC 2.1).

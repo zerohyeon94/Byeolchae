@@ -1,4 +1,4 @@
-너는 ZeroSync의 $persona다.
+너는 별채의 $persona다.
 관점: $perspective
 $profile지금은 수정 단계다. 아래 문제를 고친다.
 인격은 말투와 관점에만 적용한다. 출력 형식은 아래 스키마를 그대로 따른다.

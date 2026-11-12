@@ -24,6 +24,7 @@ from bot.education.daily import (
     pick_review,
     plan_daily,
     update_queue,
+    weekly_goal,
 )
 from bot.education.image import (
     PNG_SIGNATURE,
@@ -37,7 +38,7 @@ from bot.education.image import (
 )
 from bot.education.note import check_note
 from bot.education.quiz import answer_text, check_questions, render_question
-from bot.education.weekly import QuizScore, render_weekly, week_facts, week_key
+from bot.education.weekly import QuizScore, render_weekly, studied_days, week_facts, week_key
 from bot.schemas import ConceptFigure, ConceptImage, ConceptNote, QuizQuestion, WeeklyReview
 from bot.workflow.education import EducationDesk
 
@@ -715,8 +716,10 @@ def test_week_facts_counts_this_week_only():
         d(5, "gRPC", False),
     ]
     queue = parse_queue(QUEUE.replace("- [ ] 엣지-중앙", "- [x] 엣지-중앙"))
-    facts = week_facts(date(2026, 11, 8), studies, queue)
-    assert facts.start == date(2026, 11, 2) and facts.study_days == 4
+    # 학습한 날은 studied_days가 정한다 (11-05는 개념만 내고 아무것도 안 했다)
+    studied = {"2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"}
+    facts = week_facts(date(2026, 11, 8), studies, queue, studied=studied)
+    assert facts.start == date(2026, 11, 2) and facts.study_days == 3
     assert [(c.label, c.done) for c in facts.concepts] == [
         ("엣지", True),
         ("소리", True),
@@ -726,11 +729,42 @@ def test_week_facts_counts_this_week_only():
     assert week_key(date(2026, 11, 8)) == "2026-W45"
 
 
+def test_studied_days_counts_done_or_answer_until_next_morning():
+    def row(day, created, done=None):
+        return {"day": day, "created_at": created, "done_at": done}
+
+    rows = [
+        row("2026-11-09", "2026-11-08T22:30:00+00:00"),  # 월 07:30 KST
+        row("2026-11-10", "2026-11-09T22:30:00+00:00", "2026-11-10T22:00:00+00:00"),
+        row("2026-11-11", "2026-11-10T22:30:00+00:00"),
+        row("2026-11-12", "2026-11-11T22:30:00+00:00"),
+    ]
+    answered = [
+        "2026-11-09T15:10:00+00:00",  # 화 00:10 KST, 아침 전 → 월요일
+        "2026-11-08T12:00:00+00:00",  # 첫 아침 전 → 세지 않는다
+        "2026-11-11T23:00:00+00:00",  # 목
+    ]
+    # 화요일 개념 완료 버튼은 수 07:00 KST(아침 전) → 화요일. 수요일은 아무것도 안 했다
+    assert studied_days(rows, answered) == {"2026-11-09", "2026-11-10", "2026-11-12"}
+    assert studied_days([], answered) == set()
+
+
+def test_weekly_goal_reads_this_months_section_only():
+    goals = (
+        "## 운영 방법\n**주간 목표:** 학습한 날 9일\n"
+        "## 2026-11 · 시스템 전체 한 바퀴\n\n**주간 목표:** 학습한 날 4일\n\n- [ ] 기준\n"
+        "## 2026-12 · 다음 달\n- [ ] 기준\n"
+    )
+    assert weekly_goal(goals, "2026-11") == 4
+    assert weekly_goal(goals, "2026-12") is None
+
+
 def test_render_weekly_lists_facts_score_and_comment():
     facts = week_facts(
         date(2026, 11, 8),
         [_study(2, "엣지", True)],
         parse_queue(QUEUE),
+        studied={"2026-11-02"},
     )
     text = render_weekly(facts, QuizScore(6, 5, 4), ["다음 주에 이어 간다"], "Eta · 교육팀장")
     assert text.splitlines()[:4] == [

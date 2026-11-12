@@ -25,6 +25,7 @@ _CHECK = re.compile(r"^- \[([ xX])\] (.*)$")
 _LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 _QUEUE_LINK = re.compile(r"\s*→\s*\[\[[^\]]+\]\]\s*$")
 _GOAL_ROW = re.compile(r"^\|\s*(\d{4}-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|")
+_WEEKLY_GOAL = re.compile(r"^\*\*주간 목표:\*\*\s*학습한 날\s*(\d+)\s*일")
 _UNSAFE = re.compile(r'[\\/:*?"<>|#^\[\]]')
 
 
@@ -198,6 +199,15 @@ def month_criteria(goals: str, key: str) -> list[tuple[str, bool]]:
         if match:
             found.append((match.group(2).strip(), match.group(1) != " "))
     return found
+
+
+def weekly_goal(goals: str, key: str) -> int | None:
+    """`## YYYY-MM` 절의 `**주간 목표:** 학습한 날 N일`의 N. 줄이 없으면 None."""
+    for line in _section(goals, f"## {key}", prefix=True) or []:
+        match = _WEEKLY_GOAL.match(line.strip())
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def _section(text: str, heading: str, *, prefix: bool = False) -> list[str] | None:

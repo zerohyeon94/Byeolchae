@@ -207,7 +207,7 @@ class ZeroSyncBot(discord.Client):
             self.startup_error = error
             try:
                 await self.chat.notify_ops(
-                    f"ZeroSync 봇 시작 실패: {error}", mention=should_mention(Moment.BOT_ERROR)
+                    f"별채 봇 시작 실패: {error}", mention=should_mention(Moment.BOT_ERROR)
                 )
             except Exception:
                 log.exception("운영 채널 알림 실패")
@@ -222,7 +222,7 @@ class ZeroSyncBot(discord.Client):
             asyncio.create_task(self._project_report_loop()),
         ]
         await self.chat.notify_ops(
-            f"ZeroSync 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
+            f"별채 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
             f"조직: {', '.join(self.config.org.display(a) for a in self.config.org.agent_names)}",
             mention=should_mention(Moment.NOTICE),
         )
@@ -419,6 +419,7 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.mark_done(day)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
 
     async def mark_optional_done(self, interaction: discord.Interaction, day: str) -> None:
         """선택 했음 버튼. Zero만 누를 수 있고, 결과는 Zero에게만 보인다."""
@@ -430,6 +431,7 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.mark_optional(day)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
 
     async def answer_quiz(
         self, interaction: discord.Interaction, quiz_id: int, number: int, choice: str
@@ -443,6 +445,16 @@ class ZeroSyncBot(discord.Client):
             return
         text = await self.education.answer(quiz_id, number, choice)
         await interaction.response.send_message(text, ephemeral=True)
+        await self.refresh_daily()
+
+    async def refresh_daily(self) -> None:
+        """버튼 뒤 낮 갱신. 실패해도 DB 기록은 남고 저녁판이 다시 쓰므로 로그만 남긴다."""
+        if self.secretary is None:
+            return
+        try:
+            await self.secretary.refresh_daily()
+        except Exception:
+            log.exception("Daily 낮 갱신 실패")
 
     async def run_daily(self, interaction: discord.Interaction) -> None:
         """오늘 개념 노트와 문제를 지금 낸다 (/daily). 이미 냈으면 다시 내지 않는다."""
@@ -504,19 +516,7 @@ class ZeroSyncBot(discord.Client):
                     f"{project}의 forum_channel_id가 포럼 채널이 아니다 "
                     f"(#{name}, 종류 {getattr(channel, 'type', '?')})"
                 )
-            hooks = await channel.webhooks()
-            hook = next(
-                (
-                    h
-                    for h in hooks
-                    if h.name == WEBHOOK_NAME and h.user is not None and h.user.id == self.user.id
-                ),
-                None,
-            )
-            if hook is None:
-                hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="ZeroSync 게시용")
-                log.info("웹훅 생성: %s", project)
-            self._webhooks[forum_id] = hook
+            self._webhooks[forum_id] = await self._own_webhook(channel, project)
         for chat_id, project in self.chats.items():
             try:
                 channel = self.get_channel(chat_id) or await self.fetch_channel(chat_id)
@@ -535,12 +535,14 @@ class ZeroSyncBot(discord.Client):
             (
                 h
                 for h in hooks
-                if h.name == WEBHOOK_NAME and h.user is not None and h.user.id == self.user.id
+                if h.name in (WEBHOOK_NAME, "ZeroSync")
+                and h.user is not None
+                and h.user.id == self.user.id
             ),
             None,
         )
         if hook is None:
-            hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="ZeroSync 게시용")
+            hook = await channel.create_webhook(name=WEBHOOK_NAME, reason="별채 게시용")
             log.info("웹훅 생성: %s #%s", project, getattr(channel, "name", "?"))
         return hook
 

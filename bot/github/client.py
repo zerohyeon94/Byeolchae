@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 # 운영 규약 4.8
 LABELS = {
-    "zerosync": ("5865F2", "ZeroSync 봇이 만든 Issue·PR"),
+    "zerosync": ("5865F2", "별채 봇이 만든 Issue·PR"),
     "type:feature": ("1D76DB", "기능 추가·변경"),
     "type:fix": ("D73A4A", "버그 수정"),
     "type:refactor": ("A2EEEF", "내부 개선"),

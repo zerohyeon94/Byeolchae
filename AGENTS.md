@@ -12,7 +12,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 
 ## 프로젝트 개요
 
-ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Zero 한 사람을 위한 회사다. 회사는 교육·비서·제품 세 부서이고, 지금은 제품 부서(가게씨, 제이데이, 오롯)를 만든다. Zero가 대표 겸 제품 부서장이고 팀장(기획팀 Beta, 디자인팀 Gamma, 개발팀 Alpha, QA팀 Delta)이 기획·디자인·설계·구현·검증을 맡으며, 봇이 파이프라인 단계를 규칙대로 진행한다. 전환 배경은 [ADR-005](docs/아키텍처%20결정/ADR-005-Discord-오케스트레이터-전환.md), 회사 구조는 [ADR-006](docs/아키텍처%20결정/ADR-006-회사형-구조.md)과 [ADR-007](docs/아키텍처%20결정/ADR-007-회사-재정의.md), 회사 재정의 문서는 [docs/회사/](docs/회사/README.md)에 있다.
+별채(Byeolchae)는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Zero 한 사람을 위한 회사다. 회사는 교육·비서·제품 세 부서이고, 지금은 제품 부서(가게씨, 제이데이, 오롯)를 만든다. Zero가 대표 겸 제품 부서장이고 팀장(기획팀 Beta, 디자인팀 Gamma, 개발팀 Alpha, QA팀 Delta)이 기획·디자인·설계·구현·검증을 맡으며, 봇이 파이프라인 단계를 규칙대로 진행한다. 전환 배경은 [ADR-005](docs/아키텍처%20결정/ADR-005-Discord-오케스트레이터-전환.md), 회사 구조는 [ADR-006](docs/아키텍처%20결정/ADR-006-회사형-구조.md)과 [ADR-007](docs/아키텍처%20결정/ADR-007-회사-재정의.md), 회사 재정의 문서는 [docs/회사/](docs/회사/README.md)에 있다.
 
 - 봇 안의 에이전트(15팀 41명, 별 이름. 예: 아르크투루스 기획팀장, 리겔 개발팀장, ADR-012)와 이 저장소를 개발하는 코딩 에이전트(Claude Code, Codex)는 별개다. 봇 에이전트의 이름·엔진은 회사 설정(`org.yaml`)이 정하고, 코딩 에이전트의 규칙은 이 문서와 `CLAUDE.md`가 정한다
 
@@ -41,7 +41,7 @@ ZeroSync는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Z
 | `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule)와 `#대표실`·`#비서` 보고 만들기 | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
 | `bot/locks.py` | 단일 인스턴스 락 (`flock`) | 구현 (빌드 락은 Phase 2) |
-| `bot/dashboard/` | 로컬 웹 대시보드. `python -m bot.dashboard` → http://127.0.0.1:8765. DB 읽기 전용. 교육 커리큘럼 화면(`/education`)은 학습 볼트의 월별 목표·대기열도 읽기만 한다. 회사 홈(`/`)·팀원 소개(`/org/stars`)·조직도(`/org`)는 회사 소개 화면이다. 기능 화면(`/features`)은 설정과 일정 기록으로 기능 목록·구성도·흐름도를 보여 준다 | 구현 |
+| `../Byeolchae-Web/` | 별도 로컬 웹 프로젝트. 그 폴더에서 `.venv/bin/python -m byeolchae_web`으로 실행하며, 봇의 설정과 작업 기록을 읽어 회사 홈·팀원·조직도·업무 화면을 제공한다 | 분리 |
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
 | `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모) | 사용 중 |

@@ -7,7 +7,7 @@ from bot.__main__ import main
 
 def test_version_flag_prints_version(capsys):
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == f"zerosync {bot.__version__}"
+    assert capsys.readouterr().out.strip() == f"byeolchae {bot.__version__}"
 
 
 def test_unknown_args_fail_with_usage(capsys):

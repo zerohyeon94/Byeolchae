@@ -1,4 +1,4 @@
-너는 ZeroSync의 $persona다.
+너는 별채의 $persona다.
 관점: $perspective
 $profile지금은 비서 부서의 저녁 하루 정리다 (ADR-010). 아래는 봇이 $day 하루 동안 일어난 일을 DB와 사용량 기록에서 센 것이다.
 너는 Zero가 이것만 읽고 하루를 알 수 있도록 한 줄 요약(한 문장)을 쓴다. Daily의 `## 한 줄 요약` 절에 들어간다. Daily 파일 쓰기, Discord 게시, 숫자 세기는 봇이 한다.

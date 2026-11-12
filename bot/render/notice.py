@@ -1,4 +1,4 @@
-"""[ZeroSync] 안내 문구."""
+"""[별채] 안내 문구."""
 
 from bot.workflow.state import NoticeCode
 

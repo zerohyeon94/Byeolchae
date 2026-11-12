@@ -6,6 +6,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import discord
 import pytest
@@ -36,6 +37,18 @@ CHAT = 600
 
 def run(coro):
     return asyncio.run(coro)
+
+
+@pytest.mark.parametrize("old_name", ["ZeroSync", "별채"])
+def test_reuses_owned_webhook_after_rename(old_name):
+    owner = SimpleNamespace(id=42)
+    other = SimpleNamespace(user=SimpleNamespace(id=7), name="별채")
+    own = SimpleNamespace(user=owner, name=old_name)
+    channel = SimpleNamespace(
+        webhooks=AsyncMock(return_value=[other, own]), create_webhook=AsyncMock()
+    )
+    assert run(ZeroSyncBot._own_webhook(SimpleNamespace(user=owner), channel, "test")) is own
+    channel.create_webhook.assert_not_awaited()
 
 
 # 규칙
@@ -105,7 +118,7 @@ def test_author_names_follow_operating_rules():
         "[Gamma · 디자인팀장]",
         "[Alpha · 개발팀장]",
         "[Delta · QA팀장]",
-        "[ZeroSync]",
+        "[별채]",
     ]
     # ADR-005 기준 기록의 행위자
     assert author_name(DEFAULT_ORG, "codex") == "[Alpha · Codex]"

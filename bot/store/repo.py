@@ -862,6 +862,14 @@ class Repository:
         assert row is not None
         return str(row["choice"])
 
+    async def quiz_answers(self, quiz_id: int) -> list[tuple[str, bool]]:
+        """(답한 시각, 맞혔는가), 시각 순. 학습일별로 셀 때 쓴다."""
+        rows = await self._fetchall(
+            "SELECT answered_at, correct FROM quiz_answers WHERE quiz_id = ? ORDER BY answered_at",
+            (quiz_id,),
+        )
+        return [(str(r["answered_at"]), bool(r["correct"])) for r in rows]
+
     async def quiz_score(self, quiz_id: int) -> tuple[int, int]:
         """(답한 문제 수, 맞힌 문제 수)."""
         row = await self._fetchone(

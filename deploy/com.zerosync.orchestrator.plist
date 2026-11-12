@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  ZeroSync 봇 상시 실행 (SPEC 2.1, 9.3).
+  별채 봇 상시 실행 (SPEC 2.1, 9.3).
   LaunchAgent(로그인 사용자)로 실행한다. CLI 구독 로그인이 사용자 계정에 있기 때문이다.
   __REPO__, __HOME__은 scripts/install_launchd.sh가 채운다. 직접 쓰면 절대 경로로 바꾼다.
 -->

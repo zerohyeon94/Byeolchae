@@ -4,8 +4,9 @@
 주간 문제는 교육팀장이 쓰고, 숫자와 목록은 여기서 만든다.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from bot.education.daily import QueueItem
@@ -22,7 +23,7 @@ class WeekConcept:
 class WeekFacts:
     start: date  # 이번 주 월요일
     end: date  # 보고하는 날
-    study_days: int  # 학습한 날 수 (아침에 개념을 낸 날)
+    study_days: int  # 학습한 날 수 (studied_days)
     concepts: list[WeekConcept]  # 이번 주에 다룬 개념, 처음 나온 순서
     month: str
     month_done: int  # 이번 달 대기열에서 끝낸 항목
@@ -49,15 +50,38 @@ def week_start(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
-def week_facts(day: date, studies: list[dict[str, Any]], queue: list[QueueItem]) -> WeekFacts:
-    """studies는 study_days 행(day, target, label, done_at). 이번 주 월요일~day만 센다."""
+def studied_days(studies: list[dict[str, Any]], answered: Iterable[str]) -> set[str]:
+    """학습한 날: 그 학습일에 "다 읽었다"를 눌렀거나 문제(복습 포함)를 1개 이상 푼 날.
+
+    학습일은 그날 아침(study_days 행이 생긴 때)부터 다음 아침 전까지다. 그래서 자정이 지나
+    다음 아침 전에 누른 것은 전날로 센다. studies는 study_days 행(day, created_at, done_at),
+    answered는 문제 답의 시각이다. 교육 주간 보고와 비서 Daily가 같은 함수를 쓴다.
+    """
+    starts = sorted((datetime.fromisoformat(r["created_at"]), r["day"]) for r in studies)
+    events = [r["done_at"] for r in studies if r["done_at"]] + list(answered)
+    found = set()
+    for event in events:
+        at = datetime.fromisoformat(event)
+        days = [day for start, day in starts if start <= at]
+        if days:
+            found.add(days[-1])
+    return found
+
+
+def week_facts(
+    day: date, studies: list[dict[str, Any]], queue: list[QueueItem], *, studied: set[str]
+) -> WeekFacts:
+    """studies는 study_days 행(day, target, label, done_at). 이번 주 월요일~day만 센다.
+
+    studied는 studied_days의 결과다 (학습한 날).
+    """
     start = week_start(day)
     concepts: dict[str, WeekConcept] = {}
     days = 0
     for row in sorted(studies, key=lambda r: r["day"]):
         if not start <= date.fromisoformat(row["day"]) <= day:
             continue
-        days += 1
+        days += row["day"] in studied
         seen = concepts.get(row["target"])
         done = row["done_at"] is not None or (seen is not None and seen.done)
         concepts[row["target"]] = WeekConcept(row["target"], row["label"], done)

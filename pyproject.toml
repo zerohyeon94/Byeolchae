@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "zerosync-bot"
 version = "0.0.0"
-description = "Discord 기반 멀티 에이전트 오케스트레이터 (ZeroSync v2)"
+description = "Discord 기반 멀티 에이전트 오케스트레이터 (별채 v2)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,6 +22,7 @@ dev = [
 ]
 
 [project.scripts]
+byeolchae = "bot.__main__:main"
 zerosync = "bot.__main__:main"
 
 [tool.setuptools.packages.find]
@@ -32,7 +33,6 @@ include = ["bot*"]
 "bot.prompts" = ["*.md"]
 # 그림 이름표 글자 인식 (ADR-009)
 "bot.education" = ["*.swift"]
-"bot.dashboard" = ["assets/*.css", "assets/portraits/*.webp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

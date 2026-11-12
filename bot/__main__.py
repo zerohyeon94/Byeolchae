@@ -1,4 +1,4 @@
-"""`python -m bot` 또는 `zerosync` 명령의 진입점.
+"""`python -m bot` 또는 `byeolchae` 명령의 진입점.
 
 설정을 읽고 단일 인스턴스 락을 잡은 뒤 Discord 봇을 실행한다 (SPEC 2.1, 9.3).
 """
@@ -26,10 +26,10 @@ def main(
 ) -> int:
     args = sys.argv[1:] if argv is None else argv
     if args in (["--version"], ["-V"]):
-        print(f"zerosync {__version__}")
+        print(f"byeolchae {__version__}")
         return 0
     if args:
-        print("사용법: zerosync [--version]", file=sys.stderr)
+        print("사용법: byeolchae [--version]", file=sys.stderr)
         return 2
 
     try:
