@@ -16,6 +16,7 @@ LETTERS: tuple[Letter, ...] = ("A", "B", "C", "D")
 NOTE_QUESTIONS = 3  # 개념 노트마다 (개념, 흐름, 실패·오류)
 QUIZ_MIN, QUIZ_MAX = 5, 8  # 주간 문제
 LABELS_MAX, LABEL_MAX = 10, 10  # 그림 이름표 개수, 이름표 글자 수
+FIGURES_MIN, FIGURES_MAX = 2, 4  # 노트당 그림 (2026-11-12 Zero 결정: 그림이 기본)
 
 
 class QuizQuestion(BaseModel):
@@ -33,10 +34,15 @@ class QuizQuestion(BaseModel):
 
 
 class ConceptFigure(BaseModel):
-    """그림으로 보면 나은 날에만 내는 그림 설명. 그림은 교육팀원(Codex)이 그린다."""
+    """노트의 한 절에 붙는 그림 설명. 그림은 교육팀원(Codex)이 그린다."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    # 그림을 붙일 절 제목 줄. 본문의 `### …` 또는 `## …` 줄 그대로.
+    # 그림은 이 제목 바로 아래, 설명 위에 들어간다
+    section: Annotated[
+        str, StringConstraints(strip_whitespace=True, max_length=120, pattern=r"^#{2,3} [^\n]+$")
+    ]
     # 그릴 구성 요소(실제 장비 모양)와 화살표. 이름표마다 어느 요소·화살표에 붙는지 적는다
     brief: Annotated[str, StringConstraints(strip_whitespace=True, min_length=20, max_length=1200)]
     # 그림 안에 글자 그대로 넣는 한글 이름표. 노트 본문의 용어와 같은 말을 쓴다
@@ -66,8 +72,8 @@ class ConceptNote(BaseModel):
     unverified: list[Annotated[str, StringConstraints(max_length=200)]] = Field(
         default_factory=list, max_length=5
     )
-    # 흐름이나 구조를 그림으로 보면 나은 날에만. 없으면 그림 없이 낸다
-    figure: ConceptFigure | None = None
+    # 흐름의 작은 절마다 한 장, 어디서 깨지나에 한 장. 그리지 못한 그림은 빼고 낸다
+    figures: list[ConceptFigure] = Field(min_length=FIGURES_MIN, max_length=FIGURES_MAX)
 
 
 class ConceptImage(BaseModel):

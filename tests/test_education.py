@@ -29,7 +29,7 @@ from bot.education.daily import (
 from bot.education.image import (
     PNG_SIGNATURE,
     asset_path,
-    check_figure,
+    check_figures,
     check_image,
     insert_figure,
     missing_labels,
@@ -342,7 +342,30 @@ def make_vault(tmp_path):
     return tmp_path
 
 
-NOTE = ConceptNote(body=BODY, questions=THREE, sources=["https://grpc.io/docs/"])
+FIGURE = ConceptFigure(
+    section="## 흐름",
+    brief=(
+        "위에 서버 랙 하나('중앙 서버'), 아래에 산업용 컴퓨터 셋('엣지 장비'). "
+        "서버에서 장비로 점선 화살표('설정 배포')가 내려간다"
+    ),
+    labels=["중앙 서버", "엣지 장비", "설정 배포"],
+    alt="중앙 서버가 세 장비에 설정을 내려보낸다",
+)
+FIGURE2 = ConceptFigure(
+    section="## 어디서 깨지나",
+    brief="왼쪽 산업용 컴퓨터('보관함')에 쌓인 메시지가 끊긴 선('연결 끊김') 앞에서 멈춘다",
+    labels=["보관함", "연결 끊김"],
+    alt="연결이 끊기면 메시지가 보관함에 쌓인다",
+)
+ALL_LABELS = FIGURE.labels + FIGURE2.labels
+
+
+NOTE = ConceptNote(
+    body=BODY, questions=THREE, sources=["https://grpc.io/docs/"], figures=[FIGURE, FIGURE2]
+)
+NOTE_WITH_FIGURE = NOTE
+A1 = "Assets/2026-11-02 - 엣지-중앙 서버 구조 1.png"
+A2 = "Assets/2026-11-02 - 엣지-중앙 서버 구조 2.png"
 
 
 class Desk:
@@ -372,7 +395,7 @@ class Desk:
             target.write_bytes(source.read_bytes())
 
         async def read(image):
-            reading = self.readings.pop(0) if self.readings else FIGURE.labels
+            reading = self.readings.pop(0) if self.readings else ALL_LABELS
             if isinstance(reading, Exception):
                 raise reading
             return list(reading)
@@ -456,15 +479,6 @@ def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
     assert desk.posts == [(1, "오늘 문제", [1, 2, 3], 3)]
 
 
-FIGURE = ConceptFigure(
-    brief=(
-        "위에 서버 랙 하나('중앙 서버'), 아래에 산업용 컴퓨터 셋('엣지 장비'). "
-        "서버에서 장비로 점선 화살표('설정 배포')가 내려간다"
-    ),
-    labels=["중앙 서버", "엣지 장비", "설정 배포"],
-    alt="중앙 서버가 세 장비에 설정을 내려보낸다",
-)
-NOTE_WITH_FIGURE = NOTE.model_copy(update={"figure": FIGURE})
 PNG = PNG_SIGNATURE + b"\x00\x00\x00\rIHDR" + (1536).to_bytes(4, "big") + (1024).to_bytes(4, "big")
 
 
@@ -484,7 +498,7 @@ def drawer(folder):
     return draw
 
 
-def test_figure_is_drawn_by_iota_and_put_in_note_vault_and_announcement(tmp_path):
+def test_figures_are_drawn_by_iota_and_put_above_their_sections(tmp_path):
     desk = Desk(tmp_path)
     desk.illustrator = "iota"
     engine, vault = FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)), FakeVault()
@@ -493,43 +507,60 @@ def test_figure_is_drawn_by_iota_and_put_in_note_vault_and_announcement(tmp_path
     scope, agent, stage, prompt = engine.calls[1]
     assert (scope, agent, stage) == ("education", "iota", "concept_image")
     assert FIGURE.brief in prompt and "- 중앙 서버\n- 엣지 장비\n- 설정 배포" in prompt
-    assert [call[2] for call in engine.calls] == ["concept_note", "concept_image"]
-    asset = "Assets/2026-11-02 - 엣지-중앙 서버 구조.png"
-    assert (desk.root / asset).read_bytes() == PNG
+    assert FIGURE2.brief in engine.calls[2][3]
+    assert [call[2] for call in engine.calls] == ["concept_note", "concept_image", "concept_image"]
+    assert (desk.root / A1).read_bytes() == PNG and (desk.root / A2).read_bytes() == PNG
     note = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
-    figure = f"![[{asset}]]\n*그림: 중앙 서버가 세 장비에 설정을 내려보낸다*\n\n## 어디서 깨지나"
-    assert figure in note
+    # 그림은 절 제목 바로 아래, 설명 위에 들어간다
+    assert (
+        f"## 흐름\n\n![[{A1}]]\n*그림: 중앙 서버가 세 장비에 설정을 내려보낸다*\n\n```text" in note
+    )
+    assert (
+        f"## 어디서 깨지나\n\n![[{A2}]]\n*그림: 연결이 끊기면 메시지가 보관함에 쌓인다*\n\n연결이"
+        in note
+    )
     assert check_note(note.split("\n\n", 2)[2]) == []  # 노트 형식은 그대로
     assert vault.commits[0][0] == [
         "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md",
-        asset,
+        A1,
+        A2,
         "Schedule/학습 대기열.md",
     ]
     text, _ = desk.notes[0]
-    assert "- 그림: 중앙 서버가 세 장비에 설정을 내려보낸다" in text
-    assert desk.files[0] == [desk.root / asset] and result.files == (desk.root / asset,)
+    assert "- 그림 2장 (붙인 그림. 노트에서는 해당 설명 바로 위에 있다)" in text
+    assert "  - 중앙 서버가 세 장비에 설정을 내려보낸다" in text
+    files = [desk.root / A1, desk.root / A2]
+    assert desk.files[0] == files and result.files == tuple(files)
 
 
 def test_missing_label_is_redrawn_once(tmp_path):
     desk = Desk(tmp_path)
     desk.illustrator = "iota"
-    desk.readings = [["중앙 서버", "엣지 장비"], ["중앙 서버", "엣지 장비", "설정 • 배포"]]
+    desk.readings = [
+        ["중앙 서버", "엣지 장비"],
+        ["중앙 서버", "엣지 장비", "설정 • 배포"],
+        ALL_LABELS,
+    ]
     engine = FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images))
     result = desk.daily(date(2026, 11, 2), engine)
 
     retry = [call for call in engine.calls if call[2] == "retry"]
     assert len(retry) == 1 and "'설정 배포'" in retry[0][3] and "다시 그린다" in retry[0][3]
-    assert result.files and (desk.root / "Assets/2026-11-02 - 엣지-중앙 서버 구조.png").exists()
+    assert len(result.files) == 2 and (desk.root / A1).exists()
 
 
-def test_labels_still_wrong_after_redraw_sends_note_without_figure(tmp_path):
+def test_labels_still_wrong_after_redraw_leaves_that_figure_out(tmp_path):
     desk = Desk(tmp_path)
     desk.illustrator = "iota"
-    desk.readings = [["중앙 서버"], ["중앙 서버"]]
+    desk.readings = [["중앙 서버"], ["중앙 서버"], ALL_LABELS]
     result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)))
 
-    assert result.files == () and not (desk.root / "Assets").exists()
-    assert "그림을 만들지 못해" in desk.notes[0][0]
+    # 첫 그림만 빠지고 둘째 그림은 들어간다
+    assert result.files == (desk.root / A2,) and not (desk.root / A1).exists()
+    assert (
+        "- 그림 1장 (붙인 그림. 노트에서는 해당 설명 바로 위에 있다, 1장은 만들지 못해 뺐다)"
+        in (desk.notes[0][0])
+    )
 
 
 def test_unreadable_text_check_keeps_the_figure(tmp_path):
@@ -583,15 +614,29 @@ def test_image_rules(tmp_path):
     # 글자 인식은 공백과 가운뎃점 모양을 빼고 비교한다
     labels = ["카메라·센서", "웹 화면", "결과만 전송", "중앙 서버"]
     assert missing_labels(labels, ["카메라• 센서", "웹화면", "결과만", "전송"]) == ["중앙 서버"]
-    assert check_figure(FIGURE) == []
+    assert check_figures(BODY, [FIGURE, FIGURE2]) == []
     bad = FIGURE.model_copy(update={"labels": ["중앙 서버", "중앙 서버", "웹 화면"]})
-    assert check_figure(bad) == [
-        "figure.labels에 같은 이름표가 두 번 있다",
-        "figure.brief에 이름표 '웹 화면'가 붙을 요소·화살표를 적지 않았다",
+    assert check_figures(BODY, [bad, FIGURE2]) == [
+        "figures[1].labels에 같은 이름표가 두 번 있다",
+        "figures[1].brief에 이름표 '웹 화면'가 붙을 요소·화살표를 적지 않았다",
     ]
+    nowhere = FIGURE.model_copy(update={"section": "### 1) 없는 절"})
+    analogy = FIGURE2.model_copy(update={"section": "## 비유"})
+    assert check_figures(BODY, [nowhere, analogy, FIGURE2]) == [
+        "figures[1].section '### 1) 없는 절'이 본문 제목 줄과 글자 그대로 같지 않다",
+        "figures[2]: 비유 절에는 그림을 붙이지 않는다",
+    ]
+    assert check_figures(BODY, [FIGURE2, FIGURE2])[0].startswith("figures에 같은 절")
     assert asset_path("2026-11-02", "TCP/IP: 흐름?") == "Assets/2026-11-02 - TCP-IP- 흐름-.png"
-    # 절이 없으면 맨 끝에 붙인다
-    assert insert_figure("# 제목\n\n본문\n", "Assets/a.png", "설명") == (
+    # 절 제목 바로 아래, 설명 위에 넣는다
+    assert insert_figure("## 흐름\n\n설명\n", "## 흐름", "Assets/a.png", "그림 설명") == (
+        "## 흐름\n\n![[Assets/a.png]]\n*그림: 그림 설명*\n\n설명\n"
+    )
+    # 제목이 없으면 흐름 끝, 그것도 없으면 맨 끝에 붙인다
+    assert "![[Assets/a.png]]\n*그림: 설명*\n\n## 어디서 깨지나" in insert_figure(
+        "## 흐름\n\n본문\n\n## 어디서 깨지나\n", "### 없음", "Assets/a.png", "설명"
+    )
+    assert insert_figure("# 제목\n\n본문\n", "### 없음", "Assets/a.png", "설명") == (
         "# 제목\n\n본문\n\n![[Assets/a.png]]\n*그림: 설명*\n"
     )
 

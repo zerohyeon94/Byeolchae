@@ -3,7 +3,8 @@
 교육팀장이 그림 설명과 한글 이름표를 쓰면 교육팀원(Codex)이 이미지 생성으로 그린다. Codex는 읽기
 전용이라 그림은 Codex 폴더(`~/.codex/generated_images`)에 생기고, 봇이 실행 전후를 비교해 새로
 생긴 PNG만 받는다. 이름표가 그림에 모두 있는지 macOS 글자 인식(Vision)으로 확인하고, 가로 1024로
-줄여 볼트 `Assets/`에 둔다. 노트에는 `## 흐름` 끝에 그림과 한 줄 설명을 넣는다.
+줄여 볼트 `Assets/`에 둔다. 노트에는 그림마다 정한 절 제목 바로 아래(설명 위)에 그림과 한 줄 설명을
+넣는다. 그림을 먼저 보고 아래 글로 확인하게 한다 (2026-11-12 Zero 결정).
 """
 
 import asyncio
@@ -17,7 +18,8 @@ from bot.schemas import ConceptFigure
 ASSETS_DIR = "Assets"
 IMAGE_WIDTH = 1024  # 볼트에 두는 그림의 가로 (2026-11-03 Zero 결정)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-FIGURE_BEFORE = "## 어디서 깨지나"  # 그림은 이 절 바로 앞(= `## 흐름` 끝)에 넣는다
+FIGURE_BEFORE = "## 어디서 깨지나"  # 절 제목을 못 찾으면 이 절 바로 앞(= `## 흐름` 끝)에 넣는다
+NO_FIGURE = "## 비유"  # 비유 장면은 그리지 않는다 (사람·캐릭터 금지)
 # Obsidian 링크와 파일 이름에 쓸 수 없는 글자
 _UNSAFE = str.maketrans({ch: "-" for ch in '/\\:*?"<>|#^[]'})
 OCR_SCRIPT = Path(__file__).with_name("ocr.swift")
@@ -61,9 +63,17 @@ def png_size(head: bytes) -> tuple[int, int] | None:
     return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
-def insert_figure(note: str, asset: str, alt: str) -> str:
-    """노트의 `## 흐름` 끝에 그림과 한 줄 설명을 넣는다. 절이 없으면 맨 끝에 붙인다."""
+def insert_figure(note: str, section: str, asset: str, alt: str) -> str:
+    """절 제목 줄 바로 아래에 그림과 한 줄 설명을 넣는다.
+
+    제목이 없으면 `## 흐름` 끝, 그것도 없으면 맨 끝에 붙인다.
+    """
     figure = f"![[{asset}]]\n*그림: {alt.strip()}*\n"
+    lines = note.split("\n")
+    if section.strip() in lines:
+        at = lines.index(section.strip()) + 1
+        rest = "\n".join(lines[at:]).lstrip("\n")
+        return "\n".join(lines[:at]) + f"\n\n{figure}\n{rest}"
     marker = f"\n{FIGURE_BEFORE}"
     if marker not in note:
         return note.rstrip("\n") + "\n\n" + figure
@@ -93,16 +103,33 @@ async def shrink_png(source: Path, target: Path, width: int = IMAGE_WIDTH) -> No
         raise OSError(f"sips 실패: {stderr.decode('utf-8', 'replace').strip()}")
 
 
-def check_figure(figure: ConceptFigure) -> list[str]:
-    """교육팀장이 쓴 그림 설명의 형식 문제. 이름표는 겹치지 않고, 설명에서 자리가 정해져야 한다."""
+def check_figures(body: str, figures: Sequence[ConceptFigure]) -> list[str]:
+    """교육팀장이 쓴 그림 설명들의 형식 문제.
+
+    절마다 한 장, 이름표는 겹치지 않고 설명에서 자리가 정해져야 한다.
+    """
     problems = []
-    if len(set(figure.labels)) != len(figure.labels):
-        problems.append("figure.labels에 같은 이름표가 두 번 있다")
-    for label in figure.labels:
-        if label not in figure.brief:
-            problems.append(f"figure.brief에 이름표 '{label}'가 붙을 요소·화살표를 적지 않았다")
-    if any("\n" in label for label in figure.labels):
-        problems.append("figure.labels의 이름표는 한 줄이어야 한다")
+    lines = {line.strip() for line in body.splitlines()}
+    sections = [figure.section for figure in figures]
+    if len(set(sections)) != len(sections):
+        problems.append("figures에 같은 절(section)이 두 번 있다. 절마다 그림은 한 장이다")
+    for n, figure in enumerate(figures, start=1):
+        where = f"figures[{n}]"
+        if figure.section not in lines:
+            problems.append(
+                f"{where}.section '{figure.section}'이 본문 제목 줄과 글자 그대로 같지 않다"
+            )
+        if figure.section == NO_FIGURE:
+            problems.append(f"{where}: 비유 절에는 그림을 붙이지 않는다")
+        if len(set(figure.labels)) != len(figure.labels):
+            problems.append(f"{where}.labels에 같은 이름표가 두 번 있다")
+        for label in figure.labels:
+            if label not in figure.brief:
+                problems.append(
+                    f"{where}.brief에 이름표 '{label}'가 붙을 요소·화살표를 적지 않았다"
+                )
+        if any("\n" in label for label in figure.labels):
+            problems.append(f"{where}.labels의 이름표는 한 줄이어야 한다")
     return problems
 
 

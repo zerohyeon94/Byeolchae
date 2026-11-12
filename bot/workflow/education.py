@@ -40,7 +40,7 @@ from bot.education.daily import (
 )
 from bot.education.image import (
     asset_path,
-    check_figure,
+    check_figures,
     check_image,
     insert_figure,
     missing_labels,
@@ -210,17 +210,20 @@ class EducationDesk:
         sources: list[str] = []
         unverified: list[str] = []
         new_questions: list[QuizQuestion] = []
-        figure: Figure | None = None
+        figures: list[Figure] = []
         if not note.exists():
             answer = await self._write_note(plan)
             if answer is None:
                 return DailyResult(False, f"{self._display}가 개념 노트를 쓰지 못했다.")
             text = complete_note(note_header(plan), answer.body)
-            if answer.figure is not None and self._illustrator is not None:
-                figure = await self._draw(plan, answer.figure)
-                if figure.asset:
-                    text = insert_figure(text, figure.asset, answer.figure.alt)
-                    written.append(figure.asset)
+            if self._illustrator is not None:
+                # 한 장씩 그린다. 그리지 못한 그림은 빼고, 나머지는 제 절 제목 바로 아래에 넣는다
+                for n, spec in enumerate(answer.figures, start=1):
+                    figure = await self._draw(plan, spec, n)
+                    figures.append(figure)
+                    if figure.asset:
+                        text = insert_figure(text, spec.section, figure.asset, spec.alt)
+                        written.append(figure.asset)
             _write(note, text)
             written.insert(0, plan.note_path)
             sources, unverified = answer.sources, answer.unverified
@@ -239,8 +242,8 @@ class EducationDesk:
         )
         posts = await self._daily_quizzes(today, plan, new_questions)
         daily = daily_path(today) if self._daily_link else ""
-        text = _announce(plan, optional, posts, sources, unverified, figure, daily)
-        files = (root / figure.asset,) if figure is not None and figure.asset else ()
+        text = _announce(plan, optional, posts, sources, unverified, figures, daily)
+        files = tuple(root / figure.asset for figure in figures if figure.asset)
         return DailyResult(True, text, posts, plan.label, files)
 
     async def _daily_quizzes(
@@ -287,8 +290,8 @@ class EducationDesk:
         assert item is not None or plan.carried
 
         async def verify(note: ConceptNote) -> list[str]:
-            figure = check_figure(note.figure) if note.figure is not None else []
-            return check_note(note.body) + check_questions(note.questions) + figure
+            figures = check_figures(note.body, note.figures)
+            return check_note(note.body) + check_questions(note.questions) + figures
 
         answer = await self._engine.ask_outside_task(
             SCOPE,
@@ -310,7 +313,7 @@ class EducationDesk:
             log.warning("개념 노트 실패: %s", answer.error or answer.status)
         return answer.result
 
-    async def _draw(self, plan: DailyPlan, figure: ConceptFigure) -> Figure:
+    async def _draw(self, plan: DailyPlan, figure: ConceptFigure, n: int) -> Figure:
         """교육팀원이 그린 새 PNG를 줄여 `Assets/`에 둔다. 실패해도 노트는 그림 없이 낸다."""
         assert self._illustrator is not None
         folder = self._images or Path("~/.codex/generated_images").expanduser()
@@ -353,7 +356,7 @@ class EducationDesk:
         if answer.result is None:
             log.warning("개념 노트 그림 실패: %s", answer.error or answer.status)
             return Figure("", figure.alt)
-        asset = asset_path(plan.day.isoformat(), plan.label)
+        asset = asset_path(plan.day.isoformat(), f"{plan.label} {n}")
         try:
             await self._shrink(Path(answer.result.image_path), self._root / asset)
         except OSError:
@@ -469,7 +472,7 @@ def _announce(
     posts: tuple[QuizPost, ...],
     sources: list[str],
     unverified: list[str],
-    figure: Figure | None = None,
+    figures: list[Figure] | None = None,
     daily: str = "",
 ) -> str:
     kind = "어제 것 이어서" if plan.carried else "새 개념"
@@ -481,11 +484,17 @@ def _announce(
     ]
     if daily:
         lines.append(f"- Obsidian: 오늘의 Daily(`{daily}`)를 열면 오늘 학습에서 노트로 바로 간다")
-    if figure is not None:
-        if figure.asset:
-            lines.append(f"- 그림: {figure.alt} (붙인 그림, 노트의 흐름 끝에도 있다)")
-        else:
+    if figures:
+        drawn = [figure for figure in figures if figure.asset]
+        if not drawn:
             lines.append("- 그림: 오늘은 그림을 만들지 못해 노트를 그림 없이 냈다")
+        else:
+            missed = len(figures) - len(drawn)
+            note = f", {missed}장은 만들지 못해 뺐다" if missed else ""
+            lines.append(
+                f"- 그림 {len(drawn)}장 (붙인 그림. 노트에서는 해당 설명 바로 위에 있다{note})"
+            )
+            lines.extend(f"  - {figure.alt}" for figure in drawn)
     if posts:
         parts = [f"{post.title.split(' (')[0]} {len(post.items)}개" for post in posts]
         lines.append(f"- 문제: {', '.join(parts)}. 노트를 읽고 아래 버튼으로 푼다")
