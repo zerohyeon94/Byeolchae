@@ -76,7 +76,7 @@ from bot.schemas import (
 from bot.store import Actor, EventKind, NewEvent
 from bot.store.repo import TaskRecord
 from bot.testrun import TestReport
-from bot.workflow.chat import Attachment
+from bot.workflow.chat import Attachment, ThreadNotFound
 from bot.workflow.mentions import Moment, should_mention
 from bot.workflow.state import (
     FixSource,
@@ -726,8 +726,8 @@ class WorkStages:
             return self._lead_problems(payload["lead"], Review.model_validate(payload["review"]))
         if source is FixSource.TESTS:
             tests = await self._latest_tests(task.id)
-            body = render_test_report(tests) if tests else "테스트 결과가 없다"
-            return f"봇이 실행한 테스트가 실패했다.\n\n{body}"
+            body = render_test_report(tests) if tests else "검증 결과가 없다"
+            return f"봇이 실행한 검증 명령이 실패했다.\n\n{body}"
         reviews = await self._reviews(task.id)
         if not reviews:
             raise RuntimeError("리뷰 결과가 없다")
@@ -930,7 +930,7 @@ class WorkStages:
         task, worktree = await self._ensure_worktree(task)
         count = len(await self._repo.list_events(task.id, {EventKind.TEST}))
         run_id = f"t{task.id}-test-{count + 1}"
-        await self._say(task, "봇이 테스트를 실행한다.", Moment.TEST_RUNNING)
+        await self._say(task, "봇이 설정된 검증 명령을 실행한다.", Moment.TEST_RUNNING)
         self._running.tests[task.id] = run_id
         try:
             report = await self._tests.run(run_id, project.test_command, cwd=worktree)
@@ -1203,6 +1203,7 @@ class WorkStages:
                 "outcome": outcome,
                 "thread": thread,
                 "signature": signature,
+                "verification": tests.result_label if tests else None,
             }
             return StageSucceeded(), NewEvent(Actor.BOT, EventKind.REPORT, payload)
 
@@ -1215,10 +1216,16 @@ class WorkStages:
             if not thread:
                 return done("quiet")  # 직전에도 개선 불필요로 본 같은 실패
             day = self._clock.now().astimezone().strftime("%m-%d")
-            await self._chat.post(
-                thread, "bot", f"{day} 정기 테스트에서도 같은 문제로 실패했다.", mention=False
-            )
-            return done("appended", thread)
+            try:
+                await self._chat.post(
+                    thread, "bot", f"{day} 정기 테스트에서도 같은 문제로 실패했다.", mention=False
+                )
+            except ThreadNotFound:
+                # 예전 글이 사라졌으면 아래에서 전체 진단을 담은 대체 글을 연다.
+                # REPORT에 새 글을 남겨 다음 일정부터 같은 실패를 새 글에 묶는다.
+                pass
+            else:
+                return done("appended", thread)
         if diagnosis is not None and diagnosis.action is ReportAction.NONE:
             return done("quiet")
         title = f"{task.title}: {diagnosis.cause.label}" if diagnosis else f"{task.title} 실패"

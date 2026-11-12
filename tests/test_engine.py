@@ -21,8 +21,8 @@ from bot.github.fake import FakeGit, FakeGitHub
 from bot.org import DEFAULT_ORG
 from bot.pipeline import default_pipelines
 from bot.store import Actor, EventKind, NewEvent, Repository, connect
-from bot.testrun import TestReport
-from bot.workflow.chat import FakeChatIO
+from bot.testrun import CheckKind, TestReport
+from bot.workflow.chat import FakeChatIO, ThreadNotFound
 from bot.workflow.engine import Engine, ProjectContext
 from bot.workflow.state import CommandName, TaskState
 
@@ -749,6 +749,66 @@ def test_nightly_different_failure_opens_new_post():
         assert len(h.claude.requests) == 2 and len(h.chat.created) == 2
 
 
+def test_nightly_missing_report_is_replaced_and_next_run_uses_replacement():
+    @scenario(claude=[nightly_reply()], codex=[review_reply()],
+              tests=[make_report(False, ["T"])] * 6)  # fmt: skip
+    async def _(h):
+        first = await h.engine.start_scheduled(P, "nightly-test")
+        post = h.chat.post
+
+        async def missing(thread, *args, **kwargs):
+            if thread == first.discord_thread:
+                raise ThreadNotFound(thread)
+            return await post(thread, *args, **kwargs)
+
+        h.chat.post = missing
+        h.clock.advance(timedelta(days=1))
+        second = await h.engine.start_scheduled(P, "nightly-test")
+        assert second.state is TaskState.DONE
+        assert second.discord_thread != first.discord_thread
+        assert len(h.chat.created) == 2
+        assert "무엇이 문제인가" in h.chat.created[-1][2]
+        assert "날짜 의존 테스트" in h.chat.created[-1][2]
+        assert (await report_payload(h, second.id))["thread"] == second.discord_thread
+        h.clock.advance(timedelta(days=1))
+        third = await h.engine.start_scheduled(P, "nightly-test")
+        payload = await report_payload(h, third.id)
+        assert third.state is TaskState.DONE and payload["outcome"] == "appended"
+        assert payload["thread"] == second.discord_thread
+        assert len(h.chat.created) == 2 and len(h.claude.requests) == 1
+
+
+def test_nightly_other_post_errors_still_need_human():
+    @scenario(claude=[nightly_reply()], codex=[review_reply()],
+              tests=[make_report(False, ["T"])] * 4)  # fmt: skip
+    async def _(h):
+        first = await h.engine.start_scheduled(P, "nightly-test")
+        post = h.chat.post
+
+        async def broken(thread, *args, **kwargs):
+            if thread == first.discord_thread:
+                raise RuntimeError("웹훅 권한 오류")
+            return await post(thread, *args, **kwargs)
+
+        h.chat.post = broken
+        h.clock.advance(timedelta(days=1))
+        second = await h.engine.start_scheduled(P, "nightly-test")
+        assert second.state is TaskState.NEEDS_HUMAN
+        assert not await h.repo.list_events(second.id, {EventKind.REPORT})
+
+
+def test_nightly_build_success_records_build_instead_of_test_pass():
+    build = TestReport(RunStatus.OK, 0, None, 0, kind=CheckKind.BUILD)
+
+    @scenario(tests=[build])
+    async def _(h):
+        task = await h.engine.start_scheduled(P, "nightly-test")
+        payload = await report_payload(h, task.id)
+        assert task.state is TaskState.DONE and payload["verification"] == "빌드 성공"
+        (event,) = await h.repo.list_events(task.id, {EventKind.TEST})
+        assert event.payload["kind"] == "build" and event.payload["total"] is None
+
+
 def test_restart_opens_post_for_scheduled_task_stuck_without_one():
     @scenario()
     async def _(h):
@@ -860,6 +920,48 @@ def test_waiting_task_is_reminded_once_after_24_hours():
         assert await h.engine.remind_waiting(timedelta(hours=24)) == 1
         assert h.chat.posts[-1].mention
         assert await h.engine.remind_waiting(timedelta(hours=24)) == 0
+
+
+def test_reminder_recreates_missing_task_post_and_keeps_commands_working():
+    @scenario(claude=[plan_reply()])
+    async def _(h):
+        await h.engine.task_from_chat(P, "/task feature", "예산 배너")
+        old = (await h.task()).discord_thread
+        post = h.chat.post
+
+        async def missing(thread, *args, **kwargs):
+            if thread == old:
+                raise ThreadNotFound(thread)
+            return await post(thread, *args, **kwargs)
+
+        h.chat.post = missing
+        h.clock.advance(timedelta(hours=25))
+        assert await h.engine.remind_waiting(timedelta(hours=24)) == 1
+        task = await h.task()
+        assert task.discord_thread != old and h.chat.posts[-1].mention
+        assert task.reminded_at is not None
+        assert await h.engine.remind_waiting(timedelta(hours=24)) == 0
+        assert (await h.command(CommandName.STOP)).state is TaskState.STOPPED
+
+
+def test_one_failed_reminder_does_not_block_other_tasks():
+    @scenario(claude=[plan_reply(), plan_reply()])
+    async def _(h):
+        await h.engine.task_from_chat(P, "/task feature", "첫 작업")
+        await h.engine.task_from_chat(P, "/task feature", "둘째 작업")
+        old = (await h.task()).discord_thread
+        post = h.chat.post
+
+        async def broken(thread, *args, **kwargs):
+            if thread == old:
+                raise RuntimeError("일시적인 전송 실패")
+            return await post(thread, *args, **kwargs)
+
+        h.chat.post = broken
+        h.clock.advance(timedelta(hours=25))
+        assert await h.engine.remind_waiting(timedelta(hours=24)) == 1
+        assert (await h.task()).reminded_at is None
+        assert (await h.task(2)).reminded_at is not None
 
 
 def test_restart_marks_running_agent_runs_failed():

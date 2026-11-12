@@ -10,6 +10,7 @@ import asyncio
 import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,66 @@ _ERROR_LINE = re.compile(r"^(?:/\S+\.\w+:\d+(?::\d+)?: error: |xcodebuild: error
 _SOURCE_ERROR = re.compile(r"^/\S+\.\w+:\d+")  # 코드 위치가 붙은 빌드 오류
 
 
+class CheckKind(StrEnum):
+    BUILD = "build"
+    TEST = "test"
+    UNKNOWN = "unknown"
+
+
+# action과 같은 이름의 scheme·project 등을 action으로 잘못 읽지 않는다.
+_XCODE_VALUE_OPTIONS = frozenset(
+    {
+        "-project",
+        "-workspace",
+        "-scheme",
+        "-target",
+        "-configuration",
+        "-sdk",
+        "-arch",
+        "-destination",
+        "-destination-timeout",
+        "-derivedDataPath",
+        "-resultBundlePath",
+        "-resultStreamPath",
+        "-testPlan",
+        "-toolchain",
+        "-xcconfig",
+        "-jobs",
+        "-archivePath",
+        "-clonedSourcePackagesDirPath",
+        "-parallel-testing-enabled",
+        "-parallel-testing-worker-count",
+        "-maximum-parallel-testing-workers",
+        "-only-testing",
+        "-skip-testing",
+    }
+)
+
+
+def check_kind(argv: Sequence[str], output: str = "") -> CheckKind:
+    """명시된 Xcode action 또는 실행 출력으로 검증 종류를 구분한다."""
+    args = list(argv)
+    if args and Path(args[0]).name == "xcrun":
+        args = next((args[i:] for i, arg in enumerate(args) if arg == "xcodebuild"), [])
+    if args and Path(args[0]).name == "xcodebuild":
+        actions = set()
+        index = 1
+        while index < len(args):
+            arg = args[index]
+            index += 2 if arg in _XCODE_VALUE_OPTIONS else 1
+            if not arg.startswith("-") and "=" not in arg:
+                actions.add(arg)
+        if actions & {"test", "test-without-building"}:
+            return CheckKind.TEST
+        if actions & {"build", "build-for-testing"}:
+            return CheckKind.BUILD
+    if "** TEST SUCCEEDED **" in output or "** TEST FAILED **" in output:
+        return CheckKind.TEST
+    if "** BUILD SUCCEEDED **" in output or "** BUILD FAILED **" in output:
+        return CheckKind.BUILD
+    return CheckKind.UNKNOWN
+
+
 @dataclass(frozen=True)
 class TestReport:
     __test__ = False  # pytest가 테스트 클래스로 모으지 않게
@@ -47,6 +108,27 @@ class TestReport:
     errors: list[str] = field(default_factory=list)  # 빌드 오류 등
     duration_sec: float = 0.0
     log_path: str = ""
+    kind: CheckKind = CheckKind.UNKNOWN
+
+    @property
+    def label(self) -> str:
+        if self.kind is CheckKind.BUILD:
+            return "빌드"
+        if self.kind is CheckKind.TEST or self.total is not None or self.failed_tests:
+            return "테스트"
+        return "검증 명령"
+
+    @property
+    def result_label(self) -> str:
+        if not self.passed:
+            return f"{self.label} 실패"
+        if self.label == "테스트":
+            if self.total is None:
+                return "테스트 명령 성공 — 테스트 실행 수 미확인"
+            if self.total == 0:
+                return "테스트 명령 성공 — 실행된 테스트 없음"
+            return "테스트 통과"
+        return f"{self.label} 성공"
 
     @property
     def passed(self) -> bool:
@@ -76,13 +158,16 @@ class TestReport:
         names = {name for name in cls.__dataclass_fields__}
         data = {key: value for key, value in payload.items() if key in names}
         data["status"] = RunStatus(data["status"])
+        data["kind"] = CheckKind(data.get("kind", CheckKind.UNKNOWN))
         return cls(**data)
 
     def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
+        data["kind"] = self.kind.value
         data["passed"] = self.passed
         data["environment_error"] = self.environment_error
+        data["result_label"] = self.result_label
         return data
 
 
@@ -134,11 +219,15 @@ class TestRunner:
     async def run(self, run_id: str, argv: Sequence[str], *, cwd: Path) -> TestReport:
         async with self._lock:
             result = await self._process.run(run_id, argv, cwd=cwd, timeout_sec=self._timeout)
-        total, failures, failed, errors = summarize(result.stdout + "\n" + result.stderr)
+        output = result.stdout + "\n" + result.stderr
+        total, failures, failed, errors = summarize(output)
+        kind = check_kind(argv, output)
+        if kind is CheckKind.UNKNOWN and (total is not None or failed):
+            kind = CheckKind.TEST
         if result.status is RunStatus.OK and failures is None:
             failures = 0
         if result.status is not RunStatus.OK and not failures and not failed and not errors:
-            errors = [f"테스트 명령이 실패했다 (종료 코드 {result.exit_code}, {result.status})"]
+            errors = [f"검증 명령이 실패했다 (종료 코드 {result.exit_code}, {result.status})"]
         return TestReport(
             status=result.status,
             exit_code=result.exit_code,
@@ -148,6 +237,7 @@ class TestRunner:
             errors=errors,
             duration_sec=round(result.duration_sec, 1),
             log_path=str(result.log_path),
+            kind=kind,
         )
 
     async def cancel(self, run_id: str) -> None:

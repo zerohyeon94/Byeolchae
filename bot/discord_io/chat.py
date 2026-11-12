@@ -14,7 +14,7 @@ import discord
 
 from bot.discord_io.rules import author_name, mention_text, split_text
 from bot.org import DEFAULT_ORG, Org
-from bot.workflow.chat import Attachment, Author
+from bot.workflow.chat import Attachment, Author, ThreadNotFound
 
 
 class WebhookLike(Protocol):
@@ -68,6 +68,23 @@ class DiscordChat:
         *,
         mention: bool = False,
         attachments: Sequence[Attachment] = (),
+    ) -> str:
+        try:
+            return await self._post(thread, author, text, mention=mention, attachments=attachments)
+        except discord.NotFound as error:
+            # 10015(사라진 웹훅) 등은 글을 다시 열어도 고쳐지지 않는다.
+            if error.code != 10003:
+                raise
+            raise ThreadNotFound(thread) from error
+
+    async def _post(
+        self,
+        thread: str,
+        author: Author,
+        text: str,
+        *,
+        mention: bool,
+        attachments: Sequence[Attachment],
     ) -> str:
         thread_id = int(thread)
         webhook = await self._webhook_for(thread_id)

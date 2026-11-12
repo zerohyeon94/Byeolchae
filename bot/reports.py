@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from bot.clock import from_iso, to_iso
 from bot.org import Org
+from bot.render.work import render_nightly_outcome
 from bot.store import EventKind, HiringStatus, Repository, TaskRecord
 from bot.workflow.state import TaskState
 
@@ -64,14 +65,6 @@ async def pending_decisions(repo: Repository, org: Org, now: datetime, url: Thre
 
 
 NIGHTLY = "nightly-test"
-# 정기 테스트 보고 단계가 남긴 결과 (bot.workflow.work._report)
-NIGHTLY_OUTCOMES = {
-    "passed": "통과",
-    "flaky": "일시적 실패(다시 돌려 통과)",
-    "quiet": "실패, 개선 불필요",
-    "posted": "문제 보고",
-    "appended": "같은 문제 계속",
-}
 
 
 async def nightly_line(repo: Repository, now: datetime) -> str:
@@ -83,10 +76,7 @@ async def nightly_line(repo: Repository, now: datetime) -> str:
             continue
         events = await repo.list_events(task.id, {EventKind.REPORT})
         if events:
-            outcome = str(events[-1].payload.get("outcome", ""))
-            label = NIGHTLY_OUTCOMES.get(
-                outcome, "실패 보고" if events[-1].payload.get("posted") else "통과"
-            )
+            label = render_nightly_outcome(events[-1].payload)
         elif task.state.is_terminal:
             label = "중지"
         else:
