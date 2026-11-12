@@ -235,7 +235,7 @@ def test_concept_note_prompt_snapshot():
         month="시스템 전체 한 바퀴",
     )
     assert "회사/" in prompt  # 금지 안내
-    assert "figure" in prompt and "labels: 그림 안에 그대로 넣을 한글 이름표" in prompt
+    assert "figures" in prompt and "labels: 그림 안에 그대로 넣을 한글 이름표" in prompt
     check_snapshot("concept_note_eta", prompt)
 
 

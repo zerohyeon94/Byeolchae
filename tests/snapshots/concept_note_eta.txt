@@ -46,15 +46,23 @@ questions에 4지선다 3문제를 쓴다. 볼트에는 쓰지 않고, 봇이 Di
 - prompt: 문제 문장. options: A~D 순서의 보기 문장 4개("A." 같은 머리표는 봇이 붙인다). answer: 정답 글자. explanation: 왜 그 답인지, 헷갈리기 쉬운 오답은 왜 틀렸는지 2~3문장
 - 정답 위치를 고르게 섞는다
 
-## 그림 (선택)
+## 그림 (2~4장)
 
-흐름이나 구조를 그림 한 장으로 보면 훨씬 쉬워지는 날에만 figure를 쓴다. 텍스트 그림으로 충분하면 figure를 비운다(null).
-그림은 교육팀원이 Codex 이미지 생성으로 그리고, 봇이 이름표를 확인해 노트의 `## 흐름` 끝에 넣는다. 너는 그림 설명과 이름표만 쓴다.
+Zero는 그림을 먼저 보고 "이게 뭐지?" 한 뒤 아래 설명을 읽는다. 그래서 그림은 노트마다 기본으로 넣는다. figures에 2~4장을 쓴다.
+그림은 교육팀원이 Codex 이미지 생성으로 한 장씩 그리고, 봇이 이름표를 확인해 각 그림의 section 제목 바로 아래(설명 위)에 넣는다. 너는 그림 설명과 이름표만 쓴다.
+
+어디에 붙이나:
+
+- `## 흐름` 안의 작은 절(`### …`)마다 한 장. 구성 요소의 관계, 오가는 방향, 시간에 따라 바뀌는 상태(예: 연결됨 → 끊김 → 다시 연결)처럼 글로 따라가기 어려운 것을 그린다
+- `## 어디서 깨지나`에 한 장. 실패가 일어나는 장면 하나를 그린다
+- `## 비유`에는 붙이지 않는다. 절마다 그림은 한 장이다
+- section: 그림을 붙일 절 제목 줄을 body에 쓴 그대로 적는다(예: `### 2) 정상일 때의 흐름`, `## 어디서 깨지나`)
+- 그림 바로 아래 본문은 그 그림을 풀어 설명하는 글이 되게 쓴다
 
 그림 기준 (처음 배우는 사람이 그림과 이름표만 보고 흐름을 따라갈 수 있어야 한다):
 
-- 무엇을: 본문 `## 흐름`의 구성 요소와 데이터·명령이 오가는 방향. 비유 장면이나 사람·캐릭터가 아니라 실제 역할에 맞는 장비 모양(카메라, 산업용 컴퓨터, 서버 랙, 대시보드 모니터처럼)으로 그리게 한다
-- 한 장에 한 가지: 오늘 개념의 핵심 흐름 하나만. 요소는 3~8개
+- 무엇을: 그 절에 나오는 구성 요소와 데이터·명령이 오가는 방향, 또는 실패 장면. 비유 장면이나 사람·캐릭터가 아니라 실제 역할에 맞는 장비 모양(카메라, 산업용 컴퓨터, 서버 랙, 대시보드 모니터처럼)으로 그리게 한다
+- 한 장에 한 가지: 그 절의 흐름이나 장면 하나만. 요소는 3~8개. 같은 그림을 두 절에 되풀이하지 않는다
 - labels: 그림 안에 그대로 넣을 한글 이름표 2~10개, 각 10자 이내. 본문에서 쓴 용어와 같은 말을 쓴다(예: 엣지 장비, 중앙 서버, 결과만 전송). 요소마다 하나, 중요한 화살표에는 오가는 것의 이름
 - brief: 왼쪽에서 오른쪽(또는 위에서 아래) 순서로, 각 요소가 어떤 실제 장비 모양인지와 그 요소의 이름표, 화살표가 어디서 어디로 가고 무엇을 나르는지와 그 이름표를 적는다. labels의 이름표는 모두 brief에 그대로 나와야 한다. 데이터는 실선, 설정·명령처럼 되돌아오는 것은 점선으로 적는다
 - alt: 그림 아래에 붙는 한 문장 설명. 무엇이 무엇으로 이어지는지 쓴다
@@ -67,10 +75,10 @@ questions에 4지선다 3문제를 쓴다. 볼트에는 쓰지 않고, 봇이 Di
 - questions: 위 기준의 3문제
 - sources: 사실을 확인한 https 주소 1~8개
 - unverified: 확인하지 못한 내용 (없으면 빈 목록)
-- figure: 위 기준의 그림 설명(brief, labels, alt), 또는 null
+- figures: 위 기준의 그림 설명 2~4개 (section, brief, labels, alt)
 - 한국어로 쓴다
 
-{"$defs": {"ConceptFigure": {"additionalProperties": false, "description": "그림으로 보면 나은 날에만 내는 그림 설명. 그림은 교육팀원(Codex)이 그린다.", "properties": {"brief": {"maxLength": 1200, "minLength": 20, "title": "Brief", "type": "string"}, "labels": {"items": {"maxLength": 10, "minLength": 1, "type": "string"}, "maxItems": 10, "minItems": 2, "title": "Labels", "type": "array"}, "alt": {"maxLength": 150, "minLength": 5, "pattern": "^[^\\n]+$", "title": "Alt", "type": "string"}}, "required": ["brief", "labels", "alt"], "title": "ConceptFigure", "type": "object"}, "QuizQuestion": {"additionalProperties": false, "properties": {"prompt": {"maxLength": 500, "minLength": 5, "title": "Prompt", "type": "string"}, "options": {"items": {"maxLength": 200, "minLength": 1, "type": "string"}, "maxItems": 4, "minItems": 4, "title": "Options", "type": "array"}, "answer": {"enum": ["A", "B", "C", "D"], "title": "Answer", "type": "string"}, "explanation": {"maxLength": 800, "minLength": 1, "title": "Explanation", "type": "string"}}, "required": ["prompt", "options", "answer", "explanation"], "title": "QuizQuestion", "type": "object"}}, "additionalProperties": false, "properties": {"body": {"maxLength": 20000, "minLength": 200, "title": "Body", "type": "string"}, "questions": {"items": {"$ref": "#/$defs/QuizQuestion"}, "maxItems": 3, "minItems": 3, "title": "Questions", "type": "array"}, "sources": {"items": {"maxLength": 500, "pattern": "^https://\\S+$", "type": "string"}, "maxItems": 8, "minItems": 1, "title": "Sources", "type": "array"}, "unverified": {"items": {"maxLength": 200, "type": "string"}, "maxItems": 5, "title": "Unverified", "type": "array"}, "figure": {"anyOf": [{"$ref": "#/$defs/ConceptFigure"}, {"type": "null"}], "default": null}}, "required": ["body", "questions", "sources"], "title": "ConceptNote", "type": "object"}
+{"$defs": {"ConceptFigure": {"additionalProperties": false, "description": "노트의 한 절에 붙는 그림 설명. 그림은 교육팀원(Codex)이 그린다.", "properties": {"section": {"maxLength": 120, "pattern": "^#{2,3} [^\\n]+$", "title": "Section", "type": "string"}, "brief": {"maxLength": 1200, "minLength": 20, "title": "Brief", "type": "string"}, "labels": {"items": {"maxLength": 10, "minLength": 1, "type": "string"}, "maxItems": 10, "minItems": 2, "title": "Labels", "type": "array"}, "alt": {"maxLength": 150, "minLength": 5, "pattern": "^[^\\n]+$", "title": "Alt", "type": "string"}}, "required": ["section", "brief", "labels", "alt"], "title": "ConceptFigure", "type": "object"}, "QuizQuestion": {"additionalProperties": false, "properties": {"prompt": {"maxLength": 500, "minLength": 5, "title": "Prompt", "type": "string"}, "options": {"items": {"maxLength": 200, "minLength": 1, "type": "string"}, "maxItems": 4, "minItems": 4, "title": "Options", "type": "array"}, "answer": {"enum": ["A", "B", "C", "D"], "title": "Answer", "type": "string"}, "explanation": {"maxLength": 800, "minLength": 1, "title": "Explanation", "type": "string"}}, "required": ["prompt", "options", "answer", "explanation"], "title": "QuizQuestion", "type": "object"}}, "additionalProperties": false, "properties": {"body": {"maxLength": 20000, "minLength": 200, "title": "Body", "type": "string"}, "questions": {"items": {"$ref": "#/$defs/QuizQuestion"}, "maxItems": 3, "minItems": 3, "title": "Questions", "type": "array"}, "sources": {"items": {"maxLength": 500, "pattern": "^https://\\S+$", "type": "string"}, "maxItems": 8, "minItems": 1, "title": "Sources", "type": "array"}, "unverified": {"items": {"maxLength": 200, "type": "string"}, "maxItems": 5, "title": "Unverified", "type": "array"}, "figures": {"items": {"$ref": "#/$defs/ConceptFigure"}, "maxItems": 4, "minItems": 2, "title": "Figures", "type": "array"}}, "required": ["body", "questions", "sources", "figures"], "title": "ConceptNote", "type": "object"}
 
 ## 금지
 
