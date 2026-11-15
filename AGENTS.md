@@ -44,7 +44,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 | `../Byeolchae-Web/` | 별도 로컬 웹 프로젝트. 그 폴더에서 `.venv/bin/python -m byeolchae_web`으로 실행하며, 봇의 설정과 작업 기록을 읽어 회사 홈·팀원·조직도·업무 화면을 제공한다 | 분리 |
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
-| `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모) | 사용 중 |
+| `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모), launchd 설치(`install_launchd.sh`), 볼트 `.git`을 iCloud 밖 `~/.zerosync/vault.git`으로 옮기는 일회성 이전(`migrate_vault_git.sh`, 봇 Mac에서 실행) | 사용 중 |
 | `deploy/` | launchd 상시 실행 템플릿 (`com.zerosync.orchestrator.plist`) | 사용 중 |
 | `menubar/` | v1 Swift 메뉴바 앱 (`ZeroSync/`, `ZeroSync.xcodeproj`, 테스트 타깃) | 보류 |
 | `docs/` | 봇 자체 개발 문서 | 사용 중 |
