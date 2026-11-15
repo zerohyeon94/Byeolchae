@@ -16,7 +16,8 @@
 오늘 학습과 이번 주 줄만 DB 기준으로 다시 쓴다 (refresh_daily, 커밋하지 않는다).
 저녁에는 아침판(또는 Obsidian이 만든 빈 파일)을 하루 정리로
 다시 쓴다. 저녁판이 이미 있으면 다시 쓰지 않는다.
-저녁 Daily를 커밋한 뒤 볼트를 GitHub에 한 번 올린다.
+볼트는 아침판과 저녁판을 커밋한 뒤 GitHub에 올린다 (하루 두 번).
+iPad 읽기 앱이 GitHub에서 그날 노트를 아침에 받을 수 있게 한다. 낮 갱신은 올리지 않는다.
 """
 
 import json
@@ -138,9 +139,19 @@ class SecretaryDesk:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_morning(facts), encoding="utf-8")
         if self._vault is not None:
+            # 23:30 뒤~아침판 전에 누른 버튼은 어제 Daily를 고친다(refresh_daily).
+            # 그것도 함께 담는다
+            # shortcut: 바로 전날만 본다. 학습을 건너뛴 날 뒤의 늦은 수정은 담기지 않는다
+            yesterday = daily_path(day - timedelta(days=1))
+            paths = [path] + ([yesterday] if (self._root / yesterday).exists() else [])
             await self._vault.commit(
-                self._root, [path], f"docs(daily): {day.isoformat()} 아침", COMMIT_TRAILER
+                self._root, paths, f"docs(daily): {day.isoformat()} 아침", COMMIT_TRAILER
             )
+            # 아침 노트·그림·아침판을 올린다. 아침판은 알리지 않으므로
+            # 실패는 로그만 남기고 저녁에 함께 올린다
+            pushed = await self._vault.push(self._root)
+            if pushed.problem:
+                log.warning("아침 볼트 GitHub 올리기 못 함: %s", pushed.problem)
         return path
 
     async def run_evening(self, day: date) -> str:
@@ -165,7 +176,7 @@ class SecretaryDesk:
             await self._vault.commit(
                 self._root, [path], f"docs(daily): {day.isoformat()} 하루 정리", COMMIT_TRAILER
             )
-            # 하루의 마지막 볼트 쓰기 뒤에 한 번 GitHub에 올린다 (그날 노트·그림·Daily)
+            # 하루의 마지막 볼트 쓰기 뒤에 다시 올린다 (저녁 Daily, 아침에 못 올린 커밋)
             text += "\n" + _push_line(await self._vault.push(self._root))
         await self._notify(text, False)
         return text
