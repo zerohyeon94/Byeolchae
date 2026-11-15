@@ -620,7 +620,39 @@ def test_morning_writes_entry_daily_then_evening_replaces_it(tmp_path):
         "docs(daily): 2026-11-02 아침",
         "docs(daily): 2026-11-02 하루 정리",
     ]
+    assert vault.pushes == 2  # 아침판 뒤와 저녁판 뒤 (iPad 앱이 아침 노트를 GitHub에서 받는다)
     assert len(notes) == 1  # 아침판은 #비서에 알리지 않는다
+
+
+def test_morning_push_failure_keeps_morning_daily(tmp_path):
+    engine = FakeEngine(DailySummary(summary="요약"))
+    vault = FakeVault(push=VaultPush(problem="GitHub에 이 맥에 없는 커밋 1개가 있어 올리지 않았다"))
+    write_vault(tmp_path / "vault")
+
+    async def work(desk, repo, clock):
+        await seed(repo, clock)
+        return await desk.run_morning(DAY)
+
+    path, notes = run_desk(tmp_path, work, engine, vault, now=at(DAY, 7, 31))
+    # 올리지 못해도 아침판은 쓰고 커밋한다. 알리지 않고 저녁에 함께 올린다
+    assert (tmp_path / "vault" / path).exists()
+    assert len(vault.commits) == 1 and vault.pushes == 1
+    assert notes == []
+
+
+def test_morning_commit_includes_yesterday_daily_for_late_presses(tmp_path):
+    engine, vault = FakeEngine(DailySummary(summary="요약")), FakeVault()
+    write_vault(tmp_path / "vault")
+    yesterday = daily_path(DAY - timedelta(days=1))
+    (tmp_path / "vault" / yesterday).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "vault" / yesterday).write_text("어제 저녁판 + 23:30 뒤 낮 갱신", encoding="utf-8")
+
+    async def work(desk, repo, clock):
+        await seed(repo, clock)
+        return await desk.run_morning(DAY)
+
+    path, _ = run_desk(tmp_path, work, engine, vault, now=at(DAY, 7, 31))
+    assert vault.commits[0][0] == [path, yesterday]
 
 
 def test_morning_keeps_evening_daily_and_obsidian_empty_file_is_filled(tmp_path):
