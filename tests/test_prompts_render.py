@@ -286,6 +286,7 @@ def test_dept_chat_prompt_snapshot():
     )
     assert "`#비서`" in prompt and "카테고리 추가는 어떻게 결정된 건가요?" in prompt
     assert "`beta`: Beta · 기획팀장" in prompt and "최대 3명" in prompt
+    assert "thread_title: 여러 직원이" in prompt
     assert "`/repos/gagaessi`" in prompt and "작업 19" in prompt and "오늘 보고 고마워요" in prompt
     check_snapshot("dept_chat_theta", prompt)
 
@@ -301,8 +302,10 @@ def test_dept_chat_handoff_prompt_snapshot():
         original="카테고리 추가는 어떻게 결정된 건가요?",
         # 넘겨받은 직원에게는 넘길 사람 목록을 주지 않는다
         candidates=[("alpha", "Alpha · 개발팀장")],
+        in_thread=True,
     )
     assert "Theta · 비서팀장가 Zero의 질문 중" in prompt
     assert "카테고리 추가는 어떻게 결정된 건가요?" in prompt and "왜 줄였나요?" in prompt
     assert "다시 넘기지 않는다" in prompt and "`alpha`" not in prompt
+    assert "thread_title: 여러 직원이" not in prompt  # 스레드를 다시 열지 않는다
     check_snapshot("dept_chat_handoff_beta", prompt)

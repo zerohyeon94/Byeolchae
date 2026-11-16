@@ -634,11 +634,13 @@ def dept_chat_prompt(
     candidates: Sequence[tuple[str, str]] = (),
     handoff_from: str = "",
     original: str = "",
+    in_thread: bool = False,
 ) -> str:
     """#비서·#교육 대화의 답 (ADR-013). folders는 (설명, 경로), records는 봇이 모은 작업 기록.
 
     candidates(이름 키, 표시 이름)가 있으면 넘기기를 안내한다. handoff_from이 있으면
     그 직원이 넘긴 질문에 답하는 것이고, 다시 넘기지 않는다.
+    in_thread면 이미 회의 스레드 안이라 스레드를 다시 열지 않는다.
     """
     folder_lines = "\n".join(f"- {label}: `{path}`" for label, path in folders)
     guide = list(DEPT_GUIDE)
@@ -659,6 +661,12 @@ def dept_chat_prompt(
                 "- 넘길 수 있는 직원:",
                 *(f"  - `{key}`: {name}" for key, name in candidates),
             ]
+        if not in_thread:
+            guide.append(
+                "- thread_title: 여러 직원이 함께 보거나 몇 번 주고받아야 하는 회의 같은 질문이면 "
+                "스레드 제목(80자 이내)을 적는다. 봇이 스레드를 열어 그 안에서 이어 간다. "
+                "간단한 질문은 null"
+            )
     return _template("dept_chat").substitute(
         _persona(persona, hiring_guide=False),
         channel=channel,

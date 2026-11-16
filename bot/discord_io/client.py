@@ -161,6 +161,7 @@ class ZeroSyncBot(discord.Client):
             chat_webhook=self._chat_webhook,
             forum_webhook=self._forum_webhook,
             dept_webhook=self._dept_webhook,
+            dept_channel=self._dept_channel,
         )
         self.engine = Engine(
             repo,
@@ -605,6 +606,12 @@ class ZeroSyncBot(discord.Client):
                 return self._webhooks[chat_id]
         raise RuntimeError(f"{project}의 채팅 채널이 설정되지 않았다")
 
+    async def _dept_channel(self, dept: str) -> Any:
+        for dept_id, key in self.depts.items():
+            if key == dept:
+                return self.get_channel(dept_id) or await self.fetch_channel(dept_id)
+        raise RuntimeError(f"{dept} 부서 채널이 설정되지 않았다")
+
     async def _dept_webhook(self, dept: str) -> discord.Webhook:
         for dept_id, key in self.depts.items():
             if key == dept:
@@ -650,9 +657,15 @@ class ZeroSyncBot(discord.Client):
             return
         if kind is MessageKind.DEPT:
             text = message.content.strip() or EMPTY_POST
+            # 스레드 안이면 부모 채널이 부서, 채널 ID가 회의 스레드다
+            in_thread = incoming.parent_id is not None
+            dept = self.depts[incoming.parent_id if in_thread else incoming.channel_id]
             self.spawn(
                 self.dept_chat.on_message(
-                    self.depts[incoming.channel_id], text, message_id=str(message.id)
+                    dept,
+                    text,
+                    message_id=str(message.id),
+                    thread=str(incoming.channel_id) if in_thread else None,
                 ),
                 f"부서 대화 {message.id}",
             )

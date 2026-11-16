@@ -52,6 +52,8 @@ def classify(
         return MessageKind.CHAT
     if message.parent_id is None and message.channel_id in dept_ids:
         return MessageKind.DEPT
+    if message.parent_id in dept_ids:  # 부서 채널의 회의 스레드 (ADR-013)
+        return MessageKind.DEPT
     if message.parent_id is None or message.parent_id not in forum_ids:
         return MessageKind.IGNORE
     # 포럼 게시글의 첫 메시지 ID는 스레드 ID와 같다

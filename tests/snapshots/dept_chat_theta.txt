@@ -38,12 +38,13 @@ Zero의 질문:
 - 넘길 수 있는 직원:
   - `beta`: Beta · 기획팀장
   - `alpha`: Alpha · 개발팀장
+- thread_title: 여러 직원이 함께 보거나 몇 번 주고받아야 하는 회의 같은 질문이면 스레드 제목(80자 이내)을 적는다. 봇이 스레드를 열어 그 안에서 이어 간다. 간단한 질문은 null
 
 ## 출력
 
 아래 JSON 스키마에 맞는 JSON 객체 하나만 출력한다. 앞뒤에 설명 문장을 붙이지 않는다. 한국어로 쓴다.
 
-{"$defs": {"Handoff": {"additionalProperties": false, "properties": {"agent": {"pattern": "^[a-z][a-z0-9]{0,19}$", "title": "Agent", "type": "string"}, "question": {"maxLength": 500, "minLength": 1, "title": "Question", "type": "string"}}, "required": ["agent", "question"], "title": "Handoff", "type": "object"}}, "additionalProperties": false, "properties": {"answer": {"maxLength": 1500, "minLength": 1, "title": "Answer", "type": "string"}, "handoff": {"items": {"$ref": "#/$defs/Handoff"}, "maxItems": 3, "title": "Handoff", "type": "array"}}, "required": ["answer"], "title": "DeptAnswer", "type": "object"}
+{"$defs": {"Handoff": {"additionalProperties": false, "properties": {"agent": {"pattern": "^[a-z][a-z0-9]{0,19}$", "title": "Agent", "type": "string"}, "question": {"maxLength": 500, "minLength": 1, "title": "Question", "type": "string"}}, "required": ["agent", "question"], "title": "Handoff", "type": "object"}}, "additionalProperties": false, "properties": {"answer": {"maxLength": 1500, "minLength": 1, "title": "Answer", "type": "string"}, "handoff": {"items": {"$ref": "#/$defs/Handoff"}, "maxItems": 3, "title": "Handoff", "type": "array"}, "thread_title": {"anyOf": [{"maxLength": 80, "minLength": 1, "pattern": "^[^\\n]+$", "type": "string"}, {"type": "null"}], "default": null, "title": "Thread Title"}}, "required": ["answer"], "title": "DeptAnswer", "type": "object"}
 
 ## 금지
 

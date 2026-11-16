@@ -29,3 +29,13 @@ class DeptAnswer(BaseModel):
 
     answer: AnswerText
     handoff: list[Handoff] = Field(default_factory=list, max_length=MAX_HANDOFF)
+    # 회의가 필요하면 스레드 제목. 봇이 Zero 메시지에 스레드를 열고 그 안에서 이어 간다
+    thread_title: (
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True, min_length=1, max_length=80, pattern=r"^[^\n]+$"
+            ),
+        ]
+        | None
+    ) = None

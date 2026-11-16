@@ -248,3 +248,51 @@ def test_handed_off_agent_cannot_hand_off_again():
         assert [p.author for p in h.chat.depts] == ["theta", "beta"]
         assert h.chat.depts[-1].text == "답합니다"
         assert len(h.claude.requests) == 3  # alpha는 부르지 않는다
+
+
+# 회의 스레드 (ADR-013)
+
+
+def test_meeting_question_opens_thread_and_continues_there():
+    handoff = [{"agent": "beta", "question": "범위는?"}]
+    first = reply("회의로 정리합니다", thread_title="카테고리 회의", handoff=handoff)
+
+    @scenario(claude=[first, reply("Beta 답"), reply("스레드 안 답")])
+    async def _(h):
+        await h.dept.on_message("secretary", "카테고리 건 같이 봐요", message_id="m1")
+        assert h.chat.threads == [("secretary", "m1", "카테고리 회의")]
+        assert h.chat.depts == []  # 채널에는 올리지 않는다
+        thread = "thread-secretary-1"
+        assert [(p.thread, p.author, p.mention) for p in h.chat.posts] == [
+            (thread, "theta", False),
+            (thread, "beta", True),
+        ]
+        key = f"secretary:{thread}"
+        turns = await h.repo.recent_chat_turns(key)
+        assert [t["actor"] for t in turns] == ["zero", "theta", "beta"]
+        assert await h.repo.recent_chat_turns("secretary") == []
+
+        # 스레드 안의 다음 메시지는 그 스레드 기록으로 이어 간다
+        await h.dept.on_message("secretary", "정리해 줘", message_id="m2", thread=thread)
+        follow = h.claude.requests[-1].prompt
+        assert "카테고리 건 같이 봐요" in follow and "Beta 답" in follow
+        assert "thread_title: 여러 직원이" not in follow  # 이미 스레드 안
+        assert h.chat.posts[-1].thread == thread and h.chat.posts[-1].mention is True
+        assert len(await h.repo.recent_chat_turns(key)) == 5
+
+
+def test_thread_open_failure_falls_back_to_channel():
+    @scenario(claude=[reply("답", thread_title="회의")])
+    async def _(h):
+        async def broken(*args):
+            raise RuntimeError("권한 없음")
+
+        h.chat.open_thread = broken
+        await h.dept.on_message("secretary", "질문", message_id="m1")
+        (post,) = h.chat.depts
+        assert post.author == "theta" and post.text == "답"
+        assert any("권한 없음" in text for text, _ in h.chat.ops)
+        assert [t["actor"] for t in await h.repo.recent_chat_turns("secretary")] == [
+            "zero",
+            "theta",
+        ]

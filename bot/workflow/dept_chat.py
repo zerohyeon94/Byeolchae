@@ -83,6 +83,18 @@ async def _no_handoff(answer: DeptAnswer) -> list[str]:
     )
 
 
+@dataclass(frozen=True)
+class _Place:
+    """답이 올라갈 곳. 스레드면 기록 키도 스레드마다 따로 둔다."""
+
+    spec: Dept
+    thread: str | None
+
+    @property
+    def key(self) -> str:
+        return self.spec.key if self.thread is None else f"{self.spec.key}:{self.thread}"
+
+
 class DeptChat:
     def __init__(
         self,
@@ -103,10 +115,18 @@ class DeptChat:
         self._workdir = workdir  # 실행 폴더. 파일은 read_dirs로 읽는다
         self._folders = tuple(folders)
 
-    async def on_message(self, dept: str, text: str, *, message_id: str | None = None) -> None:
+    async def on_message(
+        self,
+        dept: str,
+        text: str,
+        *,
+        message_id: str | None = None,
+        thread: str | None = None,
+    ) -> None:
+        """thread가 있으면 그 부서 채널의 스레드(회의) 안 메시지다."""
         spec = self._depts[dept]
-        history = await self._history(spec.key)
-        await self._repo.add_chat_turn(spec.key, Actor.ZERO, "message", {"text": text}, message_id)
+        place = _Place(spec, thread)
+        history = await self._history(place.key)
         agent, question = parse_target(self._org, text, spec.agent)
         question = question or text
         records = await self._records()
@@ -121,10 +141,16 @@ class DeptChat:
             records,
             verify=self._handoff_problems(agent),
             candidates=candidates,
+            in_thread=thread is not None,
         )
+        title = answer.result.thread_title if answer.result is not None else None
+        if title and thread is None and message_id is not None:
+            place = await self._open_thread(spec, message_id, title)
+        # Zero 메시지는 답이 올라갈 곳(채널 또는 새 스레드)의 기록에 남긴다
+        await self._repo.add_chat_turn(place.key, Actor.ZERO, "message", {"text": text}, message_id)
         handoffs = answer.result.handoff if answer.result is not None else []
         last = should_mention(Moment.OPINIONS_READY)
-        await self._publish(spec, answer, mention=last and not handoffs)
+        await self._publish(place, answer, mention=last and not handoffs)
         if not handoffs:
             return
         # 넘겨받은 직원은 서로의 답을 보지 않고 독립 작성한다 (운영 규약 1.6)
@@ -145,12 +171,26 @@ class DeptChat:
                     verify=_no_handoff,
                     handoff_from=passer,
                     original=question,
+                    in_thread=True,
                 )
                 for item in handoffs
             )
         )
         for index, reply in enumerate(answers):
-            await self._publish(spec, reply, mention=last and index == len(answers) - 1)
+            await self._publish(place, reply, mention=last and index == len(answers) - 1)
+
+    async def _open_thread(self, spec: Dept, message_id: str, title: str) -> "_Place":
+        """Zero 메시지에 스레드를 연다. 못 열면 채널에 그대로 답하고 운영 채널에 알린다."""
+        try:
+            thread = await self._chat.open_thread(spec.key, message_id, title)
+        except Exception as error:
+            log.exception("부서 스레드 열기 실패 (%s)", spec.key)
+            await self._chat.notify_ops(
+                f"[{spec.channel}] 회의 스레드를 열지 못해 채널에 답한다: {error}",
+                mention=should_mention(Moment.BOT_ERROR),
+            )
+            return _Place(spec, None)
+        return _Place(spec, thread)
 
     async def _ask(
         self,
@@ -201,7 +241,8 @@ class DeptChat:
 
         return check
 
-    async def _publish(self, spec: Dept, answer: Any, *, mention: bool) -> None:
+    async def _publish(self, place: "_Place", answer: Any, *, mention: bool) -> None:
+        spec = place.spec
         name = self._org.display(answer.agent)
         if answer.result is not None:
             author, text = answer.agent, render_answer(self._org, answer.result)
@@ -220,9 +261,12 @@ class DeptChat:
                     f"로그: {answer.log_path}",
                     mention=should_mention(Moment.BOT_ERROR),
                 )
-        message_id = await self._chat.dept_chat(spec.key, author, text, mention=mention)
+        if place.thread is None:
+            message_id = await self._chat.dept_chat(spec.key, author, text, mention=mention)
+        else:
+            message_id = await self._chat.post(place.thread, author, text, mention=mention)
         actor = Actor.BOT if author == "bot" else author
-        await self._repo.add_chat_turn(spec.key, actor, kind, payload, message_id)
+        await self._repo.add_chat_turn(place.key, actor, kind, payload, message_id)
 
     async def _history(self, key: str) -> list[HistoryEntry]:
         entries = []

@@ -81,6 +81,7 @@ def message(**overrides):
         ({"parent_id": None, "channel_id": DEPT}, MessageKind.DEPT),  # #비서·#교육 (ADR-013)
         ({"parent_id": None, "channel_id": DEPT, "author_id": 7}, MessageKind.IGNORE),
         ({"parent_id": None, "channel_id": DEPT, "from_bot": True}, MessageKind.IGNORE),
+        ({"parent_id": DEPT, "channel_id": 801}, MessageKind.DEPT),  # 부서 채널의 회의 스레드
     ],
 )
 def test_classify(overrides, expected):
@@ -253,6 +254,34 @@ def test_dept_chat_posts_to_department_webhook():
     assert asked == ["secretary"]
     assert content == f"<@{ZERO}>\n답" and kwargs["username"] == "[Beta · 기획팀장]"
     assert "thread" not in kwargs and kwargs["silent"] is False
+
+
+def test_open_thread_on_zero_message():
+    created = []
+
+    class Message:
+        async def create_thread(self, **kwargs):
+            created.append(kwargs)
+            return SimpleNamespace(id=777)
+
+    class Channel:
+        def get_partial_message(self, message_id):
+            created.append(message_id)
+            return Message()
+
+    async def dept_channel(dept):
+        assert dept == "secretary"
+        return Channel()
+
+    async def unused(*args):
+        raise AssertionError("쓰지 않는다")
+
+    chat = DiscordChat(
+        zero_user_id=ZERO, webhook_for=unused, ops_channel=unused, dept_channel=dept_channel
+    )
+    assert run(chat.open_thread("secretary", "901", "가" * 120)) == "777"
+    message_id, kwargs = created
+    assert message_id == 901 and kwargs["name"] == "가" * 100
 
 
 def test_notify_ops():
@@ -436,15 +465,20 @@ def test_department_message_reaches_dept_chat(dept_bot):
     calls = []
 
     class Dept:
-        async def on_message(self, dept, text, *, message_id=None):
-            calls.append((dept, text, message_id))
+        async def on_message(self, dept, text, *, message_id=None, thread=None):
+            calls.append((dept, text, message_id, thread))
 
     bot.dept_chat = Dept()
 
-    def dept_message(message_id, author_id=ZERO):
+    def dept_message(message_id, author_id=ZERO, thread=None):
+        channel = (
+            SimpleNamespace(id=DEPT, name="비서")
+            if thread is None
+            else SimpleNamespace(id=thread, parent_id=DEPT, name="회의")
+        )
         return SimpleNamespace(
             id=message_id,
-            channel=SimpleNamespace(id=DEPT, name="비서"),
+            channel=channel,
             author=SimpleNamespace(id=author_id, bot=False),
             content="  이건 어떻게 결정됐나요?  ",
             webhook_id=None,
@@ -453,10 +487,14 @@ def test_department_message_reaches_dept_chat(dept_bot):
     async def main():
         await bot.on_message(dept_message(901))
         await bot.on_message(dept_message(902, author_id=7))
+        await bot.on_message(dept_message(903, thread=801))
         await drain(bot)
 
     run(main())
-    assert calls == [("secretary", "이건 어떻게 결정됐나요?", "901")]
+    assert calls == [
+        ("secretary", "이건 어떻게 결정됐나요?", "901", None),
+        ("secretary", "이건 어떻게 결정됐나요?", "903", "801"),
+    ]
     assert bot.calls == []
 
 
