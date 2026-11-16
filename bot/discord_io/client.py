@@ -52,6 +52,7 @@ from bot.scheduler import (
 from bot.schemas import QuizQuestion
 from bot.secretary.daily import daily_path
 from bot.store import Repository
+from bot.workflow.dept_chat import Dept, DeptChat
 from bot.workflow.education import EducationDesk
 from bot.workflow.engine import PAUSE_KEY, Engine, ProjectContext
 from bot.workflow.gate import AgentGate
@@ -87,6 +88,32 @@ def project_contexts(config: Config) -> dict[str, ProjectContext]:
     }
 
 
+def dept_specs(config: Config) -> dict[str, Dept]:
+    """설정의 비서·교육 부서를 대화 상대로 바꾼다 (ADR-013)."""
+    specs = {}
+    if config.secretary is not None:
+        specs["secretary"] = Dept("secretary", "비서", config.secretary.agent)
+    if config.education is not None:
+        specs["education"] = Dept("education", "교육", config.education.agent)
+    return specs
+
+
+def dept_folders(config: Config) -> list[tuple[str, Path]]:
+    """부서 대화에서 읽기 전용으로 여는 폴더. 같은 폴더는 한 번만 넣는다."""
+    folders = []
+    if config.secretary is not None:
+        folders.append(("비서 볼트 (Daily)", config.secretary.vault))
+    if config.education is not None:
+        folders.append(("교육 볼트 (개념 노트, 대기열)", config.education.vault))
+    folders.append(("제품 볼트 (기능 정의서, 결정 노트)", config.paths.vault_projects))
+    for key, project in config.projects.items():
+        folders.append((f"{key} 저장소 (docs/기획·디자인·설계, git 기록)", project.repo))
+    unique: dict[Path, str] = {}
+    for label, path in folders:
+        unique.setdefault(path, label)
+    return [(label, path) for path, label in unique.items()]
+
+
 class ZeroSyncBot(discord.Client):
     def __init__(
         self,
@@ -118,6 +145,12 @@ class ZeroSyncBot(discord.Client):
             for key, project in config.projects.items()
             if project.chat_channel_id
         }
+        # 부서 채널 (ADR-013). 채널 ID가 있는 부서만 대화를 연다
+        self.depts: dict[int, str] = {
+            int(desk.channel_id): key
+            for key, desk in (("secretary", config.secretary), ("education", config.education))
+            if desk is not None and desk.channel_id
+        }
         self.tree = app_commands.CommandTree(self)
         self.chat = DiscordChat(
             zero_user_id=self.zero_user_id,
@@ -127,6 +160,8 @@ class ZeroSyncBot(discord.Client):
             report_channel=self._report_channel if self.report_channel_id else None,
             chat_webhook=self._chat_webhook,
             forum_webhook=self._forum_webhook,
+            dept_webhook=self._dept_webhook,
+            dept_channel=self._dept_channel,
         )
         self.engine = Engine(
             repo,
@@ -180,6 +215,15 @@ class ZeroSyncBot(discord.Client):
                 codex_dir=config.secretary.codex_sessions,
                 workdir=config.paths.runs.parent / "secretary",
             )
+        self.dept_chat = DeptChat(
+            self.engine,
+            self.chat,
+            repo,
+            config.org,
+            dept_specs(config),
+            workdir=config.paths.runs.parent / "dept",
+            folders=dept_folders(config),
+        )
         self._webhooks: dict[int, discord.Webhook] = {}
         self._background: set[asyncio.Task[None]] = set()
         self._started = False
@@ -527,6 +571,16 @@ class ZeroSyncBot(discord.Client):
             if not isinstance(channel, discord.TextChannel):
                 raise RuntimeError(f"{project}의 chat_channel_id가 텍스트 채널이 아니다")
             self._webhooks[chat_id] = await self._own_webhook(channel, project)
+        for dept_id, dept in self.depts.items():
+            try:
+                channel = self.get_channel(dept_id) or await self.fetch_channel(dept_id)
+            except (discord.NotFound, discord.Forbidden) as error:
+                raise RuntimeError(
+                    f"{dept}.channel_id 채널을 찾을 수 없거나 볼 권한이 없다"
+                ) from error
+            if not isinstance(channel, discord.TextChannel):
+                raise RuntimeError(f"{dept}.channel_id가 텍스트 채널이 아니다")
+            self._webhooks[dept_id] = await self._own_webhook(channel, dept)
 
     async def _own_webhook(self, channel: Any, project: str) -> discord.Webhook:
         assert self.user is not None
@@ -551,6 +605,18 @@ class ZeroSyncBot(discord.Client):
             if key == project:
                 return self._webhooks[chat_id]
         raise RuntimeError(f"{project}의 채팅 채널이 설정되지 않았다")
+
+    async def _dept_channel(self, dept: str) -> Any:
+        for dept_id, key in self.depts.items():
+            if key == dept:
+                return self.get_channel(dept_id) or await self.fetch_channel(dept_id)
+        raise RuntimeError(f"{dept} 부서 채널이 설정되지 않았다")
+
+    async def _dept_webhook(self, dept: str) -> discord.Webhook:
+        for dept_id, key in self.depts.items():
+            if key == dept:
+                return self._webhooks[dept_id]
+        raise RuntimeError(f"{dept} 부서 채널이 설정되지 않았다")
 
     async def _forum_webhook(self, project: str) -> discord.Webhook:
         for forum_id, key in self.forums.items():
@@ -581,9 +647,28 @@ class ZeroSyncBot(discord.Client):
             parent_id=getattr(message.channel, "parent_id", None),
         )
         kind = classify(
-            incoming, zero_user_id=self.zero_user_id, forum_ids=self.forums, chat_ids=self.chats
+            incoming,
+            zero_user_id=self.zero_user_id,
+            forum_ids=self.forums,
+            chat_ids=self.chats,
+            dept_ids=self.depts,
         )
         if kind is MessageKind.IGNORE:
+            return
+        if kind is MessageKind.DEPT:
+            text = message.content.strip() or EMPTY_POST
+            # 스레드 안이면 부모 채널이 부서, 채널 ID가 회의 스레드다
+            in_thread = incoming.parent_id is not None
+            dept = self.depts[incoming.parent_id if in_thread else incoming.channel_id]
+            self.spawn(
+                self.dept_chat.on_message(
+                    dept,
+                    text,
+                    message_id=str(message.id),
+                    thread=str(incoming.channel_id) if in_thread else None,
+                ),
+                f"부서 대화 {message.id}",
+            )
             return
         if kind is MessageKind.CHAT:
             project = self.chats[incoming.channel_id]

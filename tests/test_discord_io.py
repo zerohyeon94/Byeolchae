@@ -33,6 +33,7 @@ ZERO = 42
 FORUM = 100
 OPS = 300
 CHAT = 600
+DEPT = 800
 
 
 def run(coro):
@@ -77,10 +78,20 @@ def message(**overrides):
         ({"parent_id": None}, MessageKind.IGNORE),  # 스레드가 아닌 채널
         ({"parent_id": None, "channel_id": CHAT}, MessageKind.CHAT),  # 제품 채팅 채널
         ({"parent_id": None, "channel_id": CHAT, "author_id": 7}, MessageKind.IGNORE),
+        ({"parent_id": None, "channel_id": DEPT}, MessageKind.DEPT),  # #비서·#교육 (ADR-013)
+        ({"parent_id": None, "channel_id": DEPT, "author_id": 7}, MessageKind.IGNORE),
+        ({"parent_id": None, "channel_id": DEPT, "from_bot": True}, MessageKind.IGNORE),
+        ({"parent_id": DEPT, "channel_id": 801}, MessageKind.DEPT),  # 부서 채널의 회의 스레드
     ],
 )
 def test_classify(overrides, expected):
-    kind = classify(message(**overrides), zero_user_id=ZERO, forum_ids={FORUM}, chat_ids={CHAT})
+    kind = classify(
+        message(**overrides),
+        zero_user_id=ZERO,
+        forum_ids={FORUM},
+        chat_ids={CHAT},
+        dept_ids={DEPT},
+    )
     assert kind is expected
 
 
@@ -224,6 +235,55 @@ def test_send_attaches_image_files_on_last_chunk(tmp_path):
     assert last["silent"] is True
 
 
+def test_dept_chat_posts_to_department_webhook():
+    sender = FakeSender()
+    asked = []
+
+    async def dept_webhook(dept):
+        asked.append(dept)
+        return sender
+
+    async def unused(*args):
+        raise AssertionError("쓰지 않는다")
+
+    chat = DiscordChat(
+        zero_user_id=ZERO, webhook_for=unused, ops_channel=unused, dept_webhook=dept_webhook
+    )
+    assert run(chat.dept_chat("secretary", "beta", "답", mention=True)) == "1001"
+    ((content, kwargs),) = sender.calls
+    assert asked == ["secretary"]
+    assert content == f"<@{ZERO}>\n답" and kwargs["username"] == "[Beta · 기획팀장]"
+    assert "thread" not in kwargs and kwargs["silent"] is False
+
+
+def test_open_thread_on_zero_message():
+    created = []
+
+    class Message:
+        async def create_thread(self, **kwargs):
+            created.append(kwargs)
+            return SimpleNamespace(id=777)
+
+    class Channel:
+        def get_partial_message(self, message_id):
+            created.append(message_id)
+            return Message()
+
+    async def dept_channel(dept):
+        assert dept == "secretary"
+        return Channel()
+
+    async def unused(*args):
+        raise AssertionError("쓰지 않는다")
+
+    chat = DiscordChat(
+        zero_user_id=ZERO, webhook_for=unused, ops_channel=unused, dept_channel=dept_channel
+    )
+    assert run(chat.open_thread("secretary", "901", "가" * 120)) == "777"
+    message_id, kwargs = created
+    assert message_id == 901 and kwargs["name"] == "가" * 100
+
+
 def test_notify_ops():
     chat, _, ops, _ = make_chat()
     run(chat.notify_ops("오류", mention=True))
@@ -275,6 +335,16 @@ def test_render_status_and_ping():
 
 @pytest.fixture
 def bot(tmp_path):
+    return make_bot(tmp_path)
+
+
+@pytest.fixture
+def dept_bot(tmp_path):
+    # #비서 채널이 있는 봇 (ADR-013)
+    return make_bot(tmp_path, f'secretary:\n  vault: /svault\n  channel_id: "{DEPT}"\n')
+
+
+def make_bot(tmp_path, extra=""):
     projects = tmp_path / "projects.yaml"
     projects.write_text(
         "projects:\n"
@@ -285,7 +355,7 @@ def bot(tmp_path):
         "    test: swift test\n"
         f'    chat_channel_id: "{CHAT}"\n'
         "    vault_dir: d\n    vault_hub: h.md\n    vault_tag: brain/g\n    vault_slug: g\n"
-        "paths:\n  vault_projects: /vault\n  company: /nonexistent/zerosync-company\n",
+        "paths:\n  vault_projects: /vault\n  company: /nonexistent/zerosync-company\n" + extra,
         encoding="utf-8",
     )
     environ = {
@@ -388,6 +458,53 @@ def test_chat_message_reaches_engine(bot):
 
     run(main())
     assert bot.calls == [("chat", "gagaessi", "배너 어때?", "900")]
+
+
+def test_department_message_reaches_dept_chat(dept_bot):
+    bot = dept_bot
+    calls = []
+
+    class Dept:
+        async def on_message(self, dept, text, *, message_id=None, thread=None):
+            calls.append((dept, text, message_id, thread))
+
+    bot.dept_chat = Dept()
+
+    def dept_message(message_id, author_id=ZERO, thread=None):
+        channel = (
+            SimpleNamespace(id=DEPT, name="비서")
+            if thread is None
+            else SimpleNamespace(id=thread, parent_id=DEPT, name="회의")
+        )
+        return SimpleNamespace(
+            id=message_id,
+            channel=channel,
+            author=SimpleNamespace(id=author_id, bot=False),
+            content="  이건 어떻게 결정됐나요?  ",
+            webhook_id=None,
+        )
+
+    async def main():
+        await bot.on_message(dept_message(901))
+        await bot.on_message(dept_message(902, author_id=7))
+        await bot.on_message(dept_message(903, thread=801))
+        await drain(bot)
+
+    run(main())
+    assert calls == [
+        ("secretary", "이건 어떻게 결정됐나요?", "901", None),
+        ("secretary", "이건 어떻게 결정됐나요?", "903", "801"),
+    ]
+    assert bot.calls == []
+
+
+def test_dept_folders_include_vaults_and_repos_once(dept_bot):
+    bot = dept_bot
+    from bot.discord_io.client import dept_folders, dept_specs
+
+    folders = dept_folders(bot.config)
+    assert [str(path) for _, path in folders] == ["/svault", "/vault", "/repo"]
+    assert list(dept_specs(bot.config)) == ["secretary"]
 
 
 def test_chat_commands_start_work(bot):

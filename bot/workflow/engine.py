@@ -674,6 +674,7 @@ class Engine(WorkStages):
         model: type[M],
         cwd: Path,
         verify: Verify | None = None,
+        read_dirs: Sequence[Path] = (),
     ) -> _Answer[M]:
         """작업(포럼 포스트) 없이 에이전트를 부른다. 교육 Daily처럼 제품 밖의 일에 쓴다 (ADR-009).
 
@@ -682,7 +683,14 @@ class Engine(WorkStages):
         """
         prompt = build_prompt(await self._persona(agent))
         return await self._ask(
-            ChatScope(scope_name), agent, stage, prompt, model=model, cwd=cwd, verify=verify
+            ChatScope(scope_name),
+            agent,
+            stage,
+            prompt,
+            model=model,
+            cwd=cwd,
+            verify=verify,
+            read_dirs=tuple(read_dirs),
         )
 
     async def _ask(
@@ -698,6 +706,7 @@ class Engine(WorkStages):
         context: dict[str, Any] | None = None,
         resume: str | None = None,
         verify: Verify | None = None,
+        read_dirs: tuple[Path, ...] = (),
     ) -> _Answer[M]:
         """에이전트를 부르고 스키마로 검증한다.
 
@@ -716,7 +725,9 @@ class Engine(WorkStages):
                 prompt += "\n\n## 프로젝트 담당자에게 받은 보고 (참고 기록)\n\n" + "\n\n".join(
                     lines
                 )
-        call = dict(model=model, mode=mode, cwd=cwd, context=context, verify=verify)
+        call = dict(
+            model=model, mode=mode, cwd=cwd, context=context, verify=verify, read_dirs=read_dirs
+        )
         answer = await self._attempt(scope, agent, stage, prompt, resume=resume, **call)
         if answer.result is None and not answer.failed_to_run:
             retry = with_format_error(prompt, answer.error)
@@ -879,6 +890,7 @@ class Engine(WorkStages):
         context: dict[str, Any] | None,
         resume: str | None,
         verify: Verify | None,
+        read_dirs: tuple[Path, ...] = (),
     ) -> tuple[_Answer[M], bool]:
         """CLI를 한 번 실행하고 검증한다. 두 번째 값은 사용량 한도로 실패했는지."""
         prefix = f"t{scope.id}" if scope.id is not None else f"c-{scope.project}"
@@ -903,6 +915,7 @@ class Engine(WorkStages):
             resume_session=resume if engine == "claude" else None,
             output_schema=model.model_json_schema(),
             model=self._org.model(agent, stage),
+            read_dirs=read_dirs,
         )
         try:
             result = await self._runner(agent).run(request)

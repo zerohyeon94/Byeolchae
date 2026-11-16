@@ -20,6 +20,7 @@ from bot.schemas import (
     ConceptImage,
     ConceptNote,
     DailySummary,
+    DeptAnswer,
     DesignSummary,
     DiagnosisReport,
     DocSyncProposal,
@@ -31,6 +32,7 @@ from bot.schemas import (
     UiDesignSummary,
     WeeklyReview,
 )
+from bot.schemas.dept import MAX_HANDOFF
 from bot.schemas.education import QUIZ_MAX, QUIZ_MIN
 from bot.schemas.project_report import ProjectReport
 
@@ -610,4 +612,68 @@ def project_report_prompt(
         subject=subject,
         facts=facts,
         schema=_schema(ProjectReport),
+    )
+
+
+DEPT_GUIDE = (
+    "- answer: Zero의 질문에 대한 답. 1,500자 이내. 결론을 먼저 쓰고 근거(파일 경로, 작업 번호, "
+    "날짜)를 붙인다",
+    "- 자료에서 확인한 것만 쓴다. 확인하지 못한 것은 모른다고 쓰고 어디를 보면 되는지 적는다",
+    "- 칭찬이나 훈계 없이 사실과 다음 행동을 쓴다",
+)
+
+
+def dept_chat_prompt(
+    persona: Persona,
+    *,
+    channel: str,
+    question: str,
+    folders: Sequence[tuple[str, str]],
+    records: str,
+    history: Sequence[HistoryEntry] = (),
+    candidates: Sequence[tuple[str, str]] = (),
+    handoff_from: str = "",
+    original: str = "",
+    in_thread: bool = False,
+) -> str:
+    """#비서·#교육 대화의 답 (ADR-013). folders는 (설명, 경로), records는 봇이 모은 작업 기록.
+
+    candidates(이름 키, 표시 이름)가 있으면 넘기기를 안내한다. handoff_from이 있으면
+    그 직원이 넘긴 질문에 답하는 것이고, 다시 넘기지 않는다.
+    in_thread면 이미 회의 스레드 안이라 스레드를 다시 열지 않는다.
+    """
+    folder_lines = "\n".join(f"- {label}: `{path}`" for label, path in folders)
+    guide = list(DEPT_GUIDE)
+    if handoff_from:
+        request = (
+            f"{handoff_from}가 Zero의 질문 중 네가 답할 부분을 넘겼다. 그 질문에 답한다.\n\n"
+            f"Zero의 원래 질문:\n{original.strip()}\n\n넘겨받은 질문:\n{question.strip()}"
+        )
+        guide.append("- handoff는 빈 목록으로 둔다. 넘겨받은 질문은 다시 넘기지 않는다")
+    else:
+        request = f"Zero의 질문에 답한다.\n\nZero의 질문:\n{question.strip()}"
+        if candidates:
+            guide += [
+                f"- handoff: 다른 직원이 답해야 할 질문이면 담당자 이름 키와 질문을 적는다. "
+                f"최대 {MAX_HANDOFF}명. 봇이 바로 그 직원을 불러 답을 이어서 올린다",
+                "- 넘길 때도 answer에는 지금 아는 것과 누구에게 무엇을 넘기는지 쓴다. "
+                "직접 답할 수 있으면 넘기지 않고 빈 목록으로 둔다",
+                "- 넘길 수 있는 직원:",
+                *(f"  - `{key}`: {name}" for key, name in candidates),
+            ]
+        if not in_thread:
+            guide.append(
+                "- thread_title: 여러 직원이 함께 보거나 몇 번 주고받아야 하는 회의 같은 질문이면 "
+                "스레드 제목(80자 이내)을 적는다. 봇이 스레드를 열어 그 안에서 이어 간다. "
+                "간단한 질문은 null"
+            )
+    return _template("dept_chat").substitute(
+        _persona(persona, hiring_guide=False),
+        channel=channel,
+        history=_history(history),
+        request=request,
+        folders=folder_lines or "(없음)",
+        records=records.strip() or "(없음)",
+        guide="\n".join(guide),
+        schema=_schema(DeptAnswer),
     )

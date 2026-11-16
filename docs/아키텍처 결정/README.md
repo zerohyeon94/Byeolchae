@@ -35,3 +35,5 @@ Architecture Decision Records — 중요한 기술 선택의 근거를 남긴다
 - [ADR-009](ADR-009-교육-Daily.md) — 교육 부서 시작: 교육팀장 Eta와 Daily 자동 생성
 - [ADR-010](ADR-010-비서-Daily.md) — 비서 부서 시작: 비서팀장 Theta, 저녁 하루 정리 Daily와 짧은 아침 보고
 - [ADR-011](ADR-011-프로젝트-담당자.md) — 제품별 기획팀원과 기획팀장 보고
+- [ADR-012](ADR-012-별-조직-개편.md) — 15팀 41명 조직 개편, 별 이름, Codex 구현 허용
+- [ADR-013](ADR-013-부서-채널-대화.md) — 비서·교육 채널 대화와 팀장 넘기기

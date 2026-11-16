@@ -55,6 +55,16 @@ class ChatIO(Protocol):
         """제품 채팅 채널(`#<제품>-chat`)에 메시지를 올린다 (ADR-007)."""
         ...
 
+    async def dept_chat(
+        self, dept: str, author: Author, text: str, *, mention: bool = False
+    ) -> str:
+        """부서 채널(`#비서`, `#교육`)에 직원 이름으로 메시지를 올린다 (ADR-013)."""
+        ...
+
+    async def open_thread(self, dept: str, message_id: str, title: str) -> str:
+        """부서 채널의 Zero 메시지에 스레드를 열고 스레드 ID를 돌려준다 (ADR-013 회의)."""
+        ...
+
     async def create_post(self, project: str, title: str, text: str) -> str:
         """제품 포럼에 봇이 새 포스트를 열고 스레드 ID를 돌려준다 (/task, 정기 테스트 보고)."""
         ...
@@ -83,6 +93,8 @@ class FakeChatIO:
 
     posts: list[Post] = field(default_factory=list)
     chats: list[Post] = field(default_factory=list)  # thread 자리에 제품 키
+    depts: list[Post] = field(default_factory=list)  # thread 자리에 부서 키
+    threads: list[tuple[str, str, str]] = field(default_factory=list)  # 부서, 메시지, 제목
     created: list[tuple[str, str, str]] = field(default_factory=list)
     ops: list[tuple[str, bool]] = field(default_factory=list)
     reports: list[tuple[str, bool]] = field(default_factory=list)
@@ -110,6 +122,16 @@ class FakeChatIO:
     ) -> str:
         self.chats.append(Post(project, author, text, mention, tuple(attachments)))
         return f"chat-{len(self.chats)}"
+
+    async def dept_chat(
+        self, dept: str, author: Author, text: str, *, mention: bool = False
+    ) -> str:
+        self.depts.append(Post(dept, author, text, mention, ()))
+        return f"dept-{len(self.depts)}"
+
+    async def open_thread(self, dept: str, message_id: str, title: str) -> str:
+        self.threads.append((dept, message_id, title))
+        return f"thread-{dept}-{len(self.threads)}"
 
     async def create_post(self, project: str, title: str, text: str) -> str:
         self.created.append((project, title, text))

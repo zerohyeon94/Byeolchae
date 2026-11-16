@@ -8,6 +8,7 @@ import asyncio
 import json
 import stat
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -366,6 +367,20 @@ def test_claude_concept_note_reads_and_searches_web_only(tmp_path, process):
     argv = ClaudeCliRunner(process).build_argv(request(tmp_path, Stage.CONCEPT_NOTE, "read_only"))
     assert value_after(argv, "--permission-mode") == "dontAsk"
     assert values_after(argv, "--allowedTools") == ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+    assert "Read(회사/**)" in values_after(argv, "--disallowedTools")
+
+
+def test_claude_dept_chat_reads_extra_folders_and_git_history(tmp_path, process):
+    req = replace(
+        request(tmp_path, Stage.DEPT_CHAT, "read_only"),
+        read_dirs=(tmp_path / "vault", tmp_path / "repo"),
+    )
+    argv = ClaudeCliRunner(process).build_argv(req)
+    assert value_after(argv, "--permission-mode") == "dontAsk"
+    tools = values_after(argv, "--allowedTools")
+    assert {"Read", "Glob", "Grep", "Bash(git log:*)"} <= set(tools)
+    assert not any(tool.startswith(("Edit", "Write")) for tool in tools)
+    assert values_after(argv, "--add-dir") == [str(tmp_path / "vault"), str(tmp_path / "repo")]
     assert "Read(회사/**)" in values_after(argv, "--disallowedTools")
 
 

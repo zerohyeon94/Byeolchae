@@ -12,6 +12,7 @@
 - DESIGN: `dontAsk` + 읽기 도구, `docs/설계/` 쓰기, 로컬 커밋만 허용
 - IMPLEMENT·FIX: `acceptEdits`(작업 폴더 안 편집) + 로컬 git 명령만 허용
 - CONCEPT_NOTE: `dontAsk` + 읽기 도구와 웹 검색·가져오기. 볼트의 `회사/`는 읽지 않는다
+- DEPT_CHAT: `dontAsk` + 읽기 도구와 git 기록 읽기. `read_dirs`를 `--add-dir`로 더한다 (ADR-013)
 - 공통 금지: push·원격 git 명령, `.env` 접근. 사용자 MCP 서버는 불러오지 않는다
 """
 
@@ -44,7 +45,11 @@ DOC_STAGE_TOOLS = {
 }
 IMPLEMENT_TOOLS = (*READ_TOOLS, "Edit", "Write", *LOCAL_GIT)
 # 사실 확인이 필요한 읽기 단계. 파일은 쓰지 않는다 (ADR-009)
-RESEARCH_STAGE_TOOLS = {Stage.CONCEPT_NOTE: (*READ_TOOLS, "WebSearch", "WebFetch")}
+READ_GIT = ("Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(git diff:*)")
+RESEARCH_STAGE_TOOLS = {
+    Stage.CONCEPT_NOTE: (*READ_TOOLS, "WebSearch", "WebFetch"),
+    Stage.DEPT_CHAT: (*READ_TOOLS, *READ_GIT),
+}
 DENIED_TOOLS = (
     "Bash(git push:*)",
     "Bash(git pull:*)",
@@ -83,6 +88,8 @@ class ClaudeCliRunner:
             "--strict-mcp-config",
         ]
         argv += _permission_args(request)
+        if request.read_dirs:
+            argv += ["--add-dir", *map(str, request.read_dirs)]
         argv += ["--disallowedTools", *DENIED_TOOLS]
         if model := request.model or self._models.get(request.stage):
             argv += ["--model", model]

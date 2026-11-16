@@ -36,6 +36,8 @@ class DiscordChat:
         report_channel: Callable[[], Awaitable[ChannelLike]] | None = None,
         chat_webhook: Callable[[str], Awaitable[WebhookLike]] | None = None,
         forum_webhook: Callable[[str], Awaitable[WebhookLike]] | None = None,
+        dept_webhook: Callable[[str], Awaitable[WebhookLike]] | None = None,
+        dept_channel: Callable[[str], Awaitable[Any]] | None = None,
     ):
         """webhook_for(thread_id)는 그 게시글이 속한 포럼 채널의 웹훅을 돌려준다."""
         self._zero = zero_user_id
@@ -43,6 +45,9 @@ class DiscordChat:
         # 제품 키 → 채팅 채널 웹훅, 포럼 채널 웹훅 (ADR-007)
         self._chat_webhook = chat_webhook
         self._forum_webhook = forum_webhook
+        # 부서 키 → #비서·#교육 웹훅 (ADR-013)
+        self._dept_webhook = dept_webhook
+        self._dept_channel = dept_channel
         # #대표실이 없으면 운영 채널로 보고한다
         self._report_channel = report_channel or ops_channel
         self._webhook_for = webhook_for
@@ -118,7 +123,35 @@ class DiscordChat:
     ) -> str:
         if self._chat_webhook is None:
             raise RuntimeError("제품 채팅 채널이 설정되지 않았다")
-        webhook = await self._chat_webhook(project)
+        return await self._channel_post(
+            await self._chat_webhook(project), author, text, mention, attachments
+        )
+
+    async def dept_chat(
+        self, dept: str, author: Author, text: str, *, mention: bool = False
+    ) -> str:
+        if self._dept_webhook is None:
+            raise RuntimeError("부서 채널이 설정되지 않았다")
+        return await self._channel_post(await self._dept_webhook(dept), author, text, mention, ())
+
+    async def open_thread(self, dept: str, message_id: str, title: str) -> str:
+        """Zero 메시지에 공개 스레드를 연다. 스레드 안 게시는 post()가 부모 채널 웹훅으로 한다."""
+        if self._dept_channel is None:
+            raise RuntimeError("부서 채널이 설정되지 않았다")
+        channel = await self._dept_channel(dept)
+        message = channel.get_partial_message(int(message_id))
+        thread = await message.create_thread(name=title[:100], auto_archive_duration=1440)
+        return str(thread.id)
+
+    async def _channel_post(
+        self,
+        webhook: WebhookLike,
+        author: Author,
+        text: str,
+        mention: bool,
+        attachments: Sequence[Attachment],
+    ) -> str:
+        """스레드가 아닌 채널에 웹훅으로 올리고 첫 조각의 메시지 ID를 돌려준다."""
         chunks = self._content(text, mention)
         first_id: str | None = None
         for index, chunk in enumerate(chunks):
