@@ -34,6 +34,7 @@ class Stage(StrEnum):
     CONCEPT_IMAGE = "concept_image"  # 개념 노트 그림 (Codex 이미지 생성)
     WEEKLY_QUIZ = "weekly_quiz"  # 교육 주간 문제와 한마디
     SECRETARY_DAILY = "secretary_daily"  # 비서 저녁 하루 정리 요약 (ADR-010)
+    DEPT_CHAT = "dept_chat"  # #비서·#교육 대화와 넘겨받은 답 (ADR-013)
 
 
 # Codex가 작업 worktree에 쓸 수 있는 단계. 기획·설계 문서 단계는 Claude만 쓴다 (ADR-012)
@@ -66,6 +67,8 @@ class AgentRequest:
     output_schema: Mapping[str, Any] | None = None
     # 에이전트별 단계 모델 (org.yaml). 없으면 러너의 단계별 기본값을 쓴다
     model: str | None = None
+    # cwd 밖에서 더 읽을 폴더 (부서 대화가 볼트·제품 저장소를 읽는다, ADR-013)
+    read_dirs: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,7 @@ class MessageKind(StrEnum):
     POST = "post"  # Zero가 포럼에 직접 연 포스트 → /task 안내 (ADR-007)
     REPLY = "reply"  # 포스트 안의 일반 메시지 → 기록
     CHAT = "chat"  # 제품 채팅 채널 메시지 → 팀장 답 (ADR-007)
+    DEPT = "dept"  # #비서·#교육 메시지 → 부서 팀장 답 (ADR-013)
     IGNORE = "ignore"
 
 
@@ -42,12 +43,15 @@ def classify(
     zero_user_id: int,
     forum_ids: Collection[int],
     chat_ids: Collection[int] = (),
+    dept_ids: Collection[int] = (),
 ) -> MessageKind:
-    """Zero가 제품 채팅 채널이나 포럼 포스트에 쓴 메시지만 처리한다 (SPEC 4, 6.1)."""
+    """Zero가 제품 채팅 채널, 부서 채널, 포럼 포스트에 쓴 메시지만 처리한다 (SPEC 4, 6.1)."""
     if message.from_bot or message.author_id != zero_user_id:
         return MessageKind.IGNORE
     if message.parent_id is None and message.channel_id in chat_ids:
         return MessageKind.CHAT
+    if message.parent_id is None and message.channel_id in dept_ids:
+        return MessageKind.DEPT
     if message.parent_id is None or message.parent_id not in forum_ids:
         return MessageKind.IGNORE
     # 포럼 게시글의 첫 메시지 ID는 스레드 ID와 같다

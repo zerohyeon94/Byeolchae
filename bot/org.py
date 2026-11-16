@@ -41,6 +41,7 @@ READ_ONLY_STAGES = frozenset(
         Stage.WEEKLY_QUIZ,
         Stage.SECRETARY_DAILY,
         Stage.PROJECT_REPORT,
+        Stage.DEPT_CHAT,
     }
 )
 

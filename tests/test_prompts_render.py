@@ -14,6 +14,7 @@ from bot.prompts import (
     concept_image_prompt,
     concept_note_prompt,
     debate_prompt,
+    dept_chat_prompt,
     lead_check_prompt,
     opinion_prompt,
     persona_for,
@@ -271,3 +272,17 @@ def test_secretary_daily_prompt_snapshot():
     )
     assert "Theta" in prompt and "#19 카테고리 추가" in prompt and "한 줄 요약" in prompt
     check_snapshot("secretary_daily_theta", prompt)
+
+
+def test_dept_chat_prompt_snapshot():
+    prompt = dept_chat_prompt(
+        persona_for(DEFAULT_ORG, "theta"),
+        channel="비서",
+        question="  카테고리 추가는 어떻게 결정된 건가요?  ",
+        folders=[("비서 볼트 (Daily)", "/vault/study"), ("gagaessi 저장소", "/repos/gagaessi")],
+        records="### 작업 19 [gagaessi] 카테고리 추가\n- 상태: AWAIT_PLAN_APPROVAL",
+        history=[HistoryEntry("Zero", "오늘 보고 고마워요")],
+    )
+    assert "`#비서`" in prompt and "카테고리 추가는 어떻게 결정된 건가요?" in prompt
+    assert "`/repos/gagaessi`" in prompt and "작업 19" in prompt and "오늘 보고 고마워요" in prompt
+    check_snapshot("dept_chat_theta", prompt)

@@ -20,6 +20,7 @@ from bot.schemas import (
     ConceptImage,
     ConceptNote,
     DailySummary,
+    DeptAnswer,
     DesignSummary,
     DiagnosisReport,
     DocSyncProposal,
@@ -610,4 +611,35 @@ def project_report_prompt(
         subject=subject,
         facts=facts,
         schema=_schema(ProjectReport),
+    )
+
+
+DEPT_GUIDE = (
+    "- answer: Zero의 질문에 대한 답. 1,500자 이내. 결론을 먼저 쓰고 근거(파일 경로, 작업 번호, "
+    "날짜)를 붙인다",
+    "- 자료에서 확인한 것만 쓴다. 확인하지 못한 것은 모른다고 쓰고 어디를 보면 되는지 적는다",
+    "- 칭찬이나 훈계 없이 사실과 다음 행동을 쓴다",
+)
+
+
+def dept_chat_prompt(
+    persona: Persona,
+    *,
+    channel: str,
+    question: str,
+    folders: Sequence[tuple[str, str]],
+    records: str,
+    history: Sequence[HistoryEntry] = (),
+) -> str:
+    """#비서·#교육 대화의 답 (ADR-013). folders는 (설명, 경로), records는 봇이 모은 작업 기록."""
+    folder_lines = "\n".join(f"- {label}: `{path}`" for label, path in folders)
+    return _template("dept_chat").substitute(
+        _persona(persona, hiring_guide=False),
+        channel=channel,
+        history=_history(history),
+        request=f"Zero의 질문에 답한다.\n\nZero의 질문:\n{question.strip()}",
+        folders=folder_lines or "(없음)",
+        records=records.strip() or "(없음)",
+        guide="\n".join(DEPT_GUIDE),
+        schema=_schema(DeptAnswer),
     )
