@@ -624,7 +624,7 @@ def test_intents_include_message_content(bot):
     names = {command.name for command in bot.tree.get_commands(guild=bot.guild_ref)}
     assert names == {
         "task", "release", "debate", "idea", "approve", "revise", "skip", "fix",
-        "resume", "stop", "hire", "status", "ping", "daily", "weekly", "evening",
+        "resume", "stop", "hire", "status", "ping", "daily", "weekly", "evening", "hold",
     }  # fmt: skip
     project = project_contexts(bot.config)["gagaessi"]
     assert project.github.repo == "owner/GagaeSsi"
@@ -912,3 +912,66 @@ def test_optional_done_button_round_trips_and_only_zero_marks(bot):
     assert "Zero의 학습" in other.response.sent[0][0]
     assert zero.response.sent == [("했음으로 기록했다.", {"ephemeral": True})]
     assert marked == ["2026-11-02"]
+
+
+def test_held_job_is_skipped_and_not_caught_up(bot, tmp_path):
+    """홀딩 중 예정 시각이 지나면 기록만 하고, 풀어도 따라잡지 않는다 (ADR-014)."""
+    from bot.clock import FixedClock
+    from bot.store import Repository, connect
+
+    async def main():
+        conn = await connect(":memory:")
+        try:
+            clock = FixedClock(datetime(2026, 10, 25, 23, 0, tzinfo=UTC))  # 한국 월 08:00
+            bot.clock = clock
+            bot.repo = Repository(conn, clock)
+            sent = []
+
+            async def report(text, *, mention=False):
+                sent.append(text)
+
+            bot.chat.report = report
+            with pytest.raises(KeyError):
+                await bot.set_hold("nope", True)
+            status = await bot.set_hold("morning_report", True, source="웹")
+            held = await bot.run_due_schedules()
+            await bot.set_hold("morning_report", False)
+            released = await bot.run_due_schedules()
+            clock.advance(timedelta(days=1))
+            next_day = await bot.run_due_schedules()
+            await bot.set_hold("*", True)
+            clock.advance(timedelta(days=1))
+            all_held = await bot.run_due_schedules()
+            label = await bot.held_label()
+            return status, held, released, next_day, all_held, label, sent
+        finally:
+            await conn.close()
+
+    status, held, released, next_day, all_held, label, sent = run(main())
+    jobs = {job["job"]: job for job in status["jobs"]}
+    assert jobs["morning_report"]["held"] and not jobs["weekly_report"]["held"]
+    assert held == ["weekly_report"]  # 아침 보고는 홀딩, 주간 보고만 돈다
+    assert released == []  # 지나간 아침 보고를 따라잡지 않는다
+    assert next_day == ["morning_report"]
+    assert all_held == [] and label == "전체"
+    assert sent[0] == "주기 작업 홀딩: **아침 보고** (웹)"
+    assert sent[2] == "주기 작업 홀딩 해제: **아침 보고** (웹). 지나간 실행은 따라잡지 않는다"
+
+
+def test_hold_command_needs_zero_and_known_job(bot):
+    async def main():
+        stranger = interaction(user_id=ZERO + 1)
+        await bot.run_hold(stranger, "morning_report", held=True)
+
+        async def fail(job, held, *, source):
+            raise KeyError(job)
+
+        bot.set_hold = fail
+        unknown = interaction()
+        await bot.run_hold(unknown, "nope", held=True)
+        return stranger, unknown
+
+    stranger, unknown = run(main())
+    assert "Zero만" in stranger.response.sent[0][0]
+    assert "모르는 주기 작업" in unknown.response.sent[0][0]
+    assert ("*", "전체 주기 작업") == bot.hold_choices()[0]

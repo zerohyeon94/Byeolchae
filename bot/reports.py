@@ -86,7 +86,14 @@ async def nightly_line(repo: Repository, now: datetime) -> str:
 
 
 async def morning_brief(
-    repo: Repository, org: Org, now: datetime, url: ThreadUrl, *, daily: str = "", paused: str = ""
+    repo: Repository,
+    org: Org,
+    now: datetime,
+    url: ThreadUrl,
+    *,
+    daily: str = "",
+    paused: str = "",
+    held: str = "",
 ) -> Report:
     """비서의 짧은 아침 보고. 오늘 결정할 것을 먼저, 나머지는 건수만 (ADR-010)."""
     today = _local_midnight(now)
@@ -108,11 +115,13 @@ async def morning_brief(
         lines.append(f"어제 하루 정리: `{daily}`")
     if paused:
         lines.append(f"**사용량 한도 정지**: {paused}까지")
+    if held:
+        lines.append(f"**홀딩 중인 주기 작업**: {held}")
     return Report("\n".join(lines), mention=bool(decisions))
 
 
 async def morning_report(
-    repo: Repository, org: Org, now: datetime, url: ThreadUrl, *, paused: str = ""
+    repo: Repository, org: Org, now: datetime, url: ThreadUrl, *, paused: str = "", held: str = ""
 ) -> Report:
     today = _local_midnight(now)
     yesterday = today - timedelta(days=1)
@@ -143,6 +152,8 @@ async def morning_report(
         lines.append(nightly)
     if paused:
         lines.append(f"**사용량 한도 정지**: {paused}까지")
+    if held:
+        lines.append(f"**홀딩 중인 주기 작업**: {held}")
     return Report("\n".join(lines), mention=bool(waiting or proposals))
 
 
