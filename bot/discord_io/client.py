@@ -106,6 +106,7 @@ def dept_folders(config: Config) -> list[tuple[str, Path]]:
     if config.education is not None:
         folders.append(("교육 볼트 (개념 노트, 대기열)", config.education.vault))
     folders.append(("제품 볼트 (기능 정의서, 결정 노트)", config.paths.vault_projects))
+    folders.append(("회사 설정 (org.yaml 조직, pipelines/ 단계와 일정)", config.paths.company))
     for key, project in config.projects.items():
         folders.append((f"{key} 저장소 (docs/기획·디자인·설계, git 기록)", project.repo))
     unique: dict[Path, str] = {}

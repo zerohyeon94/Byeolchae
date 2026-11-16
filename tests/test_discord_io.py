@@ -498,12 +498,17 @@ def test_department_message_reaches_dept_chat(dept_bot):
     assert bot.calls == []
 
 
-def test_dept_folders_include_vaults_and_repos_once(dept_bot):
+def test_dept_folders_include_vaults_company_and_repos_once(dept_bot):
     bot = dept_bot
     from bot.discord_io.client import dept_folders, dept_specs
 
     folders = dept_folders(bot.config)
-    assert [str(path) for _, path in folders] == ["/svault", "/vault", "/repo"]
+    assert [str(path) for _, path in folders] == [
+        "/svault",
+        "/vault",
+        "/nonexistent/zerosync-company",
+        "/repo",
+    ]
     assert list(dept_specs(bot.config)) == ["secretary"]
 
 
