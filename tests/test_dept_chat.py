@@ -154,3 +154,97 @@ def test_invalid_output_twice_posts_format_error():
         assert len(h.claude.requests) == 2  # 1회 다시 요청한다
         (post,) = h.chat.depts
         assert post.author == "theta" and "형식 오류" in post.text
+
+
+# 바로 넘기기 (ADR-013)
+
+
+def by_persona(answers):
+    """인격 이름으로 응답을 고른다.
+
+    넘겨받은 직원은 동시에 불리므로 순서에 기대지 않는다."""
+
+    def respond(request):
+        first_line = request.prompt.splitlines()[0]
+        for name, answer in answers.items():
+            if name in first_line:
+                return answer
+        raise AssertionError(f"준비하지 않은 인격: {first_line}")
+
+    return respond
+
+
+def test_secretary_hands_off_to_planning_lead():
+    handoff = [{"agent": "beta", "question": "카테고리 범위를 왜 줄였나요?"}]
+
+    @scenario(
+        claude=[reply("기획 결정이라 기획팀장에게 넘깁니다", handoff=handoff), reply("범위 이유")]
+    )
+    async def _(h):
+        await h.dept.on_message("secretary", "카테고리 추가는 어떻게 결정된 건가요?")
+        secretary, beta = h.claude.requests
+        assert "`beta`: Beta · 기획팀장" in secretary.prompt  # 넘길 수 있는 직원 목록
+        assert "`theta`" not in secretary.prompt  # 자기 자신은 없다
+        assert "Theta · 비서팀장가 Zero의 질문 중" in beta.prompt
+        assert "카테고리 추가는 어떻게 결정된 건가요?" in beta.prompt
+        assert "카테고리 범위를 왜 줄였나요?" in beta.prompt
+        assert "기획 결정이라 기획팀장에게 넘깁니다" in beta.prompt  # 비서의 답이 맥락으로 간다
+        assert "넘길 수 있는 직원" not in beta.prompt
+
+        first, second = h.chat.depts
+        assert (first.author, first.mention) == ("theta", False)
+        assert "→ **Beta · 기획팀장**에게 넘긴다: 카테고리 범위를 왜 줄였나요?" in first.text
+        assert (second.author, second.mention, second.text) == ("beta", True, "범위 이유")
+        assert await h.runs() == [
+            ("secretary", "theta", "dept_chat"),
+            ("secretary", "beta", "dept_chat"),
+        ]
+
+
+def test_several_handoffs_answer_independently():
+    handoff = [
+        {"agent": "beta", "question": "기획 쪽 이유는?"},
+        {"agent": "gamma", "question": "화면은 어떻게 바뀌나요?"},
+    ]
+    answers = {
+        "Theta": reply("둘에게 넘깁니다", handoff=handoff),
+        "Beta": reply("Beta의 답"),
+        "Gamma": reply("Gamma의 답"),
+    }
+
+    @scenario(claude=[by_persona(answers)] * 3)
+    async def _(h):
+        await h.dept.on_message("secretary", "배너 건 정리해 줘")
+        prompts = {r.prompt.splitlines()[0]: r.prompt for r in h.claude.requests}
+        beta = next(p for line, p in prompts.items() if "Beta" in line)
+        gamma = next(p for line, p in prompts.items() if "Gamma" in line)
+        assert "Gamma의 답" not in beta and "Beta의 답" not in gamma
+        authors = [(p.author, p.mention) for p in h.chat.depts]
+        assert authors == [("theta", False), ("beta", False), ("gamma", True)]
+
+
+def test_unknown_or_self_handoff_is_asked_again():
+    bad = [{"agent": "nobody", "question": "q"}, {"agent": "theta", "question": "q"}]
+
+    @scenario(claude=[reply("넘김", handoff=bad), reply("직접 답합니다")])
+    async def _(h):
+        await h.dept.on_message("secretary", "질문")
+        retry = h.claude.requests[1].prompt
+        assert "'nobody'는 조직에 없는 이름" in retry and "자기 자신" in retry
+        (post,) = h.chat.depts
+        assert (post.author, post.text, post.mention) == ("theta", "직접 답합니다", True)
+
+
+def test_handed_off_agent_cannot_hand_off_again():
+    to_beta = [{"agent": "beta", "question": "q"}]
+    again = [{"agent": "alpha", "question": "q"}]
+
+    @scenario(
+        claude=[reply("넘김", handoff=to_beta), reply("또 넘김", handoff=again), reply("답합니다")]
+    )
+    async def _(h):
+        await h.dept.on_message("secretary", "질문")
+        assert "다시 넘기지 않는다" in h.claude.requests[2].prompt
+        assert [p.author for p in h.chat.depts] == ["theta", "beta"]
+        assert h.chat.depts[-1].text == "답합니다"
+        assert len(h.claude.requests) == 3  # alpha는 부르지 않는다

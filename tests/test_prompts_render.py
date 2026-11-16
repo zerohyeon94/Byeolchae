@@ -282,7 +282,27 @@ def test_dept_chat_prompt_snapshot():
         folders=[("비서 볼트 (Daily)", "/vault/study"), ("gagaessi 저장소", "/repos/gagaessi")],
         records="### 작업 19 [gagaessi] 카테고리 추가\n- 상태: AWAIT_PLAN_APPROVAL",
         history=[HistoryEntry("Zero", "오늘 보고 고마워요")],
+        candidates=[("beta", "Beta · 기획팀장"), ("alpha", "Alpha · 개발팀장")],
     )
     assert "`#비서`" in prompt and "카테고리 추가는 어떻게 결정된 건가요?" in prompt
+    assert "`beta`: Beta · 기획팀장" in prompt and "최대 3명" in prompt
     assert "`/repos/gagaessi`" in prompt and "작업 19" in prompt and "오늘 보고 고마워요" in prompt
     check_snapshot("dept_chat_theta", prompt)
+
+
+def test_dept_chat_handoff_prompt_snapshot():
+    prompt = dept_chat_prompt(
+        BETA,
+        channel="비서",
+        question="카테고리 범위를 왜 줄였나요?",
+        folders=[("gagaessi 저장소", "/repos/gagaessi")],
+        records="",
+        handoff_from="Theta · 비서팀장",
+        original="카테고리 추가는 어떻게 결정된 건가요?",
+        # 넘겨받은 직원에게는 넘길 사람 목록을 주지 않는다
+        candidates=[("alpha", "Alpha · 개발팀장")],
+    )
+    assert "Theta · 비서팀장가 Zero의 질문 중" in prompt
+    assert "카테고리 추가는 어떻게 결정된 건가요?" in prompt and "왜 줄였나요?" in prompt
+    assert "다시 넘기지 않는다" in prompt and "`alpha`" not in prompt
+    check_snapshot("dept_chat_handoff_beta", prompt)

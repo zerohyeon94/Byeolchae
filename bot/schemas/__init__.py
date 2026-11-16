@@ -3,7 +3,7 @@
 에이전트는 이 스키마의 JSON으로 출력하고, 봇은 검증한 원본을 저장·표시·옮겨 적기에 그대로 쓴다.
 """
 
-from bot.schemas.dept import DeptAnswer
+from bot.schemas.dept import DeptAnswer, Handoff
 from bot.schemas.design import (
     FEATURE_NAMES,
     ISSUE_NUMBER,
@@ -52,7 +52,7 @@ __all__ = [
     "ConceptNote",
     "DailySummary",
     "DeptAnswer",
-    "DeptAnswer",
+    "Handoff",
     "LETTERS",
     "QuizQuestion",
     "WeeklyReview",

@@ -2,12 +2,14 @@
 
 Zero가 부서 채널에 쓴 메시지에 그 부서 팀장(또는 `@이름`으로 부른 직원)이 답한다.
 답하는 직원은 읽기 전용으로 볼트와 제품 저장소를 읽고, 봇이 DB에서 모은 최근 작업 기록을 받는다.
+다른 팀장이 답할 질문이면 답의 handoff대로 그 팀장을 바로 불러 답을 잇는다. 한 번만 넘긴다.
 대화에는 상태가 없다. 기록은 chat_turns에 부서 키로 남긴다.
 """
 
+import asyncio
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,25 @@ def parse_target(org: Org, text: str, default: AgentName) -> tuple[AgentName, st
     return default, text.strip()
 
 
+def render_answer(org: Org, answer: DeptAnswer) -> str:
+    """답 본문과 넘긴 사람·질문. 게시와 다음 대화 맥락에 같이 쓴다."""
+    lines = [answer.answer]
+    if answer.handoff:
+        lines.append("")
+        lines += [
+            f"→ **{org.display(item.agent)}**에게 넘긴다: {item.question}"
+            for item in answer.handoff
+        ]
+    return "\n".join(lines)
+
+
+async def _no_handoff(answer: DeptAnswer) -> list[str]:
+    """넘겨받은 직원은 다시 넘기지 않는다 (호출이 꼬리를 무는 것 방지)."""
+    return (
+        ["넘겨받은 질문은 다시 넘기지 않는다. handoff는 빈 목록으로 둔다"] if answer.handoff else []
+    )
+
+
 class DeptChat:
     def __init__(
         self,
@@ -87,30 +108,103 @@ class DeptChat:
         history = await self._history(spec.key)
         await self._repo.add_chat_turn(spec.key, Actor.ZERO, "message", {"text": text}, message_id)
         agent, question = parse_target(self._org, text, spec.agent)
+        question = question or text
         records = await self._records()
+        candidates = [
+            (key, self._org.display(key)) for key in self._org.agent_names if key != agent
+        ]
+        answer = await self._ask(
+            spec,
+            agent,
+            question,
+            history,
+            records,
+            verify=self._handoff_problems(agent),
+            candidates=candidates,
+        )
+        handoffs = answer.result.handoff if answer.result is not None else []
+        last = should_mention(Moment.OPINIONS_READY)
+        await self._publish(spec, answer, mention=last and not handoffs)
+        if not handoffs:
+            return
+        # 넘겨받은 직원은 서로의 답을 보지 않고 독립 작성한다 (운영 규약 1.6)
+        passer = self._org.display(agent)
+        context = [
+            *history,
+            HistoryEntry("Zero", question),
+            HistoryEntry(passer, answer.result.answer),
+        ]
+        answers = await asyncio.gather(
+            *(
+                self._ask(
+                    spec,
+                    item.agent,
+                    item.question,
+                    context,
+                    records,
+                    verify=_no_handoff,
+                    handoff_from=passer,
+                    original=question,
+                )
+                for item in handoffs
+            )
+        )
+        for index, reply in enumerate(answers):
+            await self._publish(spec, reply, mention=last and index == len(answers) - 1)
+
+    async def _ask(
+        self,
+        spec: Dept,
+        agent: AgentName,
+        question: str,
+        history: Sequence[HistoryEntry],
+        records: str,
+        *,
+        verify: Callable[[DeptAnswer], Awaitable[list[str]]],
+        **prompt: Any,
+    ) -> Any:
         self._workdir.mkdir(parents=True, exist_ok=True)
-        answer = await self._engine.ask_outside_task(
+        return await self._engine.ask_outside_task(
             spec.key,
             agent,
             Stage.DEPT_CHAT,
             lambda persona: dept_chat_prompt(
                 persona,
                 channel=spec.channel,
-                question=question or text,
+                question=question,
                 folders=[(label, str(path)) for label, path in self._folders],
                 records=records,
                 history=history,
+                **prompt,
             ),
             model=DeptAnswer,
             cwd=self._workdir,
+            verify=verify,
             read_dirs=[path for _, path in self._folders if path.is_dir()],
         )
-        await self._publish(spec, answer, mention=should_mention(Moment.OPINIONS_READY))
+
+    def _handoff_problems(self, agent: AgentName) -> Callable[[DeptAnswer], Awaitable[list[str]]]:
+        """넘길 담당자가 조직에 있고, 자기 자신이 아니며, 겹치지 않는지 (ADR-013)."""
+
+        async def check(answer: DeptAnswer) -> list[str]:
+            problems = []
+            seen: set[str] = set()
+            for item in answer.handoff:
+                if item.agent not in self._org.agents:
+                    problems.append(f"handoff의 {item.agent!r}는 조직에 없는 이름이다")
+                elif item.agent == agent:
+                    problems.append("handoff에 자기 자신을 넣지 않는다")
+                elif item.agent in seen:
+                    problems.append(f"handoff에 {item.agent!r}가 두 번 있다")
+                seen.add(item.agent)
+            return problems
+
+        return check
 
     async def _publish(self, spec: Dept, answer: Any, *, mention: bool) -> None:
         name = self._org.display(answer.agent)
         if answer.result is not None:
-            author, text = answer.agent, answer.result.answer
+            author, text = answer.agent, render_answer(self._org, answer.result)
             kind, payload = "dept_answer", {"answer": answer.result.model_dump(mode="json")}
         elif not answer.failed_to_run:
             reason = answer.error.strip().splitlines()[0] if answer.error.strip() else "형식 오류"
@@ -135,7 +229,7 @@ class DeptChat:
         for turn in await self._repo.recent_chat_turns(key, HISTORY):
             payload = turn["payload"]
             if turn["kind"] == "dept_answer":
-                text = DeptAnswer.model_validate(payload["answer"]).answer
+                text = render_answer(self._org, DeptAnswer.model_validate(payload["answer"]))
             elif turn["kind"] == "message":
                 text = str(payload.get("text", ""))
             else:
