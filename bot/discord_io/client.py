@@ -16,9 +16,11 @@ from typing import Any
 import discord
 from discord import app_commands
 
+from bot import control
 from bot.agents.base import AgentRunner, EngineName
 from bot.clock import Clock, SystemClock, from_iso, to_iso
 from bot.config import Config
+from bot.control import ensure_token
 from bot.discord_io.chat import DiscordChat
 from bot.discord_io.quiz import (
     OptionalDoneButton,
@@ -43,11 +45,18 @@ from bot.scheduler import (
     BUILTIN_SCHEDULES,
     EDUCATION_DAILY,
     EDUCATION_WEEKLY,
+    HOLD_ALL,
+    HOLD_KEY,
     MORNING_REPORT,
     SECRETARY_EVENING,
+    ScheduledJob,
+    dump_holds,
     is_due,
+    is_held,
     latest_due,
     parse_cron,
+    parse_holds,
+    scheduled_jobs,
 )
 from bot.schemas import QuizQuestion
 from bot.secretary.daily import daily_path
@@ -266,6 +275,7 @@ class ZeroSyncBot(discord.Client):
             asyncio.create_task(self._schedule_loop()),
             asyncio.create_task(self._project_report_loop()),
         ]
+        await self._start_control()
         await self.chat.notify_ops(
             f"별채 봇을 시작했다. 프로젝트: {', '.join(self.config.projects)}. "
             f"조직: {', '.join(self.config.org.display(a) for a in self.config.org.agent_names)}",
@@ -311,61 +321,130 @@ class ZeroSyncBot(discord.Client):
                 log.exception("일정 실행 실패")
             await asyncio.sleep(60)
 
+    def schedule_list(self) -> list[ScheduledJob]:
+        """지금 설정으로 도는 주기 작업 (웹과 /hold가 같은 목록을 쓴다, ADR-014)."""
+        config = self.config
+        education = config.education
+        secretary = config.secretary
+        return scheduled_jobs(
+            self.engine.pipelines,
+            config.projects,
+            without_test=frozenset(key for key, p in config.projects.items() if not p.test),
+            education=(
+                (education.schedule, education.weekly)
+                if self.education is not None and education is not None
+                else None
+            ),
+            secretary=(
+                secretary.schedule if self.secretary is not None and secretary is not None else None
+            ),
+        )
+
     async def run_due_schedules(self) -> list[str]:
-        """지금 실행할 일정을 실행하고 이름을 돌려준다."""
+        """지금 실행할 일정을 실행하고 이름을 돌려준다. 홀딩 중이면 기록만 하고 건너뛴다."""
         now = self.clock.now()
         local = now.astimezone()
         last = await self.repo.schedule_runs()
+        holds = parse_holds(await self.repo.get_state(HOLD_KEY))
         ran = []
-        for job, text in BUILTIN_SCHEDULES.items():
-            previous = from_iso(last[job]) if job in last else None
-            if not is_due(parse_cron(text), local, previous):
+        for job in self.schedule_list():
+            cron = parse_cron(job.cron)
+            previous = from_iso(last[job.job]) if job.job in last else None
+            if not is_due(cron, local, previous):
                 continue
-            # 실행 전에 기록한다. 보고가 실패해도 1분마다 다시 보내지 않게 하기 위해서다
-            await self.repo.record_schedule_run(job, to_iso(now))
+            # 실행 전에 기록한다. 실패해도 1분마다 다시 돌지 않고,
+            # 홀딩 중에 지난 실행은 풀어도 따라잡지 않는다 (ADR-014)
+            await self.repo.record_schedule_run(job.job, to_iso(now))
+            if is_held(holds, job.job):
+                log.info("홀딩 중이라 건너뛴다: %s", job.job)
+                continue
+            due = latest_due(cron, local)
+            assert due is not None  # is_due가 참이면 예정 시각이 있다
+            await self._start_schedule(job.job, now, due)
+            ran.append(job.job)
+        return ran
+
+    async def _start_schedule(self, job: str, now: datetime, due: datetime) -> None:
+        if job in BUILTIN_SCHEDULES:
             report = await self._build_report(job, now)
             if job == MORNING_REPORT and self.secretary is not None:
                 await self._secretary_notify(report.text, report.mention)
             else:
                 await self.chat.report(report.text, mention=report.mention)
-            ran.append(job)
-        secretary = self.config.secretary
-        if self.secretary is not None and secretary is not None:
-            cron = parse_cron(secretary.schedule)
-            previous = from_iso(last[SECRETARY_EVENING]) if SECRETARY_EVENING in last else None
-            due = latest_due(cron, local)
-            if due is not None and is_due(cron, local, previous):
-                # 놓친 저녁은 다음에 켜질 때(아침) 그날 것으로 쓴다
-                await self.repo.record_schedule_run(SECRETARY_EVENING, to_iso(now))
-                self.spawn(self.secretary.run_evening(due.date()), "비서 하루 정리")
-                ran.append(SECRETARY_EVENING)
-        education = self.config.education
-        if self.education is not None and education is not None:
-            jobs = (
-                (EDUCATION_DAILY, education.schedule, self.education_morning, "교육 아침 학습"),
-                (EDUCATION_WEEKLY, education.weekly, self.education.run_weekly, "교육 주간 보고"),
+        elif job == SECRETARY_EVENING:
+            assert self.secretary is not None
+            # 놓친 저녁은 다음에 켜질 때(아침) 그날 것으로 쓴다
+            self.spawn(self.secretary.run_evening(due.date()), "비서 하루 정리")
+        elif job == EDUCATION_DAILY:
+            self.spawn(self.education_morning(), "교육 아침 학습")
+        elif job == EDUCATION_WEEKLY:
+            assert self.education is not None
+            self.spawn(self.education.run_weekly(), "교육 주간 보고")
+        else:  # 파이프라인 일정 (정기 테스트 등): 제품마다 따로 (SPEC 6.6, ADR-007)
+            project, key = job.split(":", 1)
+            self.spawn(self.engine.start_scheduled(project, key), f"일정 {job}")
+
+    # 주기 작업 홀딩 (ADR-014)
+
+    async def holds(self) -> frozenset[str]:
+        return parse_holds(await self.repo.get_state(HOLD_KEY))
+
+    async def held_label(self) -> str:
+        """홀딩 중인 작업 이름 (아침 보고·/ping 표시). 없으면 빈 문자열."""
+        holds = await self.holds()
+        if HOLD_ALL in holds:
+            return "전체"
+        return ", ".join(job.name for job in self.schedule_list() if job.job in holds)
+
+    async def schedule_status(self) -> dict[str, Any]:
+        """웹이 보여 줄 주기 작업 목록과 홀딩 상태."""
+        holds = await self.holds()
+        last = await self.repo.schedule_runs()
+        return {
+            "all": HOLD_ALL in holds,
+            "jobs": [
+                {
+                    "job": job.job,
+                    "name": job.name,
+                    "cron": job.cron,
+                    "held": job.job in holds,
+                    "last_run": last.get(job.job),
+                }
+                for job in self.schedule_list()
+            ],
+        }
+
+    async def set_hold(self, job: str, held: bool, *, source: str = "웹") -> dict[str, Any]:
+        """작업 하나(또는 "*" 전체)를 홀딩하거나 푼다. 모르는 키면 KeyError."""
+        names = {item.job: item.name for item in self.schedule_list()}
+        names[HOLD_ALL] = "전체 주기 작업"
+        if job not in names:
+            raise KeyError(job)
+        holds = await self.holds()
+        updated = holds | {job} if held else holds - {job}
+        if updated != holds:
+            await self.repo.set_state(HOLD_KEY, dump_holds(updated))
+            verb = "홀딩" if held else "홀딩 해제"
+            note = "" if held else ". 지나간 실행은 따라잡지 않는다"
+            await self.chat.report(
+                f"주기 작업 {verb}: **{names[job]}** ({source}){note}",
+                mention=should_mention(Moment.NOTICE),
             )
-            for job, cron, run, name in jobs:
-                previous = from_iso(last[job]) if job in last else None
-                if is_due(parse_cron(cron), local, previous):
-                    await self.repo.record_schedule_run(job, to_iso(now))
-                    self.spawn(run(), name)
-                    ran.append(job)
-        # 파이프라인 일정 (정기 테스트 등): 제품마다 따로 (SPEC 6.6, ADR-007)
-        for key, pipeline in self.engine.pipelines.items():
-            if pipeline.schedule is None or "schedule" not in pipeline.triggers:
-                continue
-            for project, config in self.config.projects.items():
-                if not pipeline.scheduled_for(has_test=bool(config.test)):
-                    continue
-                job = f"{project}:{key}"
-                previous = from_iso(last[job]) if job in last else None
-                if not is_due(parse_cron(pipeline.schedule), local, previous):
-                    continue
-                await self.repo.record_schedule_run(job, to_iso(now))
-                self.spawn(self.engine.start_scheduled(project, key), f"일정 {job}")
-                ran.append(job)
-        return ran
+        return await self.schedule_status()
+
+    async def _start_control(self) -> None:
+        """웹 홀딩 버튼을 받는 로컬 제어 서버. 못 열어도 봇은 계속 돈다."""
+        try:
+            token = ensure_token(self.config.paths.control_token)
+            self._control = await control.start(
+                token, schedules=self.schedule_status, set_hold=self.set_hold
+            )
+        except Exception as error:
+            log.exception("제어 서버 시작 실패")
+            await self.chat.notify_ops(
+                f"제어 서버를 열지 못해 웹 홀딩 버튼을 쓸 수 없다: {error}",
+                mention=should_mention(Moment.BOT_ERROR),
+            )
 
     async def _build_report(self, job: str, now: datetime) -> Report:
         if job == MORNING_REPORT and self.config.secretary is not None:
@@ -374,12 +453,23 @@ class ZeroSyncBot(discord.Client):
             path = daily_path(yesterday)
             daily = path if (self.config.secretary.vault / path).exists() else ""
             return await morning_brief(
-                self.repo, self.config.org, now, self.thread_url, daily=daily, paused=paused
+                self.repo,
+                self.config.org,
+                now,
+                self.thread_url,
+                daily=daily,
+                paused=paused,
+                held=await self.held_label(),
             )
         if job == MORNING_REPORT:
             paused = await self.repo.get_state(PAUSE_KEY) or ""
             return await morning_report(
-                self.repo, self.config.org, now, self.thread_url, paused=paused
+                self.repo,
+                self.config.org,
+                now,
+                self.thread_url,
+                paused=paused,
+                held=await self.held_label(),
             )
         return await weekly_report(self.repo, self.config.org, now, list(self.config.projects))
 
@@ -544,6 +634,8 @@ class ZeroSyncBot(discord.Client):
     async def close(self) -> None:
         for loop in getattr(self, "_loops", []):
             loop.cancel()
+        if getattr(self, "_control", None) is not None:
+            await self._control.cleanup()
         await super().close()
 
     async def _prepare_webhooks(self) -> None:
@@ -790,8 +882,29 @@ class ZeroSyncBot(discord.Client):
             active_tasks=len(active),
             waiting=self.engine.waiting,
             paused=paused,
+            held=await self.held_label(),
         )
         await interaction.response.send_message(text, ephemeral=True)
+
+    def hold_choices(self) -> list[tuple[str, str]]:
+        return [(HOLD_ALL, "전체 주기 작업")] + [(j.job, j.name) for j in self.schedule_list()]
+
+    async def run_hold(self, interaction: discord.Interaction, job: str, *, held: bool) -> None:
+        """주기 작업 홀딩 (/hold, ADR-014). 어느 채널에서든 Zero만 쓸 수 있다."""
+        if interaction.user.id != self.zero_user_id:
+            await interaction.response.send_message(
+                "이 봇의 명령은 Zero만 쓸 수 있다.", ephemeral=True
+            )
+            return
+        try:
+            await self.set_hold(job, held, source="/hold")
+        except KeyError:
+            await interaction.response.send_message(f"모르는 주기 작업이다: {job}", ephemeral=True)
+            return
+        label = await self.held_label()
+        await interaction.response.send_message(
+            f"홀딩 중인 주기 작업: {label or '없음'}", ephemeral=True
+        )
 
     async def run_hire(
         self, interaction: discord.Interaction, *, accept: bool, number: int, note: str
@@ -931,6 +1044,30 @@ def _register_commands(bot: ZeroSyncBot) -> None:
     )
     async def evening(interaction: discord.Interaction) -> None:
         await bot.run_evening(interaction)
+
+    @tree.command(name="hold", description="주기 작업을 홀딩하거나 푼다", guild=guild)
+    @app_commands.rename(job="작업", action="동작")
+    @app_commands.describe(job="주기 작업 (전체는 *)", action="홀딩 또는 해제")
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="홀딩", value="hold"),
+            app_commands.Choice(name="해제", value="release"),
+        ]
+    )
+    async def hold(
+        interaction: discord.Interaction, job: str, action: app_commands.Choice[str]
+    ) -> None:
+        await bot.run_hold(interaction, job, held=action.value == "hold")
+
+    @hold.autocomplete("job")
+    async def hold_jobs(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return [
+            app_commands.Choice(name=name, value=key)
+            for key, name in bot.hold_choices()
+            if current.lower() in f"{key} {name}".lower()
+        ][:25]
 
     @tree.command(name="ping", description="봇 생존과 실행 중인 CLI 수", guild=guild)
     async def ping(interaction: discord.Interaction) -> None:

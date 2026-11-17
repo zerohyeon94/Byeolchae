@@ -7,8 +7,11 @@ cron 형식(`분 시 일 월 요일`) 중 분·시·요일만 쓴다. 일·월�
 계산은 순수 함수로 두고 단위 테스트로 고정한다. 실행 루프는 Discord 계층(client)에 있다.
 """
 
+import json
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 # 봇에 내장된 일정 (ADR-007, 회사 재정의 05-운영 1장)
 MORNING_REPORT = "morning_report"
@@ -84,3 +87,66 @@ def is_due(cron: Cron, now: datetime, last_run: datetime | None) -> bool:
     if latest is None:
         return False
     return last_run is None or last_run < latest
+
+
+@dataclass(frozen=True)
+class ScheduledJob:
+    job: str  # schedule_runs·홀딩의 키
+    name: str
+    cron: str
+
+
+def scheduled_jobs(
+    pipelines: Mapping[str, Any],
+    projects: Iterable[str],
+    *,
+    without_test: frozenset[str] = frozenset(),
+    education: tuple[str, str] | None = None,  # (매일, 주간) cron
+    secretary: str | None = None,  # 저녁 cron
+) -> list[ScheduledJob]:
+    """일정 실행기가 확인하는 주기 작업 목록. 웹 대시보드도 같은 목록을 쓴다 (ADR-014)."""
+    names = {MORNING_REPORT: "아침 보고", WEEKLY_REPORT: "주간 보고"}
+    jobs = [ScheduledJob(job, names[job], cron) for job, cron in BUILTIN_SCHEDULES.items()]
+    if secretary is not None:
+        jobs.append(ScheduledJob(SECRETARY_EVENING, "비서 하루 정리", secretary))
+    if education is not None:
+        jobs.append(ScheduledJob(EDUCATION_DAILY, "교육 아침 학습", education[0]))
+        jobs.append(ScheduledJob(EDUCATION_WEEKLY, "교육 주간 보고", education[1]))
+    projects = list(projects)
+    for key, pipeline in pipelines.items():
+        if pipeline.schedule is None or "schedule" not in pipeline.triggers:
+            continue
+        for project in projects:
+            if not pipeline.scheduled_for(has_test=project not in without_test):
+                continue
+            jobs.append(
+                ScheduledJob(f"{project}:{key}", f"{pipeline.name} · {project}", pipeline.schedule)
+            )
+    return jobs
+
+
+# 주기 작업 홀딩 (ADR-014). 봇 DB bot_state에 홀딩 중인 작업 키 목록을 JSON으로 둔다
+HOLD_KEY = "schedule_holds"
+HOLD_ALL = "*"  # 모든 주기 작업
+
+
+def parse_holds(text: str | None) -> frozenset[str]:
+    """bot_state 값 → 홀딩 중인 작업 키. 깨진 값은 홀딩 없음으로 본다."""
+    if not text:
+        return frozenset()
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return frozenset()
+    if not isinstance(value, list):
+        return frozenset()
+    return frozenset(item for item in value if isinstance(item, str) and item)
+
+
+def dump_holds(holds: frozenset[str]) -> str | None:
+    """홀딩이 없으면 None(bot_state에서 지운다)."""
+    return json.dumps(sorted(holds), ensure_ascii=False) if holds else None
+
+
+def is_held(holds: frozenset[str], job: str) -> bool:
+    return HOLD_ALL in holds or job in holds

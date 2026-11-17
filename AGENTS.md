@@ -38,7 +38,8 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 | `bot/clock.py` | 현재 시각 인터페이스 (테스트에서 고정) | 구현 |
 | `bot/org.py` | 회사 조직 설정(`org.yaml`, 인격 파일) 로더. 에이전트 이름과 엔진 분리, 예전 이름(`former`) 연결, 단계별 담당, R1 검사. 없으면 ADR-007~011 기본 조직(제품 팀장 넷, 개발·QA 팀원 Epsilon·Zeta, 프로젝트 담당 Kappa·Lambda·Mu, 교육팀장 Eta와 팀원 Iota, 비서팀장 Theta). 예시는 `examples/company/` | 구현 |
 | `bot/pipeline.py` | 파이프라인 선언(기능 개발·버그 수정·출시·정기 테스트) 로더와 규칙 검사(R1~R6, 팀장 확인 `check`). 회사 설정에 `pipelines/`가 없으면 기본 선언. 예시는 `examples/company/pipelines/` | 구현 |
-| `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule)와 `#대표실`·`#비서` 보고 만들기 | 구현 |
+| `bot/scheduler.py`, `bot/reports.py` | 일정 실행기(아침·주간 보고, 교육·비서 일정, 파이프라인 schedule), 주기 작업 목록과 홀딩 규칙(ADR-014), `#대표실`·`#비서` 보고 만들기 | 구현 |
+| `bot/control.py` | 웹 홀딩 버튼을 받는 로컬 제어 요청(`127.0.0.1:8770`, 토큰 파일 확인, ADR-014) | 구현 |
 | `bot/config.py` | `bot/projects.yaml` + `.env` 로더 (pydantic 검증). 예시는 `bot/projects.example.yaml`, `.env.example` | 구현 |
 | `bot/locks.py` | 단일 인스턴스 락 (`flock`) | 구현 (빌드 락은 Phase 2) |
 | `../Byeolchae-Web/` | 별도 로컬 웹 프로젝트. 그 폴더에서 `.venv/bin/python -m byeolchae_web`으로 실행하며, 봇의 설정과 작업 기록을 읽어 회사 홈·팀원·조직도·업무 화면을 제공한다 | 분리 |
@@ -96,7 +97,7 @@ v1 메뉴바 앱을 수정할 때만 Xcode 명령을 쓴다. 저장소 루트에
 ## 문서
 
 - `docs/README.md`가 문서 인덱스다
-- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-014)
+- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-015)
 - 작업한 날에는 `docs/개발 일지/YYYY-MM-DD.md`에 한 것 / 막힌 것·발견한 것 / 다음 할 것을 기록한다
 - 개발 일지는 작업 PR 안에서 함께 갱신한다. 일지만 바꾸는 PR은 따로 만들지 않는다. 이전 PR의 merge 결과는 다음 작업 PR의 일지에 적는다
 - 문제 해결 기록은 `docs/트러블슈팅/`에 남긴다

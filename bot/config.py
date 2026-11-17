@@ -116,6 +116,11 @@ class PathsConfig(_Model):
         # 한 DB를 두 봇이 함께 쓰지 않게 하는 것이 목적이다
         return self.db.parent / "bot.lock"
 
+    @property
+    def control_token(self) -> Path:
+        # 로컬 제어 요청(웹 홀딩 버튼)의 토큰. 봇이 만들고 웹이 읽는다 (ADR-014)
+        return self.db.parent / "control.token"
+
 
 ModelName = Annotated[str, Field(min_length=1)]
 
