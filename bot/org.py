@@ -72,12 +72,25 @@ class AgentSpec(_Model):
     proposed_by: str | None = None
     reason: str = ""
     former: tuple[str, ...] = ()  # 예전 에이전트 이름 (기록 표시용)
+    avatar: str = ""  # Discord 웹훅 게시 프로필 사진 주소 (https). 비우면 웹훅 기본 사진
+
+    @field_validator("avatar")
+    @classmethod
+    def _avatar_url(cls, value: str) -> str:
+        return _check_avatar(value)
 
     @field_validator("hired", mode="before")
     @classmethod
     def _date_text(cls, value: object) -> object:
         # YAML은 2026-10-28을 날짜로 읽는다. 기록용 문자열로 맞춘다
         return value.isoformat() if isinstance(value, date) else value
+
+
+def _check_avatar(value: str) -> str:
+    """Discord는 웹훅 avatar_url을 직접 내려받으므로 https 주소만 받는다."""
+    if value and not value.startswith("https://"):
+        raise ValueError("avatar는 https:// 로 시작하는 이미지 주소여야 한다")
+    return value
 
 
 class TeamSpec(_Model):
@@ -109,8 +122,14 @@ class Org(_Model):
     teams: dict[str, TeamSpec]
     agents: dict[str, AgentSpec]
     roles: Roles = Roles()
+    bot_avatar: str = ""  # [별채] 게시 프로필 사진 주소. 비우면 웹훅 기본 사진
     # 인격 파일 내용. 불러올 때 채운다 (에이전트 → 본문)
     profiles: dict[str, str] = {}
+
+    @field_validator("bot_avatar")
+    @classmethod
+    def _bot_avatar_url(cls, value: str) -> str:
+        return _check_avatar(value)
 
     @field_validator("agents")
     @classmethod
@@ -179,6 +198,13 @@ class Org(_Model):
         if agent in LEGACY_AGENTS:
             return LEGACY_AGENTS[agent][0]
         return {"zero": "Zero", "bot": BOT_NAME}.get(agent, agent)
+
+    def avatar(self, agent: str) -> str:
+        """웹훅 게시 프로필 사진 주소. 정하지 않았으면 빈 문자열 (웹훅 기본 사진)."""
+        agent = self.current(agent)
+        if agent in self.agents:
+            return self.agents[agent].avatar
+        return self.bot_avatar if agent == "bot" else ""
 
     def engine(self, agent: str) -> EngineName:
         agent = self.current(agent)
