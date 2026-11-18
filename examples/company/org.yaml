@@ -3,7 +3,7 @@
 # 조직은 Zero만 바꾼다. 팀장은 채용을 제안만 한다 (운영 규약 1.12).
 
 # [별채] 게시 프로필 사진 (https 주소, ADR-015). 비우면 웹훅 기본 사진
-# bot_avatar: https://raw.githubusercontent.com/zerohyeon94/Byeolchae/develop/assets/avatars/byeolchae.png
+# bot_avatar: https://...png
 
 teams:
   planning: {name: 기획, lead: beta}
