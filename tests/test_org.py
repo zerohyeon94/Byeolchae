@@ -153,3 +153,34 @@ def test_former_name_must_not_clash(tmp_path):
     text = ORG_YAML.replace("    display: Beta\n", "    display: Beta\n    former: [delta]\n")
     with pytest.raises(OrgError, match="예전 이름"):
         load_org(write(tmp_path, text))
+
+
+AVATAR = "https://raw.githubusercontent.com/example/repo/develop/assets/avatars/beta.png"
+
+
+def test_avatar_follows_former_name_and_bot(tmp_path):
+    text = ORG_YAML.replace(
+        "    display: Beta\n", f"    display: Beta\n    former: [oldbeta]\n    avatar: {AVATAR}\n"
+    )
+    text = f"bot_avatar: {AVATAR.replace('beta', 'bot')}\n" + text
+    org = load_org(write(tmp_path, text))
+    assert org.avatar("beta") == AVATAR
+    assert org.avatar("oldbeta") == AVATAR
+    assert org.avatar("delta") == ""  # 정하지 않으면 웹훅 기본 사진
+    assert org.avatar("bot").endswith("/bot.png")
+    assert org.avatar("zero") == ""
+
+
+def test_default_org_has_no_avatars():
+    assert all(DEFAULT_ORG.avatar(agent) == "" for agent in (*DEFAULT_ORG.agent_names, "bot"))
+
+
+@pytest.mark.parametrize("field", ["agent", "bot"])
+@pytest.mark.parametrize("value", ["http://example.com/a.png", "assets/avatars/beta.png"])
+def test_avatar_must_be_https(tmp_path, field, value):
+    if field == "agent":
+        text = ORG_YAML.replace("    display: Beta\n", f"    display: Beta\n    avatar: {value}\n")
+    else:
+        text = f"bot_avatar: {value}\n" + ORG_YAML
+    with pytest.raises(OrgError, match="avatar"):
+        load_org(write(tmp_path, text))

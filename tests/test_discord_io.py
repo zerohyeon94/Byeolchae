@@ -177,6 +177,57 @@ def test_post_silent_without_mention():
     assert kwargs["allowed_mentions"].users is False
 
 
+def test_post_without_avatar_leaves_webhook_default():
+    chat, webhook, _, _ = make_chat()
+    run(chat.post("500", "alpha", "의견"))
+    ((_, kwargs),) = webhook.calls
+    assert kwargs["avatar_url"] is discord.utils.MISSING
+
+
+def test_posts_use_agent_and_bot_avatars():
+    org = DEFAULT_ORG.model_copy(
+        update={
+            "agents": {
+                **DEFAULT_ORG.agents,
+                "alpha": DEFAULT_ORG.agents["alpha"].model_copy(
+                    update={"avatar": "https://img.example/alpha.png"}
+                ),
+            },
+            "bot_avatar": "https://img.example/bot.png",
+        }
+    )
+    sender = FakeSender()
+    sender_calls = sender.calls
+
+    async def webhook(*_):
+        return sender
+
+    chat = DiscordChat(
+        zero_user_id=ZERO,
+        webhook_for=webhook,
+        ops_channel=webhook,
+        org=org,
+        chat_webhook=webhook,
+        forum_webhook=webhook,
+        dept_webhook=webhook,
+    )
+    run(chat.post("500", "alpha", "의견"))
+    run(chat.chat("gagae", "alpha", "답"))
+    run(chat.dept_chat("secretary", "beta", "답"))
+    sender.send = AsyncMock(return_value=SimpleNamespace(channel=SimpleNamespace(id=900)))
+    run(chat.create_post("gagae", "제목", "\n".join(["가" * 1000] * 2)))
+    avatars = [kwargs["avatar_url"] for _, kwargs in sender_calls]
+    assert avatars == [
+        "https://img.example/alpha.png",
+        "https://img.example/alpha.png",
+        discord.utils.MISSING,  # beta는 사진을 정하지 않았다
+    ]
+    assert [c.kwargs["avatar_url"] for c in sender.send.await_args_list] == [
+        "https://img.example/bot.png",
+        "https://img.example/bot.png",
+    ]
+
+
 @pytest.mark.parametrize("when", ["lookup", "send"])
 @pytest.mark.parametrize("code", [10003, 10015])
 def test_post_translates_only_missing_channel(when, code):

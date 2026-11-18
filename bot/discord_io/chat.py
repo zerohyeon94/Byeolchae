@@ -1,6 +1,6 @@
 """ChatIO의 Discord 구현 (SPEC 6.1).
 
-- 모든 게시는 포럼 채널의 웹훅으로 보내고, 게시자 이름으로 주체를 구분한다 (운영 규약 1.2)
+- 모든 게시는 포럼 채널의 웹훅으로 보내고, 게시자 이름과 사진으로 주체를 구분한다 (운영 규약 1.2)
 - 멘션은 Zero가 행동해야 할 때만 붙이고, 나머지는 알림 없는(silent) 메시지로 보낸다 (운영 규약 2.5)
 - 긴 본문은 1,900자 단위로 나누고, 첨부 파일은 마지막 조각에 붙인다
 """
@@ -101,6 +101,7 @@ class DiscordChat:
             message = await webhook.send(
                 chunk,
                 username=author_name(self._org, author),
+                avatar_url=self._org.avatar(author) or discord.utils.MISSING,
                 thread=discord.Object(thread_id),
                 allowed_mentions=self._mentions(mention and index == 0),
                 silent=not mention,
@@ -159,6 +160,7 @@ class DiscordChat:
             message = await webhook.send(
                 chunk,
                 username=author_name(self._org, author),
+                avatar_url=self._org.avatar(author) or discord.utils.MISSING,
                 allowed_mentions=self._mentions(mention and index == 0),
                 silent=not mention,
                 files=[_file(a) for a in attachments] if last else [],
@@ -178,6 +180,7 @@ class DiscordChat:
         message = await webhook.send(
             chunks[0],
             username=author_name(self._org, "bot"),
+            avatar_url=self._org.avatar("bot") or discord.utils.MISSING,
             thread_name=title[:100],
             allowed_mentions=discord.AllowedMentions.none(),
             silent=True,
@@ -188,6 +191,7 @@ class DiscordChat:
             await webhook.send(
                 chunk,
                 username=author_name(self._org, "bot"),
+                avatar_url=self._org.avatar("bot") or discord.utils.MISSING,
                 thread=discord.Object(int(thread_id)),
                 silent=True,
                 wait=True,

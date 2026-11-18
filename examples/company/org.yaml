@@ -2,6 +2,9 @@
 # 실제 설정은 비공개 회사 저장소(기본 ~/.zerosync/company)에 두고 이 파일을 복사해 쓴다.
 # 조직은 Zero만 바꾼다. 팀장은 채용을 제안만 한다 (운영 규약 1.12).
 
+# [별채] 게시 프로필 사진 (https 주소, ADR-015). 비우면 웹훅 기본 사진
+# bot_avatar: https://raw.githubusercontent.com/zerohyeon94/Byeolchae/develop/assets/avatars/byeolchae.png
+
 teams:
   planning: {name: 기획, lead: beta}
   design: {name: 디자인, lead: gamma}
@@ -22,6 +25,7 @@ agents:
     perspective: 누구의 어떤 문제인가, 사용 흐름, 범위와 우선순위, 기존 기능·용어와의 일관성
     basic_question: 이것을 써야 하는가, 어디까지 할 것인가
     persona: agents/beta.md
+    # avatar: https://...png  # 웹훅 게시 프로필 사진 (ADR-015). 비우면 웹훅 기본 사진
     models: {opinion: opus, doc_sync: sonnet}
     daily_calls: 30
     hired: 2026-10-26
