@@ -195,7 +195,7 @@ class _Outgoing:
     attachments: tuple[Attachment, ...]
     kind: str
     payload: Any
-    ops_alert: str = ""  # 비어 있지 않으면 #zerosync-ops에도 알린다
+    ops_alert: str = ""  # 비어 있지 않으면 #별채-운영에도 알린다
 
 
 @dataclass

@@ -70,7 +70,7 @@ class ChatIO(Protocol):
         ...
 
     async def notify_ops(self, text: str, *, mention: bool = False) -> None:
-        """#zerosync-ops 채널에 알린다."""
+        """#별채-운영 채널에 알린다."""
         ...
 
     async def report(self, text: str, *, mention: bool = False) -> None:
