@@ -53,6 +53,12 @@ class Holds:
         self.calls.append((job, held))
         return {"all": False, "jobs": [{"job": job, "held": held}]}
 
+    async def start_task(self, project, command, title):
+        if project != "jday" or command != "/task feature":
+            raise KeyError(project)
+        self.calls.append((project, command, title))
+        return {"task_id": 7, "thread": "123"}
+
 
 def call(method, path, given="tok", body=b""):
     holds = Holds()
@@ -65,6 +71,7 @@ def call(method, path, given="tok", body=b""):
             body,
             schedules=holds.schedules,
             set_hold=holds.set_hold,
+            start_task=holds.start_task,
         )
     )
     return reply, holds.calls
@@ -88,12 +95,40 @@ def test_hold_request_is_validated():
     assert call("DELETE", "/holds")[0].status == 404
 
 
+def test_task_request_is_validated():
+    ok = json.dumps({"project": "jday", "command": "/task feature", "title": " 시험 "}).encode()
+    for given in (None, "wrong"):
+        reply, calls = call("POST", "/tasks", given, ok)
+        assert reply.status == 401 and calls == []
+    reply, calls = call("POST", "/tasks", body=ok)
+    assert reply.status == 200 and reply.body == {"task_id": 7, "thread": "123"}
+    assert calls == [("jday", "/task feature", "시험")]
+    for bad in (
+        b"not json",
+        b"[]",
+        b'{"project": "jday", "command": "/task feature"}',
+        b'{"project": "jday", "command": "/task feature", "title": "  "}',
+        b'{"project": 1, "command": "/task feature", "title": "x"}',
+    ):
+        reply, calls = call("POST", "/tasks", body=bad)
+        assert reply.status == 400 and calls == [], bad
+    for unknown in (
+        b'{"project": "nope", "command": "/task feature", "title": "x"}',
+        b'{"project": "jday", "command": "/nope", "title": "x"}',
+    ):
+        assert call("POST", "/tasks", body=unknown)[0].status == 404
+
+
 def test_server_answers_only_with_token():
     holds = Holds()
 
     async def main():
         runner = await control.start(
-            "tok", schedules=holds.schedules, set_hold=holds.set_hold, port=0
+            "tok",
+            schedules=holds.schedules,
+            set_hold=holds.set_hold,
+            start_task=holds.start_task,
+            port=0,
         )
         try:
             host, port = runner.addresses[0][:2]
