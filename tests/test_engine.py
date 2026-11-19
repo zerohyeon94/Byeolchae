@@ -476,6 +476,18 @@ def test_plan_without_ui_change_skips_ui_design():
         ]
 
 
+def test_task_from_web_returns_before_first_stage():
+    @scenario(claude=[plan_reply()])
+    async def _(h):
+        later = []
+        task = await h.engine.task_from_chat(P, "/task feature", "예산 배너", later.append)
+        # 웹 요청은 작업만 만들고 바로 돌아온다. 첫 단계는 봇이 백그라운드로 돌린다 (ADR-014)
+        assert task is not None and task.discord_thread and h.claude.requests == []
+        (work,) = later
+        await work
+        assert (await h.task()).state is TaskState.AWAIT_PLAN_APPROVAL
+
+
 def test_design_must_keep_approved_change_fields():
     @scenario(
         claude=[

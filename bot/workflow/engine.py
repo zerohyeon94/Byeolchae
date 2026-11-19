@@ -276,8 +276,12 @@ class Engine(WorkStages):
         text: str,
         thread: str,
         context: str = "",
+        background: Callable[[Awaitable[None]], None] | None = None,
     ) -> TaskRecord:
-        """작업을 만들고 파이프라인 첫 단계를 시작한다. thread는 이미 연 포럼 포스트."""
+        """작업을 만들고 파이프라인 첫 단계를 시작한다. thread는 이미 연 포럼 포스트.
+
+        background를 주면 첫 단계를 거기에 넘기고 만든 작업을 바로 돌려준다 (웹 요청, ADR-014).
+        """
         if project not in self._projects:
             raise ValueError(f"알 수 없는 프로젝트: {project}")
         decl = self._pipelines[pipeline]
@@ -292,6 +296,9 @@ class Engine(WorkStages):
             updates=result.updates,
             pipeline=pipeline,
         )
+        if background is not None:
+            background(self._run_effects(task, result.effects))
+            return task
         await self._run_effects(task, result.effects)
         return await self._repo.get_task(task.id)
 
@@ -1091,7 +1098,13 @@ class Engine(WorkStages):
             alert,
         )
 
-    async def task_from_chat(self, project: str, command: str, title: str) -> TaskRecord | None:
+    async def task_from_chat(
+        self,
+        project: str,
+        command: str,
+        title: str,
+        background: Callable[[Awaitable[None]], None] | None = None,
+    ) -> TaskRecord | None:
         """/task, /release: 포럼에 포스트를 열고 채팅의 의견 요약을 옮겨 흐름을 시작한다."""
         pipeline = self.pipeline_for_command(command)
         if pipeline is None:
@@ -1111,6 +1124,7 @@ class Engine(WorkStages):
             text=title,
             thread=thread,
             context=context,
+            background=background,
         )
         if history:
             await self._repo.attach_chat_turns(project, task.id)

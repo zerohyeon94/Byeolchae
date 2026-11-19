@@ -435,12 +435,28 @@ class ZeroSyncBot(discord.Client):
             )
         return await self.schedule_status()
 
+    async def start_task_from_web(self, project: str, command: str, title: str) -> dict[str, Any]:
+        """웹의 작업 만들기 (POST /tasks). 포스트와 작업만 만들고 첫 단계는 백그라운드로 돈다."""
+        if project not in self.config.projects:
+            raise KeyError(project)
+        label = f"웹 {command} {title}"
+        task = await self.engine.task_from_chat(
+            project, command, title, background=lambda work: self.spawn(work, label)
+        )
+        if task is None:
+            raise KeyError(command)
+        await self.chat.notify_ops(f"[{project}] 웹에서 작업 {task.id}을 만들었다: {title}")
+        return {"task_id": task.id, "thread": task.discord_thread}
+
     async def _start_control(self) -> None:
         """웹 홀딩 버튼을 받는 로컬 제어 서버. 못 열어도 봇은 계속 돈다."""
         try:
             token = ensure_token(self.config.paths.control_token)
             self._control = await control.start(
-                token, schedules=self.schedule_status, set_hold=self.set_hold
+                token,
+                schedules=self.schedule_status,
+                set_hold=self.set_hold,
+                start_task=self.start_task_from_web,
             )
         except Exception as error:
             log.exception("제어 서버 시작 실패")
