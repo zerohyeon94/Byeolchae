@@ -5,7 +5,7 @@ Discord 웹훅 게시에 붙이는 직원 사진이다 ([ADR-015](../../docs/아
 - 별직원 원화(`output/characters/원화/`, 2026-11-09)에서 캐릭터를 가운데에 두고 원화 배경색으로 채운 512x512 PNG다
 - Discord가 사진을 원으로 자르므로 캐릭터 둘레에 여백을 둔다
 - 원화를 고치면 `python scripts/make_avatars.py`로 다시 만든다 (Pillow 필요)
-- `[별채]` 게시용 사진(`bot_avatar`)은 `byeolchae.png`다. 원화가 없어 폴라리스·시리우스 원화의 그림체를 참고해 따로 그렸고, `make_avatars.py`로 만들지 않는다
+- `[별채]` 게시용 사진(`bot_avatar`)은 `byeolchae.png`다. 원화가 없어 폴라리스·시리우스 원화의 그림체를 참고해 따로 그려 512x512로 줄였고, `make_avatars.py`로 만들지 않는다
 
 ## 적용
 
