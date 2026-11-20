@@ -46,7 +46,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
 | `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모), launchd 설치(`install_launchd.sh`), 볼트 `.git`을 iCloud 밖 `~/.zerosync/vault.git`으로 옮기는 일회성 이전(`migrate_vault_git.sh`, 봇 Mac에서 실행) | 사용 중 |
-| `assets/avatars/` | Discord 웹훅 게시용 직원 프로필 사진(41명, ADR-015). 별직원 원화(`output/characters/원화/`)에서 `scripts/make_avatars.py`로 만든다 | 사용 중 |
+| `assets/avatars/` | Discord 웹훅 게시용 직원 프로필 사진(41명과 별채, ADR-015). 별직원 원화(`output/characters/원화/`)에서 `scripts/make_avatars.py`로 만든다 | 사용 중 |
 | `deploy/` | launchd 상시 실행 템플릿 (`com.zerosync.orchestrator.plist`) | 사용 중 |
 | `menubar/` | v1 Swift 메뉴바 앱 (`ZeroSync/`, `ZeroSync.xcodeproj`, 테스트 타깃) | 보류 |
 | `docs/` | 봇 자체 개발 문서 | 사용 중 |
@@ -98,7 +98,7 @@ v1 메뉴바 앱을 수정할 때만 Xcode 명령을 쓴다. 저장소 루트에
 ## 문서
 
 - `docs/README.md`가 문서 인덱스다
-- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-016)
+- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-017)
 - 작업한 날에는 `docs/개발 일지/YYYY-MM-DD.md`에 한 것 / 막힌 것·발견한 것 / 다음 할 것을 기록한다
 - 개발 일지는 작업 PR 안에서 함께 갱신한다. 일지만 바꾸는 PR은 따로 만들지 않는다. 이전 PR의 merge 결과는 다음 작업 PR의 일지에 적는다
 - 문제 해결 기록은 `docs/트러블슈팅/`에 남긴다

@@ -39,3 +39,4 @@ Architecture Decision Records — 중요한 기술 선택의 근거를 남긴다
 - [ADR-013](ADR-013-부서-채널-대화.md) — 비서·교육 채널 대화와 팀장 넘기기
 - [ADR-014](ADR-014-주기-작업-홀딩.md) — 주기 작업 홀딩 (웹 버튼과 /hold)
 - [ADR-015](ADR-015-직원-프로필-사진.md) — 직원 프로필 사진 (웹훅 avatar_url)
+- [ADR-016](ADR-016-모든-글-직원-이름.md) — 모든 Discord 글을 직원 이름으로

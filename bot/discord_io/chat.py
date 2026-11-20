@@ -3,6 +3,8 @@
 - 모든 게시는 포럼 채널의 웹훅으로 보내고, 게시자 이름과 사진으로 주체를 구분한다 (운영 규약 1.2)
 - 멘션은 Zero가 행동해야 할 때만 붙이고, 나머지는 알림 없는(silent) 메시지로 보낸다 (운영 규약 2.5)
 - 긴 본문은 1,900자 단위로 나누고, 첨부 파일은 마지막 조각에 붙인다
+- 보고·알림·버튼 글도 채널 웹훅으로 직원 이름과 사진을 붙여 보낸다. 봇 계정 이름은 보이지 않는다.
+  웹훅을 얻지 못한 채널에서만 봇 계정으로 보낸다 (ADR-016)
 """
 
 import io
@@ -38,6 +40,8 @@ class DiscordChat:
         forum_webhook: Callable[[str], Awaitable[WebhookLike]] | None = None,
         dept_webhook: Callable[[str], Awaitable[WebhookLike]] | None = None,
         dept_channel: Callable[[str], Awaitable[Any]] | None = None,
+        channel_webhook: Callable[[Any], Awaitable[WebhookLike | None]] | None = None,
+        report_author: Author = "bot",
     ):
         """webhook_for(thread_id)는 그 게시글이 속한 포럼 채널의 웹훅을 돌려준다."""
         self._zero = zero_user_id
@@ -52,6 +56,10 @@ class DiscordChat:
         self._report_channel = report_channel or ops_channel
         self._webhook_for = webhook_for
         self._ops_channel = ops_channel
+        # 채널 → 그 채널의 웹훅 (#대표실·운영 채널·#비서·#교육). 없으면 봇 계정으로 보낸다
+        self._channel_webhook = channel_webhook
+        # #대표실 보고를 쓰는 직원 (비서실장, ADR-016). 운영 채널은 [별채]
+        self._report_author = report_author
 
     def _mentions(self, mention: bool) -> discord.AllowedMentions:
         if mention:
@@ -199,33 +207,63 @@ class DiscordChat:
         return thread_id
 
     async def notify_ops(self, text: str, *, mention: bool = False) -> None:
-        await self._send(await self._ops_channel(), text, mention)
+        await self._send(await self._ops_channel(), text, mention, author="bot")
 
     async def report(self, text: str, *, mention: bool = False) -> None:
-        await self._send(await self._report_channel(), text, mention)
+        await self._send(await self._report_channel(), text, mention, author=self._report_author)
 
     async def report_target(self) -> ChannelLike:
         """#대표실(없으면 운영 채널). 교육 알림이 #교육 없이 쓸 곳이다."""
         return await self._report_channel()
 
     async def send(
-        self, channel: ChannelLike, text: str, *, mention: bool = False, files: Sequence[Path] = ()
+        self,
+        channel: ChannelLike,
+        text: str,
+        *,
+        mention: bool = False,
+        files: Sequence[Path] = (),
+        author: Author = "bot",
+        view: discord.ui.View | None = None,
     ) -> None:
-        """설정에 등록된 다른 채널(#교육 등)에 봇 이름으로 보낸다. 파일은 마지막 조각에 붙인다."""
-        await self._send(channel, text, mention, files)
+        """설정에 등록된 다른 채널(#비서·#교육 등)에 author 이름으로 보낸다.
+        파일과 버튼(view)은 마지막 조각에 붙인다."""
+        await self._send(channel, text, mention, files, author=author, view=view)
 
     async def _send(
-        self, channel: ChannelLike, text: str, mention: bool, files: Sequence[Path] = ()
+        self,
+        channel: ChannelLike,
+        text: str,
+        mention: bool,
+        files: Sequence[Path] = (),
+        *,
+        author: Author,
+        view: discord.ui.View | None = None,
     ) -> None:
+        webhook = await self._channel_webhook(channel) if self._channel_webhook else None
         chunks = self._content(text, mention)
         for index, chunk in enumerate(chunks):
             extra: dict[str, Any] = {}
-            if files and index == len(chunks) - 1:
-                extra["files"] = [discord.File(path) for path in files]
-            await channel.send(
+            if index == len(chunks) - 1:
+                if files:
+                    extra["files"] = [discord.File(path) for path in files]
+                if view is not None:
+                    extra["view"] = view
+            if webhook is None:
+                await channel.send(
+                    chunk,
+                    allowed_mentions=self._mentions(mention and index == 0),
+                    silent=not mention,
+                    **extra,
+                )
+                continue
+            await webhook.send(
                 chunk,
+                username=author_name(self._org, author),
+                avatar_url=self._org.avatar(author) or discord.utils.MISSING,
                 allowed_mentions=self._mentions(mention and index == 0),
                 silent=not mention,
+                wait=True,
                 **extra,
             )
 

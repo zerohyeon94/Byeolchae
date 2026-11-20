@@ -6,7 +6,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
@@ -226,6 +226,70 @@ def test_posts_use_agent_and_bot_avatars():
         "https://img.example/bot.png",
         "https://img.example/bot.png",
     ]
+
+
+def chat_with_channel_webhooks(*, has_webhook=True, report_author="theta"):
+    """#대표실·운영 채널 웹훅이 있는 DiscordChat (ADR-016)."""
+    hooks, channels = {}, {"report": FakeSender(), "ops": FakeSender()}
+
+    async def channel_webhook(channel):
+        if not has_webhook:
+            return None
+        return hooks.setdefault(id(channel), FakeSender())
+
+    async def ops():
+        return channels["ops"]
+
+    async def report():
+        return channels["report"]
+
+    chat = DiscordChat(
+        zero_user_id=ZERO,
+        webhook_for=ops,
+        ops_channel=ops,
+        report_channel=report,
+        channel_webhook=channel_webhook,
+        report_author=report_author,
+    )
+    return chat, channels, hooks
+
+
+def test_report_and_ops_post_as_staff_through_channel_webhooks():
+    chat, channels, hooks = chat_with_channel_webhooks()
+    run(chat.report("**아침 보고**", mention=True))
+    run(chat.notify_ops("오류"))
+    ((content, kwargs),) = hooks[id(channels["report"])].calls
+    assert content == f"<@{ZERO}>\n**아침 보고**"
+    assert kwargs["username"] == "[Theta · 비서팀장]"  # #대표실은 비서실장 (ADR-016)
+    assert kwargs["silent"] is False and kwargs["wait"] is True
+    ((_, kwargs),) = hooks[id(channels["ops"])].calls
+    assert kwargs["username"] == "[별채]" and kwargs["silent"] is True  # 운영 채널은 [별채]
+    # 봇 계정으로는 아무것도 보내지 않는다
+    assert channels["report"].calls == [] and channels["ops"].calls == []
+
+
+def test_send_puts_author_and_view_on_last_chunk():
+    chat, channels, hooks = chat_with_channel_webhooks()
+    view = discord.ui.View(timeout=None)
+    channel = channels["report"]
+    run(chat.send(channel, "\n".join(["가" * 1000] * 2), author="eta", view=view))
+    first, last = (kwargs for _, kwargs in hooks[id(channel)].calls)
+    assert first["username"] == last["username"] == "[Eta · 교육팀장]"
+    assert "view" not in first and last["view"] is view
+
+
+def test_send_without_webhook_falls_back_to_bot_account():
+    chat, channels, hooks = chat_with_channel_webhooks(has_webhook=False)
+    run(chat.report("보고"))
+    ((content, kwargs),) = channels["report"].calls
+    assert content == "보고" and "username" not in kwargs and hooks == {}
+
+
+def test_report_author_defaults_to_bot():
+    chat, channels, hooks = chat_with_channel_webhooks(report_author="bot")
+    run(chat.report("보고"))
+    ((_, kwargs),) = hooks[id(channels["report"])].calls
+    assert kwargs["username"] == "[별채]"
 
 
 @pytest.mark.parametrize("when", ["lookup", "send"])
@@ -844,8 +908,8 @@ def test_secretary_catches_up_missed_evening_and_takes_morning_report(bot, tmp_p
             async def target():
                 return "#대표실"
 
-            async def send(channel, text, *, mention=False):
-                sent.append((channel, text.splitlines()[:2]))
+            async def send(channel, text, *, mention=False, author="bot"):
+                sent.append((channel, author, text.splitlines()[0]))
 
             bot.chat.report, bot.chat.report_target, bot.chat.send = report, target, send
             # 지난 아침·주간 보고는 이미 냈다
@@ -863,7 +927,64 @@ def test_secretary_catches_up_missed_evening_and_takes_morning_report(bot, tmp_p
     # 11-03 아침에 따라잡아도 11-02 하루 정리다
     assert first == ["secretary_evening"] and days == ["2026-11-02"]
     assert morning == ["morning_report"] and reports == []
-    assert sent == [("#대표실", ["**[Theta · 비서팀장]**", "**아침 보고** (11-03)"])]
+    # 비서 이름은 본문 머리가 아니라 웹훅 게시자로 붙인다 (ADR-016)
+    assert sent == [("#대표실", "theta", "**아침 보고** (11-03)")]
+
+
+def text_channel(channel_id, name):
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.id, channel.name = channel_id, name
+    return channel
+
+
+def test_channel_webhook_is_made_once_and_skips_other_channels(bot):
+    channel, hook, made = text_channel(700, "대표실"), object(), []
+
+    async def own(channel, name):
+        made.append(name)
+        return hook
+
+    bot._own_webhook = own
+    assert run(bot._channel_webhook(channel)) is hook
+    assert run(bot._channel_webhook(channel)) is hook
+    assert made == ["대표실"]
+    assert run(bot._channel_webhook(SimpleNamespace(id=701))) is None  # 텍스트 채널이 아니다
+
+
+def test_channel_webhook_without_permission_falls_back(bot):
+    async def own(channel, name):
+        raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Missing")
+
+    bot._own_webhook = own
+    assert run(bot._channel_webhook(text_channel(702, "운영"))) is None
+
+
+def test_report_author_is_secretary_lead(bot, dept_bot):
+    assert bot.chat._report_author == "bot"  # 비서가 없으면 [별채]
+    assert dept_bot.chat._report_author == dept_bot.config.secretary.agent
+
+
+def test_quiz_and_done_buttons_post_as_education_lead(bot, tmp_path):
+    from bot.config import EducationConfig
+    from bot.schemas.education import QuizQuestion
+
+    bot.config = bot.config.model_copy(update={"education": EducationConfig(vault=tmp_path)})
+    sent = []
+
+    async def channel():
+        return "#교육"
+
+    async def send(channel, text, *, mention=False, files=(), author="bot", view=None):
+        sent.append((channel, author, view is not None))
+
+    bot._education_channel, bot.chat.send = channel, send
+    question = QuizQuestion(
+        prompt="오늘 개념 질문", options=["가", "나", "다", "라"], answer="A", explanation="설명"
+    )
+    run(bot._post_quiz(1, "오늘 문제", [(1, question)], 1))
+    run(bot._post_done("2026-11-19", "개념"))
+    agent = bot.config.education.agent
+    assert sent == [("#교육", agent, True), ("#교육", agent, True)]
 
 
 def test_evening_command_is_zero_only_and_needs_secretary(bot):

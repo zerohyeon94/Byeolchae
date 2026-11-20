@@ -172,6 +172,9 @@ class ZeroSyncBot(discord.Client):
             forum_webhook=self._forum_webhook,
             dept_webhook=self._dept_webhook,
             dept_channel=self._dept_channel,
+            channel_webhook=self._channel_webhook,
+            # #대표실 보고는 비서실장 이름으로 쓴다. 비서가 없으면 [별채] (ADR-016)
+            report_author=config.secretary.agent if config.secretary is not None else "bot",
         )
         self.engine = Engine(
             repo,
@@ -493,13 +496,12 @@ class ZeroSyncBot(discord.Client):
         """비서 이름으로 #비서에 알린다. 채널이 없으면 #대표실(없으면 운영 채널)."""
         secretary = self.config.secretary
         assert secretary is not None
-        text = f"**[{self.config.org.display(secretary.agent)}]**\n{text}"
         if secretary.channel_id is None:
             channel = await self.chat.report_target()
         else:
             channel_id = int(secretary.channel_id)
             channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
-        await self.chat.send(channel, text, mention=mention)
+        await self.chat.send(channel, text, mention=mention, author=secretary.agent)
 
     async def run_evening(self, interaction: discord.Interaction) -> None:
         """가장 최근 저녁 일정의 하루 정리를 지금 만든다 (/evening). 이미 있으면 쓰지 않는다."""
@@ -527,8 +529,13 @@ class ZeroSyncBot(discord.Client):
         """교육팀장 이름으로 #교육에 알린다. 채널이 없으면 #대표실(없으면 운영 채널)."""
         education = self.config.education
         assert education is not None
-        text = f"**[{self.config.org.display(education.agent)}]**\n{text}"
-        await self.chat.send(await self._education_channel(), text, mention=mention, files=files)
+        await self.chat.send(
+            await self._education_channel(),
+            text,
+            mention=mention,
+            files=files,
+            author=education.agent,
+        )
 
     async def _education_channel(self) -> Any:
         education = self.config.education
@@ -543,22 +550,27 @@ class ZeroSyncBot(discord.Client):
     ) -> None:
         """교육 문제(오늘·복습·주간)를 한 문제씩 A~D 버튼과 함께 올린다."""
         channel = await self._education_channel()
+        agent = self._education_agent()
         for number, question in items:
-            await channel.send(
+            await self.chat.send(
+                channel,
                 render_question(question, title, number, total),
+                author=agent,
                 view=quiz_view(quiz_id, number),
-                allowed_mentions=discord.AllowedMentions.none(),
-                silent=True,
             )
 
     async def _post_done(self, day: str, label: str) -> None:
-        channel = await self._education_channel()
-        await channel.send(
+        await self.chat.send(
+            await self._education_channel(),
             f"**오늘 개념 완료**: {label}",
+            author=self._education_agent(),
             view=study_done_view(day),
-            allowed_mentions=discord.AllowedMentions.none(),
-            silent=True,
         )
+
+    def _education_agent(self) -> str:
+        education = self.config.education
+        assert education is not None
+        return education.agent
 
     async def mark_study_done(self, interaction: discord.Interaction, day: str) -> None:
         """완료 버튼. Zero만 누를 수 있고, 결과는 Zero에게만 보인다."""
@@ -690,6 +702,21 @@ class ZeroSyncBot(discord.Client):
             if not isinstance(channel, discord.TextChannel):
                 raise RuntimeError(f"{dept}.channel_id가 텍스트 채널이 아니다")
             self._webhooks[dept_id] = await self._own_webhook(channel, dept)
+
+    async def _channel_webhook(self, channel: Any) -> discord.Webhook | None:
+        """#대표실·운영 채널·#비서·#교육처럼 일반 채널의 웹훅. 처음 쓸 때 찾거나 만든다.
+        텍스트 채널이 아니거나 웹훅 권한이 없으면 None (봇 계정으로 보낸다)."""
+        if not isinstance(channel, discord.TextChannel):
+            return None
+        hook = self._webhooks.get(channel.id)
+        if hook is None:
+            try:
+                hook = await self._own_webhook(channel, channel.name)
+            except discord.HTTPException:
+                log.exception("웹훅을 얻지 못해 봇 계정으로 보낸다: #%s", channel.name)
+                return None
+            self._webhooks[channel.id] = hook
+        return hook
 
     async def _own_webhook(self, channel: Any, project: str) -> discord.Webhook:
         assert self.user is not None

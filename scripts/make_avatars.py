@@ -1,4 +1,4 @@
-"""별직원 원화로 Discord 프로필 사진 만들기 (ADR-012 15팀 41명, ADR-015).
+"""별직원 원화로 Discord 프로필 사진 만들기 (ADR-012 15팀 41명과 별채, ADR-015).
 
 원화(`output/characters/원화/<팀>/<이름>.png`)에서 캐릭터 영역을 찾아 가운데에 두고,
 원화 배경색으로 채운 정사각형 512px PNG를 `assets/avatars/<별 이름>.png`로 저장한다.
@@ -24,6 +24,7 @@ THRESHOLD = 28  # 배경색과 이만큼 다르면 캐릭터로 본다
 
 # 원화 파일 이름(한글) → 사진 파일 이름(별 이름 영문 소문자)
 NAMES = {
+    "별채": "byeolchae",  # [별채] 게시와 봇 계정 아이콘 (2026-11-19)
     "폴라리스": "polaris",
     "두베": "dubhe",
     "투반": "thuban",
@@ -104,7 +105,7 @@ def main() -> None:
     missing = sorted(set(NAMES) - seen)
     if missing:
         raise SystemExit(f"원화가 없는 직원: {', '.join(missing)}")
-    print(f"직원 {len(seen)}명의 사진을 {args.out}에 만들었다")
+    print(f"{len(seen)}장의 사진을 {args.out}에 만들었다")
 
 
 if __name__ == "__main__":
