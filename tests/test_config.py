@@ -76,6 +76,8 @@ def test_loads_project_with_defaults(tmp_path):
     assert config.paths.db == Path.home() / ".zerosync/zerosync.db"
     assert config.paths.lock == Path.home() / ".zerosync/bot.lock"
     assert config.cli.claude == "claude"
+    assert config.cli.codex == "codex"
+    assert config.cli.gemini == "agy"
     assert config.limits.max_review_rounds == 3
     assert config.limits.max_test_retries == 2
     assert config.limits.cli_timeout_sec == 3600
@@ -271,13 +273,21 @@ def test_parse_env_rejects_duplicate_key():
 def test_cli_models_by_stage(tmp_path):
     extra = (
         "cli:\n"
+        "  gemini: /opt/homebrew/bin/agy\n"
         "  claude_models:\n    opinion: sonnet\n    implement: opus\n"
         "  codex_models:\n    review: gpt-x\n"
+        "  gemini_models:\n    plan: gemini-3.1-pro\n    implement: gemini-3.5-flash\n"
     )
     config = load(tmp_path, yaml_text(extra=extra))
+    assert config.cli.gemini == "/opt/homebrew/bin/agy"
     assert config.cli.claude_models == {Stage.OPINION: "sonnet", Stage.IMPLEMENT: "opus"}
     assert config.cli.codex_models == {Stage.REVIEW: "gpt-x"}
+    assert config.cli.gemini_models == {
+        Stage.PLAN: "gemini-3.1-pro",
+        Stage.IMPLEMENT: "gemini-3.5-flash",
+    }
     assert load(tmp_path).cli.claude_models == {}
+    assert load(tmp_path).cli.gemini_models == {}
 
 
 @pytest.mark.parametrize(
@@ -286,6 +296,8 @@ def test_cli_models_by_stage(tmp_path):
         ("cli:\n  codex_models:\n    plan: gpt\n", "Codex가 맡지 않는 단계: plan"),
         ("cli:\n  claude_models:\n    opinon: sonnet\n", "cli.claude_models"),
         ("cli:\n  claude_models:\n    opinion: ''\n", "cli.claude_models"),
+        ("cli:\n  gemini_models:\n    opinon: pro\n", "cli.gemini_models"),
+        ("cli:\n  gemini_models:\n    design: ''\n", "cli.gemini_models"),
     ],
 )
 def test_rejects_bad_cli_models(tmp_path, extra, match):

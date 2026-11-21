@@ -124,8 +124,9 @@ class PathsConfig(_Model):
 
 ModelName = Annotated[str, Field(min_length=1)]
 
-# 단계별 기본 모델을 둘 수 있는 단계 (SPEC 5.2). Codex는 읽기 전용 단계만 맡는다
+# 단계별 기본 모델을 둘 수 있는 단계 (SPEC 5.2). Claude·Gemini는 모든 단계를 맡는다
 CLAUDE_STAGES = frozenset(Stage)
+GEMINI_STAGES = frozenset(Stage)
 CODEX_STAGES = frozenset(
     {
         Stage.OPINION,
@@ -145,9 +146,11 @@ class CliConfig(_Model):
     # launchd PATH에서 못 찾으면 절대 경로를 적는다 (SPEC 5.2)
     claude: str = Field(default="claude", min_length=1)
     codex: str = Field(default="codex", min_length=1)
+    gemini: str = Field(default="agy", min_length=1)
     # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다
     claude_models: dict[Stage, ModelName] = {}
     codex_models: dict[Stage, ModelName] = {}
+    gemini_models: dict[Stage, ModelName] = {}
 
     @field_validator("claude_models")
     @classmethod
@@ -158,6 +161,11 @@ class CliConfig(_Model):
     @classmethod
     def _codex_stages(cls, value: dict[Stage, str]) -> dict[Stage, str]:
         return _check_stages(value, CODEX_STAGES, "Codex")
+
+    @field_validator("gemini_models")
+    @classmethod
+    def _gemini_stages(cls, value: dict[Stage, str]) -> dict[Stage, str]:
+        return _check_stages(value, GEMINI_STAGES, "Gemini")
 
 
 def _check_stages(

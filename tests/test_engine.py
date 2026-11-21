@@ -236,13 +236,13 @@ class FakeVault:
 
 
 class Harness:
-    def __init__(self, conn, claude, codex, tmp, tests, org, owners):
+    def __init__(self, conn, claude, codex, gemini, tmp, tests, org, owners):
         self.conn = conn
         self.clock = FixedClock(T0)
         self.slept = []
         self.repo = Repository(conn, self.clock)
         self.chat = FakeChatIO()
-        self.claude, self.codex = claude, codex
+        self.claude, self.codex, self.gemini = claude, codex, gemini
         self.github = FakeGitHub(repo="zerohyeon94/GagaeSsi")
         self.git = FakeGit()
         _Git.git = self.git
@@ -255,7 +255,7 @@ class Harness:
         self.engine = Engine(
             self.repo,
             self.chat,
-            {"claude": claude, "codex": codex},
+            {"claude": claude, "codex": codex, "gemini": gemini},
             {
                 project: ProjectContext(
                     owner=owner,
@@ -296,7 +296,7 @@ class Harness:
         return await self.task(task_id)
 
 
-def scenario(claude=(), codex=(), tests=(), org=TEST_ORG, owners=None):
+def scenario(claude=(), codex=(), gemini=(), tests=(), org=TEST_ORG, owners=None):
     """응답 목록으로 Harness를 만들어 시나리오 함수를 바로 실행한다."""
 
     def wrap(body):
@@ -308,6 +308,7 @@ def scenario(claude=(), codex=(), tests=(), org=TEST_ORG, owners=None):
                         conn,
                         FakeAgentRunner("claude", claude),
                         FakeAgentRunner("codex", codex),
+                        FakeAgentRunner("gemini", gemini),
                         Path(tmp),
                         FakeTests(tests),
                         org,
@@ -1135,3 +1136,26 @@ def test_new_owner_picks_up_an_existing_blocker_once():
         await h.engine.recover_interrupted()
         assert await h.repo.pending_project_reports() == []
         assert "빌드 실패" in h.claude.requests[0].prompt
+
+
+def test_gemini_engine_agent_runs_chat_and_plan_stages():
+    beta_gemini = DEFAULT_ORG.agents["beta"].model_copy(update={"engine": "gemini"})
+    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "beta": beta_gemini}})
+
+    @scenario(gemini=[opinion("Gemini 의견"), plan_reply()], org=org)
+    async def _(h):
+        await h.engine.on_chat(P, "@beta 의견")
+        assert len(h.gemini.requests) == 1
+        assert h.chat.chats[-1].author == "beta"
+
+        await h.engine.task_from_chat(P, "/task feature", "예산 배너")
+        assert len(h.gemini.requests) == 2
+        assert h.gemini.requests[1].stage is Stage.PLAN
+        assert h.gemini.requests[1].mode == "write_worktree"
+        rows = await h.conn.execute_fetchall(
+            "SELECT agent, engine, stage, status FROM agent_runs ORDER BY started_at"
+        )
+        assert [tuple(row) for row in rows] == [
+            ("beta", "gemini", "opinion", "ok"),
+            ("beta", "gemini", "plan", "ok"),
+        ]

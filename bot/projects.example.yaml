@@ -74,6 +74,7 @@ secretary:
 cli:
   claude: claude        # launchd PATH에서 못 찾으면 절대 경로 (예: /opt/homebrew/bin/claude)
   codex: codex
+  gemini: agy           # Antigravity CLI (예: /opt/homebrew/bin/agy)
   # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다
   # Claude 단계: opinion, debate, plan, ui_design, design, implement, fix, review,
   #   diagnose, lead_check, release_prep, doc_sync, concept_note, weekly_quiz, secretary_daily
@@ -84,8 +85,10 @@ cli:
     design: opus
     implement: opus
     fix: opus
-  # Codex 단계(읽기 전용): opinion, debate, review, diagnose, concept_image
+  # Codex 단계(읽기 전용 + 구현·수정): opinion, debate, review, diagnose, concept_image, implement, fix
   codex_models: {}
+  # Gemini 단계(모든 단계 허용): 예) opinion: flash, design: pro
+  gemini_models: {}
 
 limits:
   max_review_rounds: 3

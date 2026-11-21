@@ -101,12 +101,22 @@ def test_legacy_agent_names_still_resolve():
         (("team: qa", "team: ops"), "팀 'ops'이 teams에 없다"),
         (("opinions: [beta]", "opinions: [zeta]"), "'zeta'이 agents에 없다"),
         (("  delta:\n    display", "  claude:\n    display"), "예약된 이름"),
+        (("  delta:\n    display", "  gemini:\n    display"), "예약된 이름"),
     ],
 )
 def test_rule_violations_are_rejected(tmp_path, change, message):
     old, new = change
     with pytest.raises(OrgError, match=message):
         load_org(write(tmp_path, ORG_YAML.replace(old, new)))
+
+
+def test_gemini_engine_is_allowed_for_all_roles(tmp_path):
+    text = ORG_YAML.replace("    team: planning\n", "    team: planning\n    engine: gemini\n")
+    org = load_org(write(tmp_path, text))
+    assert org.engine("beta") == "gemini"
+    assert org.roles.design == "beta"
+    assert org.roles.implement == "beta"
+    assert org.roles.doc_sync == "beta"
 
 
 def test_missing_persona_file_is_an_error(tmp_path):

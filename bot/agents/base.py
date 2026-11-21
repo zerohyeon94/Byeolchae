@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol
 
 # 에이전트 이름(beta, alpha …)은 회사 설정(org.yaml)이 정한다. 엔진 이름과 다르다 (ADR-006 4절)
 AgentName = str
-EngineName = Literal["claude", "codex"]
+EngineName = Literal["claude", "codex", "gemini"]
 Mode = Literal["read_only", "write_worktree"]
 
 

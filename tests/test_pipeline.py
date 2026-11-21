@@ -150,3 +150,16 @@ def test_codex_agent_may_implement(tmp_path):
         update={"agents": {**DEFAULT_ORG.agents, "epsilon": codex_epsilon}}
     )
     assert load_pipelines(write(tmp_path), org)
+
+
+def test_gemini_agent_may_take_all_stages_subject_to_r1(tmp_path):
+    gemini_agents = {
+        name: spec.model_copy(update={"engine": "gemini"})
+        for name, spec in DEFAULT_ORG.agents.items()
+    }
+    org = DEFAULT_ORG.model_copy(update={"agents": gemini_agents})
+    assert load_pipelines(write(tmp_path), org)
+    # R1(작성자와 리뷰어 분리)은 Gemini 엔진에도 그대로 적용된다
+    bad = FEATURE.replace("agent: delta, rounds: 3", "agent: alpha, rounds: 3")
+    with pytest.raises(PipelineError, match="R1"):
+        load_pipelines(write(tmp_path, bad), org)

@@ -13,6 +13,7 @@ from bot.agents.base import (
 from bot.agents.claude import ClaudeCliRunner
 from bot.agents.codex import CodexCliRunner
 from bot.agents.fake import FakeAgentRunner
+from bot.agents.gemini import GeminiCliRunner
 from bot.agents.process import ProcessResult, ProcessRunner
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "CodexCliRunner",
     "EngineName",
     "FakeAgentRunner",
+    "GeminiCliRunner",
     "Mode",
     "ProcessResult",
     "ProcessRunner",
