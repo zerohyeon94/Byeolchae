@@ -310,7 +310,19 @@ def test_codex_concept_note_turns_on_web_search(tmp_path, process):
     argv = runner.build_argv(request(tmp_path, Stage.CONCEPT_NOTE))
     assert argv[:3] == ["codex", "--search", "exec"]
     assert value_after(argv, "--sandbox") == "read-only"
-    assert "--search" not in runner.build_argv(request(tmp_path, Stage.OPINION))
+    assert 'web_search="disabled"' not in argv
+    # 다른 단계는 기본으로 켜진 웹 검색을 끈다 (codex-cli 0.161)
+    other = runner.build_argv(request(tmp_path, Stage.OPINION))
+    assert "--search" not in other
+    assert value_after(other, "-c") == 'web_search="disabled"'
+
+
+def test_codex_disables_apps_and_plugins(tmp_path, process):
+    # 앱의 검색 도구로 웹 검색을 우회하지 않게 끈다 (Claude의 --strict-mcp-config와 같다)
+    for stage, mode in ((Stage.OPINION, "read_only"), (Stage.IMPLEMENT, "write_worktree")):
+        argv = CodexCliRunner(process).build_argv(request(tmp_path, stage, mode))
+        pairs = list(zip(argv, argv[1:], strict=False))
+        assert ("--disable", "apps") in pairs and ("--disable", "plugins") in pairs
 
 
 def test_git_common_dir_of_plain_repo_is_none(tmp_path):
