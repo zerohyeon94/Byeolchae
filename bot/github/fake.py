@@ -76,11 +76,20 @@ class FakeGit:
     commit_log: dict[Path, list[Commit]] = field(default_factory=dict)
     branches: dict[Path, str] = field(default_factory=dict)
     dirty: set[Path] = field(default_factory=set)
+    commit_files: dict[str, tuple[str, ...]] = field(default_factory=dict)
     diff_text: str = "diff --git a/x b/x\n+변경"
 
-    def add_commit(self, path: Path, message: str) -> None:
+    def add_commit(self, path: Path, message: str, files: tuple[str, ...] = ()) -> None:
         log = self.commit_log.setdefault(path, [])
         log.append(Commit(f"sha{len(log) + 1}", message))
+        self.commit_files[log[-1].sha] = files
+
+    async def changed_files(self, path: Path, since: str) -> list[str]:
+        # shortcut: 되돌린 변경은 모르고 since 뒤 커밋들의 파일을 모두 센다
+        log = self.commit_log.get(path, [])
+        shas = [c.sha for c in log]
+        start = shas.index(since) + 1 if since in shas else 0
+        return sorted({f for c in log[start:] for f in self.commit_files.get(c.sha, ())})
 
     async def prepare_worktree(self, repo: Path, path: Path, base_branch: str) -> None:
         self.calls.append(("prepare_worktree", repo, path, base_branch))

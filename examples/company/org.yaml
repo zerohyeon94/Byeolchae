@@ -20,7 +20,7 @@ agents:
     display: Beta
     team: planning
     title: 팀장                # 표시 이름 [Beta · 기획팀장]
-    engine: claude             # claude | codex | gemini (codex는 읽기 전용 + 구현·수정만)
+    engine: claude             # claude | codex | gemini (모두 모든 단계, ADR-017)
     mbti: INFJ
     perspective: 누구의 어떤 문제인가, 사용 흐름, 범위와 우선순위, 기존 기능·용어와의 일관성
     basic_question: 이것을 써야 하는가, 어디까지 할 것인가

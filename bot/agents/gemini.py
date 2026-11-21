@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bot.agents.base import AgentRequest, AgentResult, EngineName, RunStatus, Stage
+from bot.agents.base import DOC_STAGE_DIRS, AgentRequest, AgentResult, EngineName, RunStatus, Stage
 from bot.agents.process import ProcessResult, ProcessRunner
 
 READ_GIT_COMMANDS = (
@@ -57,12 +57,6 @@ DENIED_RULES = (
     "mcp(*)",
 )
 
-# 문서 단계는 자기 폴더만 쓴다 (운영 규약 1.3)
-DOC_STAGE_DIRS = {
-    Stage.PLAN: "docs/기획/",
-    Stage.UI_DESIGN: "docs/디자인/",
-    Stage.DESIGN: "docs/설계/",
-}
 RESEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE, Stage.DEPT_CHAT})
 
 

@@ -275,13 +275,14 @@ def test_cli_models_by_stage(tmp_path):
         "cli:\n"
         "  gemini: /opt/homebrew/bin/agy\n"
         "  claude_models:\n    opinion: sonnet\n    implement: opus\n"
-        "  codex_models:\n    review: gpt-x\n"
+        "  codex_models:\n    review: gpt-x\n    plan: gpt-y\n"
         "  gemini_models:\n    plan: gemini-3.1-pro\n    implement: gemini-3.5-flash\n"
     )
     config = load(tmp_path, yaml_text(extra=extra))
     assert config.cli.gemini == "/opt/homebrew/bin/agy"
     assert config.cli.claude_models == {Stage.OPINION: "sonnet", Stage.IMPLEMENT: "opus"}
-    assert config.cli.codex_models == {Stage.REVIEW: "gpt-x"}
+    # 세 엔진 모두 모든 단계를 맡는다 (ADR-017)
+    assert config.cli.codex_models == {Stage.REVIEW: "gpt-x", Stage.PLAN: "gpt-y"}
     assert config.cli.gemini_models == {
         Stage.PLAN: "gemini-3.1-pro",
         Stage.IMPLEMENT: "gemini-3.5-flash",
@@ -293,7 +294,6 @@ def test_cli_models_by_stage(tmp_path):
 @pytest.mark.parametrize(
     ("extra", "match"),
     [
-        ("cli:\n  codex_models:\n    plan: gpt\n", "Codex가 맡지 않는 단계: plan"),
         ("cli:\n  claude_models:\n    opinon: sonnet\n", "cli.claude_models"),
         ("cli:\n  claude_models:\n    opinion: ''\n", "cli.claude_models"),
         ("cli:\n  gemini_models:\n    opinon: pro\n", "cli.gemini_models"),

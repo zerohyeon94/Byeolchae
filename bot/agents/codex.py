@@ -1,7 +1,10 @@
 """Codex CLI 러너 (SPEC 5.2).
 
-`codex exec`를 read-only 샌드박스로 실행한다. 구현·수정 단계만 작업 worktree에 쓰는
-workspace-write 샌드박스로 실행한다 (ADR-012).
+`codex exec`를 read-only 샌드박스로 실행한다. 기획·디자인·설계·구현·수정 단계는 작업 worktree에
+쓰는 workspace-write 샌드박스로 실행한다 (ADR-017).
+- 샌드박스는 폴더 단위라 문서 단계의 자기 폴더 제한과 `.env` 차단을 걸 수 없다.
+  실행 뒤 봇이 바뀐 파일을 검사해 막는다 (`bot/workflow/work.py`의 `scope_violations`)
+- CONCEPT_NOTE는 웹 검색(`--search`)을 켠다. Claude·Gemini의 웹 검색 허용과 같다
 - 프롬프트는 stdin으로 넘긴다 (`-` 인자)
 - 마지막 메시지는 `-o <runs_dir>/<run_id>.last.txt`로 받아 응답 본문으로 쓴다.
   진행 기록은 stderr로 나와 실행 로그에만 남는다
@@ -18,7 +21,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bot.agents.base import CODEX_WRITE_STAGES, AgentRequest, AgentResult, EngineName, Stage
+from bot.agents.base import WRITE_STAGES, AgentRequest, AgentResult, EngineName, Stage
 from bot.agents.process import ProcessRunner
 
 
@@ -59,15 +62,18 @@ class CodexCliRunner:
     def build_argv(self, request: AgentRequest) -> list[str]:
         if request.mode == "read_only":
             sandbox = ["--sandbox", "read-only"]
-        elif request.stage in CODEX_WRITE_STAGES:
+        elif request.stage in WRITE_STAGES:
             sandbox = ["--sandbox", "workspace-write"]
             # worktree의 커밋은 원래 저장소의 .git에 쓰인다. 그곳도 쓸 수 있게 연다
             if common := git_common_dir(request.cwd):
                 sandbox += ["--add-dir", str(common)]
         else:
-            raise ValueError(f"Codex는 {request.stage} 단계를 쓰기 모드로 실행하지 않는다")
+            raise ValueError(f"{request.stage} 단계는 쓰기 모드로 실행하지 않는다")
+        # --search는 exec 하위 명령이 아니라 최상위 옵션이다 (codex-cli 0.161 확인)
+        search = ["--search"] if request.stage is Stage.CONCEPT_NOTE else []
         argv = [
             self._executable,
+            *search,
             "exec",
             "--cd",
             str(request.cwd),

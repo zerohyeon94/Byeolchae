@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
-from bot.agents.base import Stage
+from bot.agents.base import DOC_STAGE_DIRS, Stage
 from bot.github.rules import commit_message_problems
 from bot.pipeline import Pipeline, StageDecl, StageKind
 from bot.prompts import (
@@ -257,8 +257,11 @@ class WorkStages:
             task = await self._repo.get_task(task.id)
         return task
 
-    async def _commit_problems(self, task: TaskRecord, worktree: Path, before: int) -> list[str]:
-        """에이전트 작업 뒤 확인: 커밋하지 않은 변경, 새 커밋 유무, 커밋 메시지 형식 (4.4)."""
+    async def _commit_problems(
+        self, task: TaskRecord, worktree: Path, before: int, stage: Stage
+    ) -> list[str]:
+        """에이전트 작업 뒤 확인: 커밋하지 않은 변경, 새 커밋 유무, 커밋 메시지 형식 (4.4),
+        단계의 쓰기 범위 (ADR-017)."""
         problems = []
         if not await self._git.is_clean(worktree):
             problems.append("커밋하지 않은 변경이 남아 있다. 모두 커밋한다")
@@ -268,6 +271,9 @@ class WorkStages:
         for commit in commits[before:]:
             for problem in commit_message_problems(commit.message, task.issue_number or 0):
                 problems.append(f"커밋 {commit.sha[:7]}: {problem}")
+        # 되돌린 변경은 문제 삼지 않게 커밋별이 아니라 실행 전후의 차이를 본다
+        since = commits[before - 1].sha if before else f"origin/{self._project(task).base_branch}"
+        problems += scope_violations(stage, await self._git.changed_files(worktree, since))
         return problems
 
     async def _failed(self, task: TaskRecord, stage: str, answer: _Answer[Any]) -> Outcome:
@@ -379,7 +385,7 @@ class WorkStages:
                     if value != expected[key]:
                         want = getattr(expected[key], "value", expected[key])
                         problems.append(f"{key}는 승인된 값 '{want}'을 그대로 쓴다")
-            return problems + await self._commit_problems(task, worktree, before)
+            return problems + await self._commit_problems(task, worktree, before, agent_stage)
 
         agent = stage.agent
         verb = f"{label}을 시작한다" if not revision else f"{label}을 고친다"
@@ -762,7 +768,7 @@ class WorkStages:
         before = len(await self._git.commits(worktree, base))
 
         async def verify(_report: ImplementationReport) -> list[str]:
-            return await self._commit_problems(task, worktree, before)
+            return await self._commit_problems(task, worktree, before, stage)
 
         answer = await self._ask(
             task,
@@ -1323,3 +1329,19 @@ class WorkStages:
                     f"[{key}] GitHub 라벨 준비 실패: {error}",
                     mention=should_mention(Moment.BOT_ERROR),
                 )
+
+
+def scope_violations(stage: Stage, files: list[str]) -> list[str]:
+    """새 커밋이 단계의 쓰기 범위 밖을 바꿨는지 (운영 규약 1.3, ADR-017).
+
+    Claude·Gemini는 도구 권한으로 미리 막지만 Codex 샌드박스는 worktree 전체를 연다.
+    그래서 엔진과 상관없이 실행 뒤에 같은 규칙으로 한 번 더 확인한다.
+    """
+    folder = DOC_STAGE_DIRS.get(stage)
+    problems = []
+    for path in sorted(set(files)):
+        if Path(path).name == ".env":
+            problems.append(f"{path}: .env는 바꿀 수 없다")
+        elif folder is not None and not path.startswith(folder):
+            problems.append(f"{path}: 이 단계는 {folder}만 바꿀 수 있다")
+    return problems

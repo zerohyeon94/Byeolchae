@@ -281,12 +281,14 @@ def test_codex_args(tmp_path, process):
     assert "--model" not in runner.build_argv(request(tmp_path, Stage.OPINION))
 
 
-def test_codex_rejects_write_mode_outside_implement(tmp_path, process):
+def test_codex_rejects_write_mode_outside_write_stages(tmp_path, process):
     with pytest.raises(ValueError, match="쓰기 모드"):
         CodexCliRunner(process).build_argv(request(tmp_path, Stage.REVIEW, "write_worktree"))
 
 
-@pytest.mark.parametrize("stage", [Stage.IMPLEMENT, Stage.FIX])
+@pytest.mark.parametrize(
+    "stage", [Stage.PLAN, Stage.UI_DESIGN, Stage.DESIGN, Stage.IMPLEMENT, Stage.FIX]
+)
 def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
     # 저장소/.git/worktrees/w1 을 가리키는 worktree
     common = tmp_path / "repo" / ".git"
@@ -300,6 +302,15 @@ def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
     )
     assert value_after(argv, "--sandbox") == "workspace-write"
     assert value_after(argv, "--add-dir") == str(common.resolve())
+
+
+def test_codex_concept_note_turns_on_web_search(tmp_path, process):
+    # --search는 최상위 옵션이라 exec 앞에 둔다. 다른 단계는 웹 검색이 없다 (Claude와 같다)
+    runner = CodexCliRunner(process)
+    argv = runner.build_argv(request(tmp_path, Stage.CONCEPT_NOTE))
+    assert argv[:3] == ["codex", "--search", "exec"]
+    assert value_after(argv, "--sandbox") == "read-only"
+    assert "--search" not in runner.build_argv(request(tmp_path, Stage.OPINION))
 
 
 def test_git_common_dir_of_plain_repo_is_none(tmp_path):

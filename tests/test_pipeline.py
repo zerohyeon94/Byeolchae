@@ -99,14 +99,11 @@ def test_rule_violations(tmp_path, old, new, message):
         load_pipelines(write(tmp_path, FEATURE.replace(old, new)), DEFAULT_ORG)
 
 
-def test_codex_agent_cannot_take_writing_stage(tmp_path):
+def test_codex_agent_may_take_writing_stage(tmp_path):
+    # 세 엔진 모두 모든 단계를 맡는다 (ADR-017)
     codex_alpha = DEFAULT_ORG.agents["alpha"].model_copy(update={"engine": "codex"})
-    roles = DEFAULT_ORG.roles.model_copy(update={"design": "beta", "implement": "beta"})
-    org = DEFAULT_ORG.model_copy(
-        update={"agents": {**DEFAULT_ORG.agents, "alpha": codex_alpha}, "roles": roles}
-    )
-    with pytest.raises(PipelineError, match="Codex"):
-        load_pipelines(write(tmp_path), org)
+    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "alpha": codex_alpha}})
+    assert load_pipelines(write(tmp_path), org)
 
 
 def test_same_kind_twice_is_rejected(tmp_path):

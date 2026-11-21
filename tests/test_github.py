@@ -138,6 +138,12 @@ def test_git_ops_design_flow(repo, tmp_path):
         assert await ops.is_clean(worktree) is True
         (commit,) = await ops.commits(worktree, "develop")
         assert commit.message == "docs(design): 설계\n\nRefs: #42"
+        assert await ops.changed_files(worktree, "origin/develop") == ["docs/d.md"]
+        # 되돌리면 실행 전후 차이에 남지 않는다. 이름 바꾸기는 두 경로가 다 나온다
+        git("mv", "docs/d.md", "d.md", cwd=worktree)
+        git("-c", "user.name=t", "-c", "user.email=t@l", "commit", "-qm", "mv", cwd=worktree)
+        assert await ops.changed_files(worktree, commit.sha) == ["d.md", "docs/d.md"]
+        git("reset", "-q", "--hard", commit.sha, cwd=worktree)
         assert "docs/d.md" in await ops.diff(worktree, "develop")
 
         await ops.create_branch(worktree, "feat/42-banner")
