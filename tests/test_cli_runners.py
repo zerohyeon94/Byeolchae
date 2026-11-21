@@ -427,8 +427,10 @@ def test_claude_weekly_quiz_is_read_only(tmp_path, process):
 
 def test_gemini_read_only_args(tmp_path, process):
     argv = GeminiCliRunner(process, "agy").build_argv(request(tmp_path, run_id="g1"))
-    assert argv[:2] == ["agy", "-p"]
-    assert value_after(argv, "--output-format") == "json"
+    # agy의 -p는 바로 뒤 인자를 프롬프트로 받으므로 쓰지 않고 stdin(stream-json)으로 넘긴다
+    assert "-p" not in argv
+    assert value_after(argv, "--input-format") == "stream-json"
+    assert value_after(argv, "--output-format") == "stream-json"
     assert "--disable-slash-commands" in argv
     assert value_after(argv, "--mode") == "plan"
     assert value_after(argv, "--settings") == str(tmp_path / "runs" / "g1.settings.json")
@@ -541,7 +543,13 @@ def gemini_output(**fields):
         "usage": {"total_tokens": 120},
     }
     data.update(fields)
-    return f"print({json.dumps(json.dumps(data, ensure_ascii=False))})"
+    # 실제 agy stream-json 출력처럼 init, 단계, result 이벤트를 한 줄씩 낸다
+    lines = [
+        {"event": "init", "conversation_id": "conv-sess-1", "init": {"tools": ["search_web"]}},
+        {"event": "step_update", "step_update": {"step_type": "agent_response", "text_delta": "x"}},
+        {"event": "result", "result": data},
+    ]
+    return "\n".join(f"print({json.dumps(json.dumps(line, ensure_ascii=False))})" for line in lines)
 
 
 def test_gemini_uses_structured_output_and_writes_settings_and_schema(tmp_path, process):
@@ -551,7 +559,8 @@ def test_gemini_uses_structured_output_and_writes_settings_and_schema(tmp_path, 
     assert result.status is RunStatus.OK
     assert result.session_id == "conv-sess-1"
     assert parse_agent_output(result.stdout, Opinion).conclusion == "좋다"
-    assert calls(tmp_path, "agy")["stdin"] == "의견을 말해라"
+    message = json.loads(calls(tmp_path, "agy")["stdin"])
+    assert message == {"event": "user", "message": {"role": "user", "content": "의견을 말해라"}}
     settings_file = tmp_path / "runs" / "g2.settings.json"
     schema_file = tmp_path / "runs" / "g2.schema.json"
     assert "permissions" in json.loads(settings_file.read_text(encoding="utf-8"))

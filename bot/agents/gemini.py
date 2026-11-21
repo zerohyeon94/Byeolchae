@@ -1,13 +1,17 @@
 """Gemini(Antigravity CLI, `agy`) 러너 (SPEC 5.2).
 
-`agy -p --output-format json --disable-slash-commands`로 비대화형 실행하고, JSON 응답에서
-`structured_output`(또는 `response`)과 `conversation_id`를 꺼낸다.
-프롬프트는 stdin으로 넘긴다 (실행 로그의 argv에 프롬프트가 남지 않게).
-전체 출력(`usage` 포함)은 실행 로그(`.log`)에 남는다.
+`agy --input-format stream-json --output-format stream-json`으로 비대화형 실행하고, 마지막
+`{"event":"result"}` 줄에서 `structured_output`(또는 `response`)과 `conversation_id`를 꺼낸다.
+프롬프트는 stdin에 `{"event":"user","message":{...}}` 한 줄로 넘긴다 (실행 로그의 argv에 프롬프트가
+남지 않게). agy 1.5.14의 `-p`는 바로 뒤 인자를 프롬프트로 받고 stdin을 읽지 않으므로, stdin을 읽는
+stream-json 입력을 쓴다 (2026-11-22 실제 호출로 확인). 전체 스트림은 실행 로그(`.log`)에 남는다.
+
+웹 검색 도구(`search_web`)는 권한 규칙(`read_url(*)` 차단, `search_web(*)` 등)으로 막히지 않는다.
+그래서 Gemini는 개념 노트 외 단계에서도 웹 검색을 쓸 수 있다 (ADR-017 남은 차이).
 
 권한은 단계별로 좁힌다 (운영 규약 1.3). 실행마다 `<runs_dir>/<run_id>.settings.json`에
 세션 한정 권한(`permissions.allow` / `permissions.deny`)을 써서 `--settings`로 넘긴다.
-Antigravity 권한 평가 순서는 `Deny > Ask > Allow`이며, 헤드리스(`-p`)에서는 허용되지 않은
+Antigravity 권한 평가 순서는 `Deny > Ask > Allow`이며, 헤드리스 실행에서는 허용되지 않은
 동작이 자동으로 거부된다.
 - 읽기 전용: `--mode plan` + `read_file(*)`만 허용, 쓰기·셸·네트워크 차단
 - PLAN·UI_DESIGN·DESIGN: 기본 모드 + `read_file(*)`, 자기 문서 폴더 `write_file(...)`,
@@ -83,9 +87,10 @@ class GeminiCliRunner:
         mode = _execution_mode(request)
         argv = [
             self._executable,
-            "-p",
+            "--input-format",
+            "stream-json",
             "--output-format",
-            "json",
+            "stream-json",
             "--disable-slash-commands",
         ]
         if mode is not None:
@@ -119,7 +124,7 @@ class GeminiCliRunner:
             argv,
             cwd=request.cwd,
             timeout_sec=request.timeout_sec,
-            stdin=request.prompt,
+            stdin=stdin_message(request.prompt),
         )
         return to_agent_result(result)
 
@@ -166,8 +171,14 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
     return {"permissions": {"allow": allow, "deny": deny}}
 
 
+def stdin_message(prompt: str) -> str:
+    """stream-json 입력 한 줄. 프롬프트의 줄바꿈은 JSON 문자열 안에 들어간다."""
+    message = {"event": "user", "message": {"role": "user", "content": prompt}}
+    return json.dumps(message, ensure_ascii=False) + "\n"
+
+
 def to_agent_result(result: ProcessResult) -> AgentResult:
-    """`agy -p --output-format json`의 JSON 응답을 AgentResult로 옮긴다."""
+    """stream-json 출력의 마지막 `result` 이벤트(또는 JSON 응답)를 AgentResult로 옮긴다."""
     status, stdout, session_id = result.status, result.stdout, None
     data = _json_output(result.stdout)
     if data is not None:
@@ -241,6 +252,8 @@ def _json_output(text: str) -> dict[str, Any] | None:
         if _is_envelope(obj):
             found = obj
         pos = end
+    if found is not None and found.get("event") == "result" and isinstance(found["result"], dict):
+        return found["result"]
     return found
 
 
