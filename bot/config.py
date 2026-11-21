@@ -124,49 +124,17 @@ class PathsConfig(_Model):
 
 ModelName = Annotated[str, Field(min_length=1)]
 
-# 단계별 기본 모델을 둘 수 있는 단계 (SPEC 5.2). Codex는 읽기 전용 단계만 맡는다
-CLAUDE_STAGES = frozenset(Stage)
-CODEX_STAGES = frozenset(
-    {
-        Stage.OPINION,
-        Stage.DEBATE,
-        Stage.REVIEW,
-        Stage.DIAGNOSE,
-        Stage.CONCEPT_IMAGE,
-        Stage.PROJECT_REPORT,
-        Stage.DEPT_CHAT,
-        Stage.IMPLEMENT,
-        Stage.FIX,
-    }
-)
-
 
 class CliConfig(_Model):
     # launchd PATH에서 못 찾으면 절대 경로를 적는다 (SPEC 5.2)
     claude: str = Field(default="claude", min_length=1)
     codex: str = Field(default="codex", min_length=1)
-    # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다
+    gemini: str = Field(default="agy", min_length=1)
+    # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다.
+    # 세 엔진 모두 모든 단계를 맡는다 (ADR-017)
     claude_models: dict[Stage, ModelName] = {}
     codex_models: dict[Stage, ModelName] = {}
-
-    @field_validator("claude_models")
-    @classmethod
-    def _claude_stages(cls, value: dict[Stage, str]) -> dict[Stage, str]:
-        return _check_stages(value, CLAUDE_STAGES, "Claude")
-
-    @field_validator("codex_models")
-    @classmethod
-    def _codex_stages(cls, value: dict[Stage, str]) -> dict[Stage, str]:
-        return _check_stages(value, CODEX_STAGES, "Codex")
-
-
-def _check_stages(
-    value: dict[Stage, str], allowed: frozenset[Stage], agent: str
-) -> dict[Stage, str]:
-    extra = sorted(stage.value for stage in value if stage not in allowed)
-    if extra:
-        raise ValueError(f"{agent}가 맡지 않는 단계: {', '.join(extra)}")
-    return value
+    gemini_models: dict[Stage, ModelName] = {}
 
 
 class LimitsConfig(_Model):

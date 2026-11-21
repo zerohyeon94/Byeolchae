@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol
 
 # 에이전트 이름(beta, alpha …)은 회사 설정(org.yaml)이 정한다. 엔진 이름과 다르다 (ADR-006 4절)
 AgentName = str
-EngineName = Literal["claude", "codex"]
+EngineName = Literal["claude", "codex", "gemini"]
 Mode = Literal["read_only", "write_worktree"]
 
 
@@ -37,8 +37,14 @@ class Stage(StrEnum):
     DEPT_CHAT = "dept_chat"  # #비서·#교육 대화와 넘겨받은 답 (ADR-013)
 
 
-# Codex가 작업 worktree에 쓸 수 있는 단계. 기획·설계 문서 단계는 Claude만 쓴다 (ADR-012)
-CODEX_WRITE_STAGES = frozenset({Stage.IMPLEMENT, Stage.FIX})
+# 문서 단계가 쓸 수 있는 폴더 (운영 규약 1.3). 세 엔진이 같은 범위를 쓴다 (ADR-017)
+DOC_STAGE_DIRS = {
+    Stage.PLAN: "docs/기획/",
+    Stage.UI_DESIGN: "docs/디자인/",
+    Stage.DESIGN: "docs/설계/",
+}
+# 작업 worktree에 쓰는 단계
+WRITE_STAGES = frozenset({*DOC_STAGE_DIRS, Stage.IMPLEMENT, Stage.FIX})
 
 
 class RunStatus(StrEnum):

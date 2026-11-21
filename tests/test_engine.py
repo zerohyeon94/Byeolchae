@@ -14,6 +14,8 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from bot.agents import AgentResult, FakeAgentRunner, RunStatus, Stage
 from bot.clock import FixedClock
 from bot.github.client import PrState
@@ -25,6 +27,7 @@ from bot.testrun import CheckKind, TestReport
 from bot.workflow.chat import FakeChatIO, ThreadNotFound
 from bot.workflow.engine import Engine, ProjectContext
 from bot.workflow.state import CommandName, TaskState
+from bot.workflow.work import scope_violations
 
 T0 = datetime(2026, 10, 28, 1, 0, tzinfo=UTC)
 REPO = Path("/repos/gagaessi")
@@ -65,11 +68,11 @@ CHANGE = {
 }
 
 
-def _doc(request, path, commit):
+def _doc(request, path, commit, extra=()):
     doc = request.cwd / path
     doc.parent.mkdir(parents=True, exist_ok=True)
     doc.write_text("전문", encoding="utf-8")
-    _Git.git.add_commit(request.cwd, commit)
+    _Git.git.add_commit(request.cwd, commit, (path, *extra))
 
 
 def plan_reply(has_ui_change=True, **overrides):
@@ -236,13 +239,13 @@ class FakeVault:
 
 
 class Harness:
-    def __init__(self, conn, claude, codex, tmp, tests, org, owners):
+    def __init__(self, conn, claude, codex, gemini, tmp, tests, org, owners):
         self.conn = conn
         self.clock = FixedClock(T0)
         self.slept = []
         self.repo = Repository(conn, self.clock)
         self.chat = FakeChatIO()
-        self.claude, self.codex = claude, codex
+        self.claude, self.codex, self.gemini = claude, codex, gemini
         self.github = FakeGitHub(repo="zerohyeon94/GagaeSsi")
         self.git = FakeGit()
         _Git.git = self.git
@@ -255,7 +258,7 @@ class Harness:
         self.engine = Engine(
             self.repo,
             self.chat,
-            {"claude": claude, "codex": codex},
+            {"claude": claude, "codex": codex, "gemini": gemini},
             {
                 project: ProjectContext(
                     owner=owner,
@@ -296,7 +299,7 @@ class Harness:
         return await self.task(task_id)
 
 
-def scenario(claude=(), codex=(), tests=(), org=TEST_ORG, owners=None):
+def scenario(claude=(), codex=(), gemini=(), tests=(), org=TEST_ORG, owners=None):
     """응답 목록으로 Harness를 만들어 시나리오 함수를 바로 실행한다."""
 
     def wrap(body):
@@ -308,6 +311,7 @@ def scenario(claude=(), codex=(), tests=(), org=TEST_ORG, owners=None):
                         conn,
                         FakeAgentRunner("claude", claude),
                         FakeAgentRunner("codex", codex),
+                        FakeAgentRunner("gemini", gemini),
                         Path(tmp),
                         FakeTests(tests),
                         org,
@@ -508,6 +512,29 @@ def test_design_must_keep_approved_change_fields():
         assert again.stage is Stage.DESIGN  # 다시 요청했다
         assert "slug는 승인된 값 'budget-banner'을 그대로 쓴다" in again.prompt
         assert (await h.task()).state is TaskState.AWAIT_MERGE
+
+
+def test_design_must_stay_in_its_folder():
+    # 문서 단계가 자기 폴더 밖을 바꾸면 엔진과 상관없이 다시 요청한다 (ADR-017)
+    data = design_data()
+
+    def outside(request):
+        extra = ("Sources/Home.swift", ".env")
+        _doc(request, data["design_doc"], "docs(design): 배너 설계\n\nRefs: #42", extra)
+        return json.dumps(data, ensure_ascii=False)
+
+    @scenario(
+        claude=[plan_reply(has_ui_change=False), outside, design_reply()],
+    )  # fmt: skip
+    async def _(h):
+        await h.engine.task_from_chat(P, "/task feature", "예산 배너")
+        await h.command(CommandName.APPROVE)
+        again = h.claude.requests[2]
+        assert again.stage is Stage.DESIGN
+        assert "Sources/Home.swift: 이 단계는 docs/설계/만 바꿀 수 있다" in again.prompt
+        assert ".env: .env는 바꿀 수 없다" in again.prompt
+        # 가짜 git은 되돌리기를 모르므로 재요청 뒤에도 남아 Zero에게 넘어간다
+        assert (await h.task()).state is TaskState.NEEDS_HUMAN
 
 
 def test_revise_plan_reruns_plan_with_feedback():
@@ -1135,3 +1162,41 @@ def test_new_owner_picks_up_an_existing_blocker_once():
         await h.engine.recover_interrupted()
         assert await h.repo.pending_project_reports() == []
         assert "빌드 실패" in h.claude.requests[0].prompt
+
+
+def test_gemini_engine_agent_runs_chat_and_plan_stages():
+    beta_gemini = DEFAULT_ORG.agents["beta"].model_copy(update={"engine": "gemini"})
+    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "beta": beta_gemini}})
+
+    @scenario(gemini=[opinion("Gemini 의견"), plan_reply()], org=org)
+    async def _(h):
+        await h.engine.on_chat(P, "@beta 의견")
+        assert len(h.gemini.requests) == 1
+        assert h.chat.chats[-1].author == "beta"
+
+        await h.engine.task_from_chat(P, "/task feature", "예산 배너")
+        assert len(h.gemini.requests) == 2
+        assert h.gemini.requests[1].stage is Stage.PLAN
+        assert h.gemini.requests[1].mode == "write_worktree"
+        rows = await h.conn.execute_fetchall(
+            "SELECT agent, engine, stage, status FROM agent_runs ORDER BY started_at"
+        )
+        assert [tuple(row) for row in rows] == [
+            ("beta", "gemini", "opinion", "ok"),
+            ("beta", "gemini", "plan", "ok"),
+        ]
+
+
+@pytest.mark.parametrize(
+    ("stage", "files", "expected"),
+    [
+        (Stage.PLAN, ["docs/기획/a.md"], []),
+        (Stage.PLAN, ["docs/설계/a.md"], ["docs/설계/a.md: 이 단계는 docs/기획/만 바꿀 수 있다"]),
+        (Stage.UI_DESIGN, ["docs/디자인/a.md", "docs/디자인/a.md"], []),
+        (Stage.IMPLEMENT, ["Sources/A.swift", "docs/설계/a.md"], []),
+        (Stage.FIX, ["app/.env"], ["app/.env: .env는 바꿀 수 없다"]),
+        (Stage.DESIGN, [".env.example"], [".env.example: 이 단계는 docs/설계/만 바꿀 수 있다"]),
+    ],
+)
+def test_scope_violations(stage, files, expected):
+    assert scope_violations(stage, files) == expected

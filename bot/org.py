@@ -1,49 +1,30 @@
 """회사 조직 설정: `org.yaml`과 인격 파일 (SPEC 9.1-1, Q12, ADR-006, ADR-007).
 
 - 조직(부서, 팀, 에이전트)과 단계별 담당은 비공개 회사 저장소(`paths.company`)의 `org.yaml`에 둔다
-- 에이전트 이름(beta, alpha …)은 엔진(claude, codex)과 분리한다. 엔진은 에이전트마다 설정으로 정한다
+- 에이전트 이름(beta, alpha …)은 엔진(claude, codex, gemini)과 분리한다.
+  엔진은 에이전트마다 설정으로 정한다
 - 인격·역량 전문은 `agents/<이름>.md`에 두고 프롬프트에 그대로 넣는다
 - org.yaml이 없으면 ADR-007의 기본 조직(모두 Claude)을 쓴다. 이름과 직책은 공개해도 되는 값이다
-- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1),
-  Codex 엔진은 읽기 일과 구현·수정만(R4, ADR-012)
+- 불러올 때 규칙을 검사한다: 리뷰 담당 ≠ 설계·구현 담당(R1).
+  엔진은 맡을 단계를 가리지 않는다 (ADR-017)
 - 이름을 바꾼 에이전트는 예전 이름(`former`)을 남겨, 예전 기록도 새 이름으로 보이게 한다
 """
 
 import re
 from datetime import date
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from bot import BOT_NAME
-from bot.agents.base import CODEX_WRITE_STAGES, Stage
-
-EngineName = Literal["claude", "codex"]
+from bot.agents.base import EngineName, Stage
 
 # ADR-005 기준 기록의 행위자 이름. 그때는 엔진 이름이 곧 에이전트 이름이었다
 LEGACY_AGENTS: dict[str, tuple[str, EngineName]] = {
     "claude": ("Beta · Claude", "claude"),
     "codex": ("Alpha · Codex", "codex"),
 }
-
-# Codex 러너가 읽기 전용 샌드박스로 실행하는 단계. 쓰기는 CODEX_WRITE_STAGES만 (운영 규약 1.3)
-READ_ONLY_STAGES = frozenset(
-    {
-        Stage.OPINION,
-        Stage.DEBATE,
-        Stage.REVIEW,
-        Stage.DIAGNOSE,
-        Stage.LEAD_CHECK,
-        Stage.CONCEPT_NOTE,
-        Stage.CONCEPT_IMAGE,
-        Stage.WEEKLY_QUIZ,
-        Stage.SECRETARY_DAILY,
-        Stage.PROJECT_REPORT,
-        Stage.DEPT_CHAT,
-    }
-)
 
 _AGENT_KEY = re.compile(r"^[a-z][a-z0-9]{0,19}$")
 ORG_FILE = "org.yaml"
@@ -137,7 +118,7 @@ class Org(_Model):
         for key in value:
             if not _AGENT_KEY.match(key):
                 raise ValueError(f"에이전트 이름 {key!r}는 영문 소문자로 시작하는 20자 이내")
-            if key in LEGACY_AGENTS or key in {"zero", "bot"}:
+            if key in LEGACY_AGENTS or key in {"zero", "bot", "gemini"}:
                 raise ValueError(f"에이전트 이름 {key!r}는 예약된 이름이다")
         return value
 
@@ -146,12 +127,6 @@ class Org(_Model):
         for key, agent in self.agents.items():
             if agent.team not in self.teams:
                 raise ValueError(f"{key}의 팀 {agent.team!r}이 teams에 없다")
-            if agent.engine == "codex":
-                writes = {s for a, s in self.roles.assigned.items() if a == key}
-                writes -= READ_ONLY_STAGES | CODEX_WRITE_STAGES
-                if writes:
-                    names = ", ".join(sorted(s.value for s in writes))
-                    raise ValueError(f"{key}는 Codex 엔진이라 쓰기 단계({names})를 맡을 수 없다")
         seen: set[str] = set()
         for key, agent in self.agents.items():
             for old in agent.former:
