@@ -6,8 +6,11 @@
 남지 않게). agy 1.5.14의 `-p`는 바로 뒤 인자를 프롬프트로 받고 stdin을 읽지 않으므로, stdin을 읽는
 stream-json 입력을 쓴다 (2026-11-22 실제 호출로 확인). 전체 스트림은 실행 로그(`.log`)에 남는다.
 
-웹 검색 도구(`search_web`)는 권한 규칙(`read_url(*)` 차단, `search_web(*)` 등)으로 막히지 않는다.
-그래서 Gemini는 개념 노트 외 단계에서도 웹 검색을 쓸 수 있다 (ADR-017 남은 차이).
+웹 검색 도구(`search_web`)는 권한 규칙으로 막히지 않는다. 그래서 개념 노트 외 단계는 `tools`에서
+`search_web`을 뺀 전용 에이전트(`byeolchae`)로 돌린다. 에이전트 파일은 실행 폴더의
+`antigravity/.agents/agents/`에 러너가 쓰고 `--add-dir`로 넘긴다. `--agent`는 파일 경로를 받지 않고
+작업 폴더나 더한 폴더의 `.agents/`에서만 찾는다. 구조화 출력은 `finish` 도구로 내므로 `tools`에
+반드시 넣는다 (2026-11-22 실제 호출로 확인, ADR-017).
 
 권한은 단계별로 좁힌다 (운영 규약 1.3). 실행마다 `<runs_dir>/<run_id>.settings.json`에
 세션 한정 권한(`permissions.allow` / `permissions.deny`)을 써서 `--settings`로 넘긴다.
@@ -60,7 +63,38 @@ DENIED_RULES = (
     "mcp(*)",
 )
 
+# git이 아닌 셸 명령. 맞는 규칙이 없는 명령은 헤드리스 실행에서 턴을 끝내 버리므로(빈 응답),
+# 명시적으로 거부해 에이전트가 거부를 받고 남은 일을 이어 가게 한다. 규칙 안에 괄호를 쓰면
+# `command(...)`가 잘못 읽히고, agy 정규식(RE2)은 lookahead가 없어 첫 글자로 나눈다.
+# shortcut: 허용 목록 밖의 git 하위 명령(checkout 등)은 여전히 턴을 끝낸다.
+# 문제가 되면 여기에 더한다
+NON_GIT_COMMANDS = (
+    "command(regex:[^g].*)",
+    "command(regex:g[^i].*)",
+    "command(regex:gi[^t].*)",
+    "command(regex:git[^ ].*)",
+)
+
 RESEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE, Stage.DEPT_CHAT})
+# 웹 검색을 쓰는 단계. 나머지는 search_web이 없는 전용 에이전트로 돌린다
+WEB_SEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE})
+
+AGENT_NAME = "byeolchae"
+AGENT_FILE = f"""---
+name: {AGENT_NAME}
+description: 웹 검색 없이 작업 폴더 안에서 일하는 별채 직원
+mainAgent: true
+subagent: false
+tools: [read_file, edit_file, write_file, run_command, manage_task, finish]
+---
+너는 별채의 직원이다. 사용자 메시지의 지시와 출력 형식을 그대로 따른다.
+
+- 작업 폴더와 함께 주어진 폴더 안에서만 일한다.
+- 파일은 read_file로 읽고 write_file·edit_file로 만들고 고친다. 셸로 파일을 읽거나 쓰지 않는다.
+- 셸 명령은 허용된 것만 하나씩 실행한다. `&&`, `;`, `|`로 묶지 않는다.
+- 권한이 거부된 동작은 우회하지 않는다. 그 동작 없이 남은 일을 끝까지 한다.
+- 일을 마치면 반드시 사용자에게 결과를 답한다. 빈 답으로 끝내지 않는다.
+"""
 
 
 class GeminiCliRunner:
@@ -82,6 +116,11 @@ class GeminiCliRunner:
     def schema_path(self, run_id: str) -> Path:
         return self._process.runs_dir / f"{run_id}.schema.json"
 
+    @property
+    def agent_dir(self) -> Path:
+        """전용 에이전트 폴더. `--add-dir`로 넘기면 agy가 안의 `.agents/agents/`를 읽는다."""
+        return self._process.runs_dir / "antigravity"
+
     def build_argv(self, request: AgentRequest) -> list[str]:
         mode = _execution_mode(request)
         argv = [
@@ -97,6 +136,8 @@ class GeminiCliRunner:
         argv += ["--settings", str(self.settings_path(request.run_id))]
         for directory in request.read_dirs:
             argv += ["--add-dir", str(directory)]
+        if request.stage not in WEB_SEARCH_STAGES:
+            argv += ["--add-dir", str(self.agent_dir), "--agent", AGENT_NAME]
         if model := request.model or self._models.get(request.stage):
             argv += ["--model", model]
         if request.output_schema is not None:
@@ -109,6 +150,9 @@ class GeminiCliRunner:
         argv = self.build_argv(request)
         settings = build_settings(request)
         self._process.runs_dir.mkdir(parents=True, exist_ok=True)
+        agent_file = self.agent_dir / ".agents" / "agents" / f"{AGENT_NAME}.md"
+        agent_file.parent.mkdir(parents=True, exist_ok=True)
+        agent_file.write_text(AGENT_FILE, encoding="utf-8")
         self.settings_path(request.run_id).write_text(
             json.dumps(settings, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -155,17 +199,17 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
         deny += ["write_file(*)", "command(*)", "execute_url(*)"]
     elif request.stage is Stage.DEPT_CHAT:
         allow += list(READ_GIT_COMMANDS)
-        deny += ["write_file(*)", "read_url(*)", "execute_url(*)"]
+        deny += ["write_file(*)", "read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
     elif request.mode == "read_only":
         deny += ["write_file(*)", "command(*)", "read_url(*)", "execute_url(*)"]
     elif request.stage in DOC_STAGE_DIRS:
         # 파일 도구에는 듣지 않고(위 docstring) 터미널 샌드박스의 쓰기 허용 목록만 채운다
         allow.append(f"write_file({request.cwd / DOC_STAGE_DIRS[request.stage]})")
         allow += [*_git_dirs(request), *LOCAL_GIT_COMMANDS]
-        deny += ["read_url(*)", "execute_url(*)"]
+        deny += ["read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
     elif request.stage in (Stage.IMPLEMENT, Stage.FIX):
         allow += ["write_file(*)", *_git_dirs(request), *LOCAL_GIT_COMMANDS]
-        deny += ["read_url(*)", "execute_url(*)"]
+        deny += ["read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
 
     return {"permissions": {"allow": allow, "deny": deny}}
 
