@@ -455,7 +455,26 @@ def test_gemini_settings_denies_push_remote_env_company_and_mcp_in_every_mode(tm
     for stage, mode in cases:
         perms = build_settings(request(tmp_path, stage, mode))["permissions"]
         assert set(DENIED_RULES) <= set(perms["deny"])
+        assert f"read_file({tmp_path / '.env'})" in perms["deny"]
+        assert f"read_file({tmp_path / '회사'})" in perms["deny"]
         assert "read_file(*)" in perms["allow"]
+        # 상대 경로나 glob이 있으면 agy 터미널 샌드박스가 모든 명령을 거부한다
+        for rule in perms["allow"] + perms["deny"]:
+            target = rule[rule.index("(") + 1 : -1]
+            assert "**" not in target
+            if rule.startswith(("read_file", "write_file")) and target != "*":
+                assert Path(target).is_absolute(), rule
+
+
+def test_gemini_denies_env_of_original_repo_in_worktree(tmp_path):
+    main, worktree = tmp_path / "main", tmp_path / "wt"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    (main / ".git" / "worktrees" / "wt" / "commondir").write_text("../..\n")
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n")
+    perms = build_settings(request(worktree, Stage.IMPLEMENT, "write_worktree"))["permissions"]
+    assert f"read_file({main.resolve() / '.env'})" in perms["deny"]
+    assert f"write_file({(main / '.git').resolve()})" in perms["allow"]
 
 
 @pytest.mark.parametrize(("stage", "folder"), list(DOC_STAGE_DIRS.items()))
@@ -464,7 +483,8 @@ def test_gemini_doc_stages_write_only_their_folder(tmp_path, process, stage, fol
     argv = GeminiCliRunner(process).build_argv(req)
     assert "--mode" not in argv
     perms = build_settings(req)["permissions"]
-    assert f"write_file({folder})" in perms["allow"]
+    assert f"write_file({tmp_path / folder})" in perms["allow"]
+    assert f"write_file({tmp_path / '.git'})" in perms["allow"]
     assert "write_file(*)" not in perms["allow"]
     assert set(LOCAL_GIT_COMMANDS) <= set(perms["allow"])
     assert not any("push" in rule for rule in perms["allow"])

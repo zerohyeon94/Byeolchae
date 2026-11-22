@@ -1334,7 +1334,7 @@ class WorkStages:
 def scope_violations(stage: Stage, files: list[str]) -> list[str]:
     """새 커밋이 단계의 쓰기 범위 밖을 바꿨는지 (운영 규약 1.3, ADR-017).
 
-    Claude·Gemini는 도구 권한으로 미리 막지만 Codex 샌드박스는 worktree 전체를 연다.
+    Claude는 도구 권한으로 미리 막지만 Codex 샌드박스와 Gemini 파일 도구는 폴더로 좁혀지지 않는다.
     그래서 엔진과 상관없이 실행 뒤에 같은 규칙으로 한 번 더 확인한다.
     """
     folder = DOC_STAGE_DIRS.get(stage)

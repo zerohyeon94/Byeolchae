@@ -11,11 +11,15 @@ stream-json 입력을 쓴다 (2026-11-22 실제 호출로 확인). 전체 스트
 
 권한은 단계별로 좁힌다 (운영 규약 1.3). 실행마다 `<runs_dir>/<run_id>.settings.json`에
 세션 한정 권한(`permissions.allow` / `permissions.deny`)을 써서 `--settings`로 넘긴다.
-Antigravity 권한 평가 순서는 `Deny > Ask > Allow`이며, 헤드리스 실행에서는 허용되지 않은
-동작이 자동으로 거부된다.
+Antigravity 권한 평가 순서는 `Deny > Ask > Allow`다. agy 1.5.14 실제 호출에서 확인한 점
+(2026-11-22, ADR-017):
+- 어느 규칙에도 맞지 않는 파일 쓰기는 기본 정책에서 허용된다. `allow`에 자기 폴더만 적어도
+  다른 폴더 쓰기는 막히지 않는다. `toolPermission: strict`로 하면 `allow`를 무시하고 모든 쓰기를
+  거부한다. 그래서 문서 단계의 폴더 제한은 실행 뒤 검사(`scope_violations`)가 맡는다.
+- `deny`는 듣는다. 터미널 샌드박스는 `write_file` 허용 경로만 쓸 수 있어 `.git`을 따로 연다.
+
 - 읽기 전용: `--mode plan` + `read_file(*)`만 허용, 쓰기·셸·네트워크 차단
-- PLAN·UI_DESIGN·DESIGN: 기본 모드 + `read_file(*)`, 자기 문서 폴더 `write_file(...)`,
-  로컬 git 명령만 허용
+- PLAN·UI_DESIGN·DESIGN: 기본 모드 + 자기 문서 폴더와 `.git` `write_file(...)`, 로컬 git 명령
 - IMPLEMENT·FIX: `--mode accept-edits` + 작업 폴더 편집과 로컬 git 명령만 허용
 - CONCEPT_NOTE: `--mode plan` + `read_file(*)`와 `read_url(*)` 허용. 볼트의 `회사/`는 읽지 않는다
 - DEPT_CHAT: `--mode plan` + `read_file(*)`와 git 기록 읽기. `read_dirs`를 `--add-dir`로 더한다
@@ -28,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.agents.base import DOC_STAGE_DIRS, AgentRequest, AgentResult, EngineName, RunStatus, Stage
+from bot.agents.codex import git_common_dir
 from bot.agents.process import ProcessResult, ProcessRunner
 
 READ_GIT_COMMANDS = (
@@ -51,12 +56,6 @@ DENIED_RULES = (
     "command(git pull)",
     "command(git fetch)",
     "command(git remote)",
-    "read_file(.env)",
-    "read_file(**/.env)",
-    "write_file(.env)",
-    "write_file(**/.env)",
-    # 교육 볼트의 회사 폴더는 git 밖의 비공개 정보다 (볼트 AGENTS.md 회사 정보 기준)
-    "read_file(회사/)",
     # 사용자 MCP 서버는 불러오지 않는다 (Claude의 --strict-mcp-config와 동일)
     "mcp(*)",
 )
@@ -149,7 +148,7 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
     """단계와 모드에 맞는 Antigravity CLI 세션 권한 설정(`--settings`)을 만든다."""
     _execution_mode(request)
     allow: list[str] = ["read_file(*)"]
-    deny: list[str] = list(DENIED_RULES)
+    deny: list[str] = [*DENIED_RULES, *_private_paths(request)]
 
     if request.stage is Stage.CONCEPT_NOTE:
         allow.append("read_url(*)")
@@ -160,15 +159,37 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
     elif request.mode == "read_only":
         deny += ["write_file(*)", "command(*)", "read_url(*)", "execute_url(*)"]
     elif request.stage in DOC_STAGE_DIRS:
-        allow.append(f"write_file({DOC_STAGE_DIRS[request.stage]})")
-        allow += list(LOCAL_GIT_COMMANDS)
+        # 파일 도구에는 듣지 않고(위 docstring) 터미널 샌드박스의 쓰기 허용 목록만 채운다
+        allow.append(f"write_file({request.cwd / DOC_STAGE_DIRS[request.stage]})")
+        allow += [*_git_dirs(request), *LOCAL_GIT_COMMANDS]
         deny += ["read_url(*)", "execute_url(*)"]
     elif request.stage in (Stage.IMPLEMENT, Stage.FIX):
-        allow.append("write_file(*)")
-        allow += list(LOCAL_GIT_COMMANDS)
+        allow += ["write_file(*)", *_git_dirs(request), *LOCAL_GIT_COMMANDS]
         deny += ["read_url(*)", "execute_url(*)"]
 
     return {"permissions": {"allow": allow, "deny": deny}}
+
+
+def _private_paths(request: AgentRequest) -> list[str]:
+    """`.env`와 볼트 `회사/` 차단. 경로 규칙은 절대 경로만 받고 glob(`**`)은 쓸 수 없다.
+
+    상대 경로나 glob이 하나라도 있으면 터미널 샌드박스 설정 오류로 모든 명령이 실패한다.
+    `read_file` 거부는 같은 경로의 `write_file`도 막는다 (2026-11-22 실제 호출로 확인).
+    """
+    roots = [request.cwd, *request.read_dirs]
+    if common := git_common_dir(request.cwd):
+        roots.append(common.parent)
+    rules: list[str] = []
+    for root in dict.fromkeys(roots):
+        rules.append(f"read_file({root / '.env'})")
+        # 교육 볼트의 회사 폴더는 git 밖의 비공개 정보다 (볼트 AGENTS.md 회사 정보 기준)
+        rules.append(f"read_file({root / '회사'})")
+    return rules
+
+
+def _git_dirs(request: AgentRequest) -> list[str]:
+    """터미널 샌드박스가 커밋할 수 있게 `.git`(worktree면 원래 저장소의 `.git`) 쓰기를 연다."""
+    return [f"write_file({git_common_dir(request.cwd) or request.cwd / '.git'})"]
 
 
 def stdin_message(prompt: str) -> str:
