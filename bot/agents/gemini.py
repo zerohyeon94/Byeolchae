@@ -63,6 +63,18 @@ DENIED_RULES = (
     "mcp(*)",
 )
 
+# git이 아닌 셸 명령. 맞는 규칙이 없는 명령은 헤드리스 실행에서 턴을 끝내 버리므로(빈 응답),
+# 명시적으로 거부해 에이전트가 거부를 받고 남은 일을 이어 가게 한다. 규칙 안에 괄호를 쓰면
+# `command(...)`가 잘못 읽히고, agy 정규식(RE2)은 lookahead가 없어 첫 글자로 나눈다.
+# shortcut: 허용 목록 밖의 git 하위 명령(checkout 등)은 여전히 턴을 끝낸다.
+# 문제가 되면 여기에 더한다
+NON_GIT_COMMANDS = (
+    "command(regex:[^g].*)",
+    "command(regex:g[^i].*)",
+    "command(regex:gi[^t].*)",
+    "command(regex:git[^ ].*)",
+)
+
 RESEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE, Stage.DEPT_CHAT})
 # 웹 검색을 쓰는 단계. 나머지는 search_web이 없는 전용 에이전트로 돌린다
 WEB_SEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE})
@@ -187,17 +199,17 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
         deny += ["write_file(*)", "command(*)", "execute_url(*)"]
     elif request.stage is Stage.DEPT_CHAT:
         allow += list(READ_GIT_COMMANDS)
-        deny += ["write_file(*)", "read_url(*)", "execute_url(*)"]
+        deny += ["write_file(*)", "read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
     elif request.mode == "read_only":
         deny += ["write_file(*)", "command(*)", "read_url(*)", "execute_url(*)"]
     elif request.stage in DOC_STAGE_DIRS:
         # 파일 도구에는 듣지 않고(위 docstring) 터미널 샌드박스의 쓰기 허용 목록만 채운다
         allow.append(f"write_file({request.cwd / DOC_STAGE_DIRS[request.stage]})")
         allow += [*_git_dirs(request), *LOCAL_GIT_COMMANDS]
-        deny += ["read_url(*)", "execute_url(*)"]
+        deny += ["read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
     elif request.stage in (Stage.IMPLEMENT, Stage.FIX):
         allow += ["write_file(*)", *_git_dirs(request), *LOCAL_GIT_COMMANDS]
-        deny += ["read_url(*)", "execute_url(*)"]
+        deny += ["read_url(*)", "execute_url(*)", *NON_GIT_COMMANDS]
 
     return {"permissions": {"allow": allow, "deny": deny}}
 

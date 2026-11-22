@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import re
 import stat
 import sys
 from dataclasses import replace
@@ -28,6 +29,7 @@ from bot.agents.gemini import (
     DENIED_RULES,
     DOC_STAGE_DIRS,
     LOCAL_GIT_COMMANDS,
+    NON_GIT_COMMANDS,
     READ_GIT_COMMANDS,
     build_settings,
 )
@@ -490,6 +492,7 @@ def test_gemini_doc_stages_write_only_their_folder(tmp_path, process, stage, fol
     assert "write_file(*)" not in perms["allow"]
     assert set(LOCAL_GIT_COMMANDS) <= set(perms["allow"])
     assert not any("push" in rule for rule in perms["allow"])
+    assert set(NON_GIT_COMMANDS) <= set(perms["deny"])
 
 
 @pytest.mark.parametrize("stage", [Stage.IMPLEMENT, Stage.FIX])
@@ -656,3 +659,16 @@ def test_gemini_timeout_and_cancel(tmp_path, process):
         return await task
 
     assert run(scenario()).status is RunStatus.CANCELLED
+
+
+def test_gemini_non_git_command_rules_match_only_non_git_commands():
+    patterns = [
+        re.compile(rule.removeprefix("command(regex:").removesuffix(")"))
+        for rule in NON_GIT_COMMANDS
+    ]
+    for command in ("ls -la", "pwd", "cat .env", "gitk", "gh pr list", "python -c 1"):
+        assert any(p.fullmatch(command) for p in patterns), command
+    for command in ("git status", "git commit -m x", "git rev-parse HEAD"):
+        assert not any(p.fullmatch(command) for p in patterns), command
+    # 규칙 안에 괄호가 있으면 agy가 command(...)를 잘못 읽는다
+    assert all("(" not in rule.removeprefix("command(") for rule in NON_GIT_COMMANDS)
