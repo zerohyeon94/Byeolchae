@@ -438,7 +438,9 @@ def test_gemini_read_only_args(tmp_path, process):
     assert "--model" not in argv
     assert "--json-schema" not in argv
     assert "--conversation" not in argv
-    assert "--add-dir" not in argv
+    # 개념 노트 외 단계는 search_web이 없는 전용 에이전트로 돌린다
+    assert value_after(argv, "--agent") == "byeolchae"
+    assert value_after(argv, "--add-dir") == str(tmp_path / "runs" / "antigravity")
 
 
 def test_gemini_settings_denies_push_remote_env_company_and_mcp_in_every_mode(tmp_path):
@@ -505,6 +507,8 @@ def test_gemini_concept_note_reads_and_searches_web_only(tmp_path, process):
     req = request(tmp_path, Stage.CONCEPT_NOTE, "read_only")
     argv = GeminiCliRunner(process).build_argv(req)
     assert value_after(argv, "--mode") == "plan"
+    assert "--agent" not in argv
+    assert "--add-dir" not in argv
     perms = build_settings(req)["permissions"]
     assert "read_url(*)" in perms["allow"]
     assert {"write_file(*)", "command(*)", "execute_url(*)"} <= set(perms["deny"])
@@ -518,7 +522,8 @@ def test_gemini_dept_chat_reads_extra_folders_and_git_history(tmp_path, process)
     argv = GeminiCliRunner(process).build_argv(req)
     assert value_after(argv, "--mode") == "plan"
     added = [argv[i + 1] for i, token in enumerate(argv) if token == "--add-dir"]
-    assert added == [str(tmp_path / "vault"), str(tmp_path / "repo")]
+    agents = str(tmp_path / "runs" / "antigravity")
+    assert added == [str(tmp_path / "vault"), str(tmp_path / "repo"), agents]
     perms = build_settings(req)["permissions"]
     assert set(READ_GIT_COMMANDS) <= set(perms["allow"])
     assert "write_file(*)" in perms["deny"]
@@ -586,6 +591,13 @@ def test_gemini_uses_structured_output_and_writes_settings_and_schema(tmp_path, 
     assert "permissions" in json.loads(settings_file.read_text(encoding="utf-8"))
     assert json.loads(schema_file.read_text(encoding="utf-8")) == Opinion.model_json_schema()
     assert '"usage"' in result.log_path.read_text(encoding="utf-8")
+    agent = (tmp_path / "runs" / "antigravity" / ".agents" / "agents" / "byeolchae.md").read_text(
+        encoding="utf-8"
+    )
+    tools = next(line for line in agent.splitlines() if line.startswith("tools:"))
+    # search_web이 없어야 웹 검색이 막히고, finish가 있어야 구조화 출력이 나온다
+    assert "search_web" not in tools
+    assert "finish" in tools
 
 
 def test_gemini_falls_back_to_response_text_with_surrounding_noise(tmp_path, process):
