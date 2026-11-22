@@ -66,6 +66,11 @@ class GitOps:
                 commits.append(Commit(sha, message.strip()))
         return commits
 
+    async def changed_files(self, path: Path, since: str) -> list[str]:
+        """since 커밋과 HEAD 사이에 바뀐 파일. 이름 바꾸기는 원래 경로와 새 경로 둘 다."""
+        out = await run_git("diff", "--name-only", "--no-renames", since, "HEAD", cwd=path)
+        return [line for line in out.splitlines() if line]
+
     async def diff(self, path: Path, base_branch: str) -> str:
         return await run_git("diff", "--stat", "--patch", f"origin/{base_branch}...HEAD", cwd=path)
 

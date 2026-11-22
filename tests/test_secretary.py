@@ -6,6 +6,7 @@
 import asyncio
 import json
 import os
+import sqlite3
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
@@ -39,6 +40,8 @@ from bot.secretary.tokens import (
     codex_run_tokens,
     codex_sessions,
     engine_usage,
+    gemini_conversations,
+    gemini_run_usage,
     tokens_text,
     weekly_limit,
 )
@@ -149,6 +152,83 @@ def test_codex_counts_increase_of_session_total_and_reads_weekly_limit(tmp_path)
 def test_codex_run_log_tokens():
     assert codex_run_tokens("codex\n{...}\ntokens used\n19,975\n") == 19975
     assert codex_run_tokens("다른 내용") is None
+
+
+def _varint(value):
+    out = bytearray()
+    while True:
+        byte, value = value & 0x7F, value >> 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def pb(*fields):
+    """(필드 번호, int 또는 bytes) 목록을 protobuf로 만든다."""
+    out = b""
+    for number, value in fields:
+        if isinstance(value, bytes):
+            out += _varint(number << 3 | 2) + _varint(len(value)) + value
+        else:
+            out += _varint(number << 3) + _varint(value)
+    return out
+
+
+def write_gemini(root, conversation, calls):
+    """Antigravity 대화 DB. calls는 (시각, 입력, 출력, 캐시 읽기) 목록 (agy 1.5.14 모양)."""
+    root.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(root / f"{conversation}.db")
+    con.execute("CREATE TABLE gen_metadata (idx integer, data blob, size integer)")
+    con.execute("CREATE TABLE steps (idx integer, step_type integer, metadata blob)")
+    con.execute("INSERT INTO steps VALUES (0, 14, ?)", (pb((1, pb((1, 1)))),))
+    for i, (moment, tokens_in, tokens_out, cache) in enumerate(calls):
+        usage = pb((1, 1532), (2, tokens_in), (3, tokens_out), (5, cache), (9, 7))
+        # 1.17.2는 같은 숫자의 중복이라 세지 않는다
+        data = pb((1, pb((3, 1532), (4, usage), (17, pb((2, usage))))))
+        con.execute("INSERT INTO gen_metadata VALUES (?, ?, 0)", (i, data))
+        step = pb((1, pb((1, int(moment.timestamp())))))
+        con.execute("INSERT INTO steps VALUES (?, 15, ?)", (2 * i + 1, step))
+        con.execute("INSERT INTO steps VALUES (?, 132, ?)", (2 * i + 2, step))
+    con.commit()
+    con.close()
+
+
+def gemini_result(conversation, tokens_in, tokens_out, cache):
+    usage = {
+        "input_tokens": tokens_in,
+        "output_tokens": tokens_out,
+        "thinking_tokens": 1,
+        "cache_read_tokens": cache,
+        "total_tokens": tokens_in + tokens_out,
+    }
+    result = {"conversation_id": conversation, "status": "SUCCESS", "usage": usage}
+    return json.dumps({"event": "result", "result": result})
+
+
+def test_gemini_run_log_usage():
+    log = "\n".join(
+        [
+            '{"event":"init","conversation_id":"c1"}',
+            '{"event":"step_update","step_update":{"state":"DONE"}}',
+            gemini_result("c1", 20658, 2548, 37253),
+        ]
+    )
+    assert gemini_run_usage("=== stdout ===\n" + log) == (60459, "c1")
+    assert gemini_run_usage("다른 내용") is None
+
+
+def test_gemini_conversations_reads_db_and_skips_bot(tmp_path):
+    cli, app = tmp_path / "cli", tmp_path / "app"
+    write_gemini(cli, "zero", [(at(DAY, 9), 100, 10, 1000), (at(DAY, 10), 50, 5, 0)])
+    write_gemini(cli, "bot", [(at(DAY, 11), 999, 9, 9)])
+    write_gemini(app, "desk", [(at(DAY - timedelta(days=1), 22), 7, 0, 0), (at(DAY, 12), 1, 1, 1)])
+    (cli / "broken.db").write_text("sqlite 아님", encoding="utf-8")
+    usages = gemini_conversations([cli, app, tmp_path / "없음"], at(DAY, 0), {"bot"})
+    assert sorted((u.at, u.tokens, u.bot) for u in usages) == [
+        (at(DAY, 9), 1110, False),
+        (at(DAY, 10), 55, False),
+        (at(DAY, 12), 3, False),
+    ]
 
 
 def limit_line(utilization, resets_at=1794240000):
@@ -442,6 +522,7 @@ def run_desk(tmp_path, work, engine, vault=None, now=None):
                 claude_dir=tmp_path / "claude",
                 codex_dir=tmp_path / "codex",
                 workdir=tmp_path / "secretary",
+                gemini_dirs=[tmp_path / "gemini"],
             )
             return await work(desk, repo, clock)
         finally:
@@ -497,6 +578,10 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     engine, vault = FakeEngine(DailySummary(summary="#1 기획 승인이 남았다.")), FakeVault()
     log = tmp_path / "codex-run.log"
     log.write_text("codex\ntokens used\n2,500\n", encoding="utf-8")
+    gemini_log = tmp_path / "gemini-run.log"
+    gemini_log.write_text(gemini_result("bot-conv", 30, 10, 20) + "\n", encoding="utf-8")
+    write_gemini(tmp_path / "gemini", "bot-conv", [(at(DAY, 14), 30, 10, 20)])
+    write_gemini(tmp_path / "gemini", "zero-conv", [(at(DAY, 15), 700, 50, 250)])
 
     write_vault(tmp_path / "vault")
 
@@ -506,6 +591,10 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
             "r1", task_id=None, agent="delta", stage=Stage.REVIEW, engine="codex"
         )
         await repo.finish_agent_run("r1", status="ok", exit_code=0, log_path=str(log))
+        await repo.start_agent_run(
+            "r2", task_id=None, agent="beta", stage=Stage.OPINION, engine="gemini"
+        )
+        await repo.finish_agent_run("r2", status="ok", exit_code=0, log_path=str(gemini_log))
         return await desk.run_evening(DAY)
 
     text, notes = run_desk(tmp_path, work, engine, vault)
@@ -525,10 +614,12 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     assert "[gagaessi] #1 카테고리 추가: PLANNING → AWAIT_PLAN_APPROVAL" in daily
     assert "[gagaessi] #1 카테고리 추가: PR #7 열림" in daily
     assert "AWAIT_PLAN_APPROVAL (대기" in daily  # 결정할 것
-    assert "- **봇:** Claude 0 · Codex 2,500" in daily
+    assert "- **봇:** Claude 0 · Codex 2,500 · Gemini 60" in daily
+    assert "- **나:** Claude 0 · Codex 0 · Gemini 1,000" in daily  # 봇 대화는 빼고 센다
+    assert "- **구독 주간 한도:** Claude 기록 없음 · Codex 기록 없음 · Gemini 기록 없음" in daily
     assert "- **학습한 날:** 0일" in daily and "- **끝낸 개념:** 0개" in daily
     assert "- **문제 (복습 포함):** 3개 중 0개 맞힘 · 안 푼 문제 3개" in daily
-    assert "- **토큰:** Claude 0 · Codex 2,500" in daily
+    assert "- **토큰:** Claude 0 · Codex 2,500 · Gemini 1,060" in daily
     assert vault.commits == [
         (
             ["Daily/2026-11/2026-11-02.md"],

@@ -226,6 +226,7 @@ class ZeroSyncBot(discord.Client):
                 org=config.org,
                 claude_dir=config.secretary.claude_projects,
                 codex_dir=config.secretary.codex_sessions,
+                gemini_dirs=config.secretary.gemini_conversations,
                 workdir=config.paths.runs.parent / "secretary",
             )
         self.dept_chat = DeptChat(
@@ -1119,7 +1120,7 @@ def _register_commands(bot: ZeroSyncBot) -> None:
 
 async def run_bot(config: Config) -> None:
     """DB를 열고 러너·엔진·Discord 클라이언트를 연결해 종료될 때까지 실행한다."""
-    from bot.agents import ClaudeCliRunner, CodexCliRunner, ProcessRunner
+    from bot.agents import ClaudeCliRunner, CodexCliRunner, GeminiCliRunner, ProcessRunner
     from bot.github import GitOps
     from bot.store import connect
     from bot.testrun import TestRunner
@@ -1130,6 +1131,7 @@ async def run_bot(config: Config) -> None:
         runners: dict[EngineName, AgentRunner] = {
             "claude": ClaudeCliRunner(process, config.cli.claude, config.cli.claude_models),
             "codex": CodexCliRunner(process, config.cli.codex, config.cli.codex_models),
+            "gemini": GeminiCliRunner(process, config.cli.gemini, config.cli.gemini_models),
         }
         tests = TestRunner(
             process,

@@ -106,7 +106,9 @@ Verify = Callable[[Any], Awaitable[list[str]]]
 _ZERO_FACING = frozenset({Stage.OPINION, Stage.DEBATE})
 # 구독 사용량 한도 오류로 보는 문구 [검증 필요] (SPEC V15)
 _USAGE_LIMIT = re.compile(
-    r"usage limit|rate limit|limit reached|too many requests|quota exceeded|\b429\b", re.I
+    r"usage limit|rate limit|limit reached|too many requests|quota exceeded"
+    r"|resource_exhausted|resource exhausted|\b429\b",
+    re.I,
 )
 PAUSE_KEY = "queue_paused_until"
 # 채팅 답에 넣는 최근 대화 수 (SPEC 5.3)

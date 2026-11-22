@@ -1,4 +1,4 @@
-"""CLI 러너 테스트. 실제 claude·codex는 부르지 않는다 (SPEC 12.3).
+"""CLI 러너 테스트. 실제 claude·codex·gemini는 부르지 않는다 (SPEC 12.3).
 
 명령 인자는 build_argv로 확인하고, 출력 해석은 CLI 흉내를 내는 작은 Python 스크립트를
 실제 ProcessRunner로 실행해 확인한다.
@@ -17,13 +17,22 @@ from bot.agents import (
     AgentRequest,
     ClaudeCliRunner,
     CodexCliRunner,
+    GeminiCliRunner,
     ProcessRunner,
     RunStatus,
     Stage,
 )
 from bot.agents.claude import DENIED_TOOLS
 from bot.agents.codex import git_common_dir, strict_schema
+from bot.agents.gemini import (
+    DENIED_RULES,
+    DOC_STAGE_DIRS,
+    LOCAL_GIT_COMMANDS,
+    READ_GIT_COMMANDS,
+    build_settings,
+)
 from bot.schemas import Opinion, Review, parse_agent_output
+from bot.workflow.engine import is_usage_limited
 
 OPINION = {
     "stance": "agree",
@@ -272,12 +281,14 @@ def test_codex_args(tmp_path, process):
     assert "--model" not in runner.build_argv(request(tmp_path, Stage.OPINION))
 
 
-def test_codex_rejects_write_mode_outside_implement(tmp_path, process):
+def test_codex_rejects_write_mode_outside_write_stages(tmp_path, process):
     with pytest.raises(ValueError, match="쓰기 모드"):
         CodexCliRunner(process).build_argv(request(tmp_path, Stage.REVIEW, "write_worktree"))
 
 
-@pytest.mark.parametrize("stage", [Stage.IMPLEMENT, Stage.FIX])
+@pytest.mark.parametrize(
+    "stage", [Stage.PLAN, Stage.UI_DESIGN, Stage.DESIGN, Stage.IMPLEMENT, Stage.FIX]
+)
 def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
     # 저장소/.git/worktrees/w1 을 가리키는 worktree
     common = tmp_path / "repo" / ".git"
@@ -291,6 +302,27 @@ def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
     )
     assert value_after(argv, "--sandbox") == "workspace-write"
     assert value_after(argv, "--add-dir") == str(common.resolve())
+
+
+def test_codex_concept_note_turns_on_web_search(tmp_path, process):
+    # --search는 최상위 옵션이라 exec 앞에 둔다. 다른 단계는 웹 검색이 없다 (Claude와 같다)
+    runner = CodexCliRunner(process)
+    argv = runner.build_argv(request(tmp_path, Stage.CONCEPT_NOTE))
+    assert argv[:3] == ["codex", "--search", "exec"]
+    assert value_after(argv, "--sandbox") == "read-only"
+    assert 'web_search="disabled"' not in argv
+    # 다른 단계는 기본으로 켜진 웹 검색을 끈다 (codex-cli 0.161)
+    other = runner.build_argv(request(tmp_path, Stage.OPINION))
+    assert "--search" not in other
+    assert value_after(other, "-c") == 'web_search="disabled"'
+
+
+def test_codex_disables_apps_and_plugins(tmp_path, process):
+    # 앱의 검색 도구로 웹 검색을 우회하지 않게 끈다 (Claude의 --strict-mcp-config와 같다)
+    for stage, mode in ((Stage.OPINION, "read_only"), (Stage.IMPLEMENT, "write_worktree")):
+        argv = CodexCliRunner(process).build_argv(request(tmp_path, stage, mode))
+        pairs = list(zip(argv, argv[1:], strict=False))
+        assert ("--disable", "apps") in pairs and ("--disable", "plugins") in pairs
 
 
 def test_git_common_dir_of_plain_repo_is_none(tmp_path):
@@ -388,3 +420,227 @@ def test_claude_weekly_quiz_is_read_only(tmp_path, process):
     argv = ClaudeCliRunner(process).build_argv(request(tmp_path, Stage.WEEKLY_QUIZ, "read_only"))
     assert value_after(argv, "--permission-mode") == "plan"
     assert "Read(회사/**)" in values_after(argv, "--disallowedTools")
+
+
+# Gemini (Antigravity CLI: agy): 명령 인자와 권한 설정
+
+
+def test_gemini_read_only_args(tmp_path, process):
+    argv = GeminiCliRunner(process, "agy").build_argv(request(tmp_path, run_id="g1"))
+    # agy의 -p는 바로 뒤 인자를 프롬프트로 받으므로 쓰지 않고 stdin(stream-json)으로 넘긴다
+    assert "-p" not in argv
+    assert value_after(argv, "--input-format") == "stream-json"
+    assert value_after(argv, "--output-format") == "stream-json"
+    assert "--disable-slash-commands" in argv
+    assert value_after(argv, "--mode") == "plan"
+    assert value_after(argv, "--settings") == str(tmp_path / "runs" / "g1.settings.json")
+    assert "의견을 말해라" not in argv
+    assert "--model" not in argv
+    assert "--json-schema" not in argv
+    assert "--conversation" not in argv
+    assert "--add-dir" not in argv
+
+
+def test_gemini_settings_denies_push_remote_env_company_and_mcp_in_every_mode(tmp_path):
+    cases = [
+        (Stage.OPINION, "read_only"),
+        (Stage.PLAN, "write_worktree"),
+        (Stage.UI_DESIGN, "write_worktree"),
+        (Stage.DESIGN, "write_worktree"),
+        (Stage.IMPLEMENT, "write_worktree"),
+        (Stage.FIX, "write_worktree"),
+        (Stage.CONCEPT_NOTE, "read_only"),
+        (Stage.DEPT_CHAT, "read_only"),
+    ]
+    for stage, mode in cases:
+        perms = build_settings(request(tmp_path, stage, mode))["permissions"]
+        assert set(DENIED_RULES) <= set(perms["deny"])
+        assert f"read_file({tmp_path / '.env'})" in perms["deny"]
+        assert f"read_file({tmp_path / '회사'})" in perms["deny"]
+        assert "read_file(*)" in perms["allow"]
+        # 상대 경로나 glob이 있으면 agy 터미널 샌드박스가 모든 명령을 거부한다
+        for rule in perms["allow"] + perms["deny"]:
+            target = rule[rule.index("(") + 1 : -1]
+            assert "**" not in target
+            if rule.startswith(("read_file", "write_file")) and target != "*":
+                assert Path(target).is_absolute(), rule
+
+
+def test_gemini_denies_env_of_original_repo_in_worktree(tmp_path):
+    main, worktree = tmp_path / "main", tmp_path / "wt"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    (main / ".git" / "worktrees" / "wt" / "commondir").write_text("../..\n")
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n")
+    perms = build_settings(request(worktree, Stage.IMPLEMENT, "write_worktree"))["permissions"]
+    assert f"read_file({main.resolve() / '.env'})" in perms["deny"]
+    assert f"write_file({(main / '.git').resolve()})" in perms["allow"]
+
+
+@pytest.mark.parametrize(("stage", "folder"), list(DOC_STAGE_DIRS.items()))
+def test_gemini_doc_stages_write_only_their_folder(tmp_path, process, stage, folder):
+    req = request(tmp_path, stage, "write_worktree")
+    argv = GeminiCliRunner(process).build_argv(req)
+    assert "--mode" not in argv
+    perms = build_settings(req)["permissions"]
+    assert f"write_file({tmp_path / folder})" in perms["allow"]
+    assert f"write_file({tmp_path / '.git'})" in perms["allow"]
+    assert "write_file(*)" not in perms["allow"]
+    assert set(LOCAL_GIT_COMMANDS) <= set(perms["allow"])
+    assert not any("push" in rule for rule in perms["allow"])
+
+
+@pytest.mark.parametrize("stage", [Stage.IMPLEMENT, Stage.FIX])
+def test_gemini_implement_and_fix_use_accept_edits_and_local_git(tmp_path, process, stage):
+    req = request(tmp_path, stage, "write_worktree")
+    argv = GeminiCliRunner(process).build_argv(req)
+    assert value_after(argv, "--mode") == "accept-edits"
+    perms = build_settings(req)["permissions"]
+    assert "write_file(*)" in perms["allow"]
+    assert set(LOCAL_GIT_COMMANDS) <= set(perms["allow"])
+    assert not any("push" in rule for rule in perms["allow"])
+
+
+def test_gemini_concept_note_reads_and_searches_web_only(tmp_path, process):
+    req = request(tmp_path, Stage.CONCEPT_NOTE, "read_only")
+    argv = GeminiCliRunner(process).build_argv(req)
+    assert value_after(argv, "--mode") == "plan"
+    perms = build_settings(req)["permissions"]
+    assert "read_url(*)" in perms["allow"]
+    assert {"write_file(*)", "command(*)", "execute_url(*)"} <= set(perms["deny"])
+
+
+def test_gemini_dept_chat_reads_extra_folders_and_git_history(tmp_path, process):
+    req = replace(
+        request(tmp_path, Stage.DEPT_CHAT, "read_only"),
+        read_dirs=(tmp_path / "vault", tmp_path / "repo"),
+    )
+    argv = GeminiCliRunner(process).build_argv(req)
+    assert value_after(argv, "--mode") == "plan"
+    added = [argv[i + 1] for i, token in enumerate(argv) if token == "--add-dir"]
+    assert added == [str(tmp_path / "vault"), str(tmp_path / "repo")]
+    perms = build_settings(req)["permissions"]
+    assert set(READ_GIT_COMMANDS) <= set(perms["allow"])
+    assert "write_file(*)" in perms["deny"]
+    assert not any(rule.startswith("write_file") for rule in perms["allow"])
+
+
+def test_gemini_rejects_write_mode_for_read_only_stage(tmp_path, process):
+    with pytest.raises(ValueError, match="쓰기 모드"):
+        GeminiCliRunner(process).build_argv(request(tmp_path, Stage.OPINION, "write_worktree"))
+
+
+def test_gemini_model_schema_and_conversation(tmp_path, process):
+    runner = GeminiCliRunner(process, models={Stage.OPINION: "gemini-3.5-flash"})
+    schema = Opinion.model_json_schema()
+    argv = runner.build_argv(
+        request(
+            tmp_path,
+            Stage.OPINION,
+            run_id="gm1",
+            output_schema=schema,
+            resume_session="conv-1",
+        )
+    )
+    assert value_after(argv, "--model") == "gemini-3.5-flash"
+    assert value_after(argv, "--json-schema") == str(tmp_path / "runs" / "gm1.schema.json")
+    assert value_after(argv, "--conversation") == "conv-1"
+    # request.model이 단계 기본 모델보다 우선한다
+    argv_override = runner.build_argv(request(tmp_path, Stage.OPINION, model="gemini-3.1-pro"))
+    assert value_after(argv_override, "--model") == "gemini-3.1-pro"
+    assert "--model" not in runner.build_argv(request(tmp_path, Stage.DEBATE))
+
+
+# Gemini (Antigravity CLI: agy): 출력 해석
+
+
+def gemini_output(**fields):
+    data = {
+        "conversation_id": "conv-sess-1",
+        "status": "SUCCESS",
+        "response": "",
+        "structured_output": None,
+        "usage": {"total_tokens": 120},
+    }
+    data.update(fields)
+    # 실제 agy stream-json 출력처럼 init, 단계, result 이벤트를 한 줄씩 낸다
+    lines = [
+        {"event": "init", "conversation_id": "conv-sess-1", "init": {"tools": ["search_web"]}},
+        {"event": "step_update", "step_update": {"step_type": "agent_response", "text_delta": "x"}},
+        {"event": "result", "result": data},
+    ]
+    return "\n".join(f"print({json.dumps(json.dumps(line, ensure_ascii=False))})" for line in lines)
+
+
+def test_gemini_uses_structured_output_and_writes_settings_and_schema(tmp_path, process):
+    exe = fake_cli(tmp_path, "agy", gemini_output(response="무시", structured_output=OPINION))
+    req = request(tmp_path, run_id="g2", output_schema=Opinion.model_json_schema())
+    result = run(GeminiCliRunner(process, exe).run(req))
+    assert result.status is RunStatus.OK
+    assert result.session_id == "conv-sess-1"
+    assert parse_agent_output(result.stdout, Opinion).conclusion == "좋다"
+    message = json.loads(calls(tmp_path, "agy")["stdin"])
+    assert message == {"event": "user", "message": {"role": "user", "content": "의견을 말해라"}}
+    settings_file = tmp_path / "runs" / "g2.settings.json"
+    schema_file = tmp_path / "runs" / "g2.schema.json"
+    assert "permissions" in json.loads(settings_file.read_text(encoding="utf-8"))
+    assert json.loads(schema_file.read_text(encoding="utf-8")) == Opinion.model_json_schema()
+    assert '"usage"' in result.log_path.read_text(encoding="utf-8")
+
+
+def test_gemini_falls_back_to_response_text_with_surrounding_noise(tmp_path, process):
+    text = "```json\n" + json.dumps(OPINION, ensure_ascii=False) + "\n```"
+    payload = json.dumps({"conversation_id": "c2", "status": "SUCCESS", "response": text})
+    body = f"print('Loaded cached credentials.')\nprint({payload!r})"
+    exe = fake_cli(tmp_path, "agy", body)
+    result = run(GeminiCliRunner(process, exe).run(request(tmp_path, run_id="g3")))
+    assert result.status is RunStatus.OK
+    assert result.session_id == "c2"
+    assert parse_agent_output(result.stdout, Opinion).proposal == "제안"
+
+
+def test_gemini_error_envelope_marks_run_as_error_and_detects_quota(tmp_path, process):
+    err = {"code": 429, "message": "RESOURCE_EXHAUSTED: quota exceeded"}
+    exe = fake_cli(tmp_path, "agy", gemini_output(status="ERROR", error=err))
+    result = run(GeminiCliRunner(process, exe).run(request(tmp_path, run_id="g4")))
+    assert result.status is RunStatus.ERROR
+    assert "RESOURCE_EXHAUSTED" in result.stdout
+    assert is_usage_limited(result)
+
+
+def test_gemini_non_success_status_without_error_field_is_error(tmp_path, process):
+    exe = fake_cli(tmp_path, "agy", gemini_output(status="FAILED", response="중단됨"))
+    result = run(GeminiCliRunner(process, exe).run(request(tmp_path, run_id="g4b")))
+    assert result.status is RunStatus.ERROR
+    assert result.stdout == "중단됨"
+
+
+def test_gemini_non_json_output_is_error_and_kept_raw(tmp_path, process):
+    exe = fake_cli(tmp_path, "agy", "print('충돌')")
+    result = run(GeminiCliRunner(process, exe).run(request(tmp_path, run_id="g5")))
+    assert result.status is RunStatus.ERROR
+    assert result.stdout == "충돌\n"
+    assert result.session_id is None
+
+
+def test_gemini_nonzero_exit_stays_error(tmp_path, process):
+    exe = fake_cli(tmp_path, "agy", gemini_output(response="부분") + "\nsys.exit(1)")
+    result = run(GeminiCliRunner(process, exe).run(request(tmp_path, run_id="g6")))
+    assert result.status is RunStatus.ERROR
+    assert result.exit_code == 1
+
+
+def test_gemini_timeout_and_cancel(tmp_path, process):
+    exe = fake_cli(tmp_path, "agy", "import time; time.sleep(30)")
+    runner = GeminiCliRunner(process, exe)
+    timeout = run(runner.run(request(tmp_path, run_id="g7", timeout_sec=0.5)))
+    assert timeout.status is RunStatus.TIMEOUT
+
+    async def scenario():
+        task = asyncio.create_task(runner.run(request(tmp_path, run_id="g8")))
+        while not process.is_running("g8"):
+            await asyncio.sleep(0.02)
+        await runner.cancel("g8")
+        return await task
+
+    assert run(scenario()).status is RunStatus.CANCELLED
