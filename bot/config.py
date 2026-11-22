@@ -187,6 +187,11 @@ class SecretaryConfig(_Model):
     # 토큰 사용량을 읽는 로컬 기록
     claude_projects: ExpandedPath = Path("~/.claude/projects")
     codex_sessions: ExpandedPath = Path("~/.codex/sessions")
+    # Antigravity CLI와 데스크톱 앱의 대화 DB 폴더
+    gemini_conversations: list[ExpandedPath] = [
+        Path("~/.gemini/antigravity-cli/conversations"),
+        Path("~/.gemini/antigravity/conversations"),
+    ]
 
     @field_validator("schedule")
     @classmethod

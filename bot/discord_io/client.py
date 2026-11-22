@@ -226,6 +226,7 @@ class ZeroSyncBot(discord.Client):
                 org=config.org,
                 claude_dir=config.secretary.claude_projects,
                 codex_dir=config.secretary.codex_sessions,
+                gemini_dirs=config.secretary.gemini_conversations,
                 workdir=config.paths.runs.parent / "secretary",
             )
         self.dept_chat = DeptChat(

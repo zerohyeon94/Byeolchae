@@ -5,7 +5,7 @@
 - 학습: DB의 학습 기록과 문제 점수, 커리큘럼 ID, 그날 선택 항목
 - 제품 부서: 작업 단계 변화와 PR 열림·merge
 - 결정할 것: 승인 대기 작업과 열린 채용 제안
-- 토큰: Claude·Codex 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
+- 토큰: Claude·Codex·Gemini 로컬 기록 (봇과 Zero, 모든 저장소)과 봇 실행 로그의 구독 한도
 - 이번 주: 월요일~그날의 학습한 날·끝낸 개념(교육 주간 보고와 같은 셈), 문제 점수, 선택 했음
 
 비서는 그 사실로 한 줄 요약만 쓴다. 볼트에 Daily 파일을 쓰고 커밋하는 주체는 봇이다.
@@ -22,7 +22,7 @@ iPad 읽기 앱이 GitHub에서 그날 노트를 아침에 받을 수 있게 한
 
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -74,6 +74,8 @@ from bot.secretary.tokens import (
     codex_run_tokens,
     codex_sessions,
     engine_usage,
+    gemini_conversations,
+    gemini_run_usage,
     weekly_limit,
 )
 from bot.store import EventKind
@@ -108,6 +110,7 @@ class SecretaryDesk:
         claude_dir: Path,
         codex_dir: Path,
         workdir: Path,
+        gemini_dirs: Sequence[Path] = (),
     ):
         self._engine = engine
         self._vault = vault
@@ -118,6 +121,7 @@ class SecretaryDesk:
         self._org = org
         self._claude_dir = claude_dir
         self._codex_dir = codex_dir
+        self._gemini_dirs = tuple(gemini_dirs)
         self._workdir = workdir  # 비서 실행 폴더. 비서는 파일을 읽지 않으므로 빈 폴더다
 
     async def run_morning(self, day: date) -> str:
@@ -332,9 +336,12 @@ class SecretaryDesk:
         # 주간 한도는 그날 시작 전 마지막 값과 비교하므로 일주일 더 앞에서부터 읽는다
         codex, samples = codex_sessions(self._codex_dir, week_start - timedelta(days=7))
         codex += await self._codex_bot(week_start, end)
+        gemini, bot_conversations = await self._gemini_bot(week_start, end)
+        gemini += gemini_conversations(self._gemini_dirs, week_start, bot_conversations)
         return [
             engine_usage("claude", claude, start, end, week_start, await self._claude_limit(day)),
             engine_usage("codex", codex, start, end, week_start, weekly_limit(samples, start, end)),
+            engine_usage("gemini", gemini, start, end, week_start),
         ]
 
     async def _with_claude_limit(self, facts: DayFacts) -> DayFacts:
@@ -360,6 +367,19 @@ class SecretaryDesk:
             if tokens := codex_run_tokens(text):
                 found.append(Usage(at, tokens, bot=True))
         return found
+
+    async def _gemini_bot(self, start: datetime, end: datetime) -> tuple[list[Usage], set[str]]:
+        """봇 Gemini 실행의 사용량과, Zero 몫에서 뺄 그 실행들의 conversation_id."""
+        found, conversations = [], set()
+        async for at, text in self._run_logs("gemini", start, end):
+            if (usage := gemini_run_usage(text)) is None:
+                continue
+            tokens, conversation = usage
+            if tokens:
+                found.append(Usage(at, tokens, bot=True))
+            if conversation:
+                conversations.add(conversation)
+        return found, conversations
 
     async def _run_logs(
         self, engine: str, start: datetime, end: datetime

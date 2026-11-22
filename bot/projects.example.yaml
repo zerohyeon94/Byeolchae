@@ -69,6 +69,7 @@ secretary:
   # 토큰 기록 위치 (기본값)
   # claude_projects: ~/.claude/projects
   # codex_sessions: ~/.codex/sessions
+  # gemini_conversations: [~/.gemini/antigravity-cli/conversations, ~/.gemini/antigravity/conversations]
 
 # 생략하면 기본값을 쓴다
 cli:
