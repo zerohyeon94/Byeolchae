@@ -35,6 +35,11 @@ class Stage(StrEnum):
     WEEKLY_QUIZ = "weekly_quiz"  # 교육 주간 문제와 한마디
     SECRETARY_DAILY = "secretary_daily"  # 비서 저녁 하루 정리 요약 (ADR-010)
     DEPT_CHAT = "dept_chat"  # #비서·#교육 대화와 넘겨받은 답 (ADR-013)
+    RESEARCH = "research"  # 부서 대화에서 맡긴 웹 조사 보고 (ADR-018)
+
+
+# 웹 검색·가져오기를 허용하는 단계. 세 엔진이 같은 범위를 쓴다 (ADR-017, ADR-018)
+WEB_STAGES = frozenset({Stage.CONCEPT_NOTE, Stage.RESEARCH})
 
 
 # 문서 단계가 쓸 수 있는 폴더 (운영 규약 1.3). 세 엔진이 같은 범위를 쓴다 (ADR-017)

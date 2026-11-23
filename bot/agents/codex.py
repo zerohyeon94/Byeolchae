@@ -4,7 +4,8 @@
 쓰는 workspace-write 샌드박스로 실행한다 (ADR-017).
 - 샌드박스는 폴더 단위라 문서 단계의 자기 폴더 제한과 `.env` 차단을 걸 수 없다.
   실행 뒤 봇이 바뀐 파일을 검사해 막는다 (`bot/workflow/work.py`의 `scope_violations`)
-- 웹 검색은 CONCEPT_NOTE만 `--search`로 켠다. Claude·Gemini의 웹 검색 허용과 같다.
+- 웹 검색은 CONCEPT_NOTE·RESEARCH(`WEB_STAGES`)만 `--search`로 켠다.
+  Claude·Gemini의 웹 검색 허용과 같다.
   codex-cli 0.161은 웹 검색이 기본으로 켜져 있어 다른 단계는 `web_search="disabled"`로 끈다
 - ChatGPT 앱·플러그인(`codex_apps` MCP)은 끈다(`--disable apps --disable plugins`).
   웹 검색을 꺼도 앱의 검색 도구로 돌아가기 때문이다. Claude의 `--strict-mcp-config`와 같다
@@ -25,7 +26,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bot.agents.base import WRITE_STAGES, AgentRequest, AgentResult, EngineName, Stage
+from bot.agents.base import WEB_STAGES, WRITE_STAGES, AgentRequest, AgentResult, EngineName, Stage
 from bot.agents.process import ProcessRunner
 
 
@@ -74,9 +75,9 @@ class CodexCliRunner:
         else:
             raise ValueError(f"{request.stage} 단계는 쓰기 모드로 실행하지 않는다")
         # --search는 exec 하위 명령이 아니라 최상위 옵션이다 (codex-cli 0.161 확인)
-        concept = request.stage is Stage.CONCEPT_NOTE
-        search = ["--search"] if concept else []
-        no_search = [] if concept else ["-c", 'web_search="disabled"']
+        web = request.stage in WEB_STAGES
+        search = ["--search"] if web else []
+        no_search = [] if web else ["-c", 'web_search="disabled"']
         argv = [
             self._executable,
             *search,

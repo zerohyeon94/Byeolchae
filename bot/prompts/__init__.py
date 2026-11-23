@@ -35,6 +35,7 @@ from bot.schemas import (
 from bot.schemas.dept import MAX_HANDOFF
 from bot.schemas.education import QUIZ_MAX, QUIZ_MIN
 from bot.schemas.project_report import ProjectReport
+from bot.schemas.research import ResearchReport
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 
@@ -635,12 +636,14 @@ def dept_chat_prompt(
     handoff_from: str = "",
     original: str = "",
     in_thread: bool = False,
+    research: bool = False,
 ) -> str:
     """#비서·#교육 대화의 답 (ADR-013). folders는 (설명, 경로), records는 봇이 모은 작업 기록.
 
     candidates(이름 키, 표시 이름)가 있으면 넘기기를 안내한다. handoff_from이 있으면
     그 직원이 넘긴 질문에 답하는 것이고, 다시 넘기지 않는다.
     in_thread면 이미 회의 스레드 안이라 스레드를 다시 열지 않는다.
+    research면 웹 조사 보고를 맡기는 research를 안내한다 (ADR-018).
     """
     folder_lines = "\n".join(f"- {label}: `{path}`" for label, path in folders)
     guide = list(DEPT_GUIDE)
@@ -650,6 +653,8 @@ def dept_chat_prompt(
             f"Zero의 원래 질문:\n{original.strip()}\n\n넘겨받은 질문:\n{question.strip()}"
         )
         guide.append("- handoff는 빈 목록으로 둔다. 넘겨받은 질문은 다시 넘기지 않는다")
+        if research:
+            guide.append("- research는 null로 둔다. 조사는 처음 답한 직원이 맡긴다")
     else:
         request = f"Zero의 질문에 답한다.\n\nZero의 질문:\n{question.strip()}"
         if candidates:
@@ -660,6 +665,16 @@ def dept_chat_prompt(
                 "직접 답할 수 있으면 넘기지 않고 빈 목록으로 둔다",
                 "- 넘길 수 있는 직원:",
                 *(f"  - `{key}`: {name}" for key, name in candidates),
+            ]
+        if research:
+            guide += [
+                "- research: 웹에서 새로 찾아봐야 답할 수 있는 조사(최근 동향, 다른 채널·제품 "
+                "분석 등)를 Zero가 맡기면 주제(topic)를 적는다. 봇이 담당을 불러 웹 조사 보고를 "
+                "쓰고, 팀장 확인 뒤 볼트에 저장하고 이 채널에 요약을 올린다. "
+                "이 대화에서는 웹을 볼 수 없다",
+                "- research.agent: Zero가 담당을 정했으면 그 직원의 이름 키, "
+                "아니면 null(리서치팀이 맡는다)",
+                "- 볼트·기록만으로 답할 수 있거나 Zero가 조사를 맡기지 않았으면 research는 null",
             ]
         if not in_thread:
             guide.append(
@@ -676,4 +691,60 @@ def dept_chat_prompt(
         records=records.strip() or "(없음)",
         guide="\n".join(guide),
         schema=_schema(DeptAnswer),
+    )
+
+
+def research_text(report: ResearchReport) -> str:
+    """팀장 확인과 수정 요청에 넣는 보고 본문."""
+    lines = [f"제목: {report.title}", "", "요약:", report.summary, "", "본문:", report.body, ""]
+    lines += ["출처:", *(f"- {s.title}: {s.url}" for s in report.sources)]
+    if report.unverified:
+        lines += ["", "확인하지 못함:", *(f"- {item}" for item in report.unverified)]
+    return "\n".join(lines)
+
+
+def research_prompt(
+    persona: Persona,
+    *,
+    channel: str,
+    day: str,
+    requester: str,
+    topic: str,
+    question: str,
+    folders: Sequence[tuple[str, str]],
+    previous: ResearchReport | None = None,
+    required: str = "",
+) -> str:
+    """조사 보고 (ADR-018). previous와 required가 있으면 팀장 [필수] 지적을 반영해 다시 쓴다."""
+    revision = ""
+    if previous is not None:
+        revision = _section(
+            "팀장 확인의 [필수] 지적",
+            f"{required}\n\n지난 보고:\n\n{research_text(previous)}\n\n"
+            "지적을 모두 반영한 보고 전체를 다시 낸다",
+        )
+    return _template("research").substitute(
+        _persona(persona, hiring_guide=False),
+        channel=channel,
+        day=day,
+        requester=requester,
+        topic=topic.strip(),
+        question=question.strip(),
+        previous=revision,
+        folders="\n".join(f"- {label}: `{path}`" for label, path in folders) or "(없음)",
+        schema=_schema(ResearchReport),
+    )
+
+
+def research_check_prompt(
+    persona: Persona, *, member: str, topic: str, question: str, report: ResearchReport
+) -> str:
+    """팀원이 낸 조사 보고의 팀장 확인 (ADR-008, ADR-018)."""
+    return _template("research_check").substitute(
+        _persona(persona, hiring_guide=False),
+        member=member,
+        topic=topic.strip(),
+        question=question.strip(),
+        report=research_text(report),
+        schema=_schema(Review),
     )

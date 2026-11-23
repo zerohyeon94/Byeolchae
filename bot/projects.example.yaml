@@ -78,7 +78,8 @@ cli:
   gemini: agy           # Antigravity CLI (예: /opt/homebrew/bin/agy)
   # 단계별 모델. 적지 않은 단계는 각 CLI의 기본 모델을 쓴다
   # Claude 단계: opinion, debate, plan, ui_design, design, implement, fix, review,
-  #   diagnose, lead_check, release_prep, doc_sync, concept_note, weekly_quiz, secretary_daily
+  #   diagnose, lead_check, release_prep, doc_sync, concept_note, weekly_quiz, secretary_daily,
+  #   dept_chat, research
   claude_models:
     opinion: sonnet
     debate: sonnet

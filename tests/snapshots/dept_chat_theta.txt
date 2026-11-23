@@ -38,13 +38,16 @@ Zero의 질문:
 - 넘길 수 있는 직원:
   - `beta`: Beta · 기획팀장
   - `alpha`: Alpha · 개발팀장
+- research: 웹에서 새로 찾아봐야 답할 수 있는 조사(최근 동향, 다른 채널·제품 분석 등)를 Zero가 맡기면 주제(topic)를 적는다. 봇이 담당을 불러 웹 조사 보고를 쓰고, 팀장 확인 뒤 볼트에 저장하고 이 채널에 요약을 올린다. 이 대화에서는 웹을 볼 수 없다
+- research.agent: Zero가 담당을 정했으면 그 직원의 이름 키, 아니면 null(리서치팀이 맡는다)
+- 볼트·기록만으로 답할 수 있거나 Zero가 조사를 맡기지 않았으면 research는 null
 - thread_title: 여러 직원이 함께 보거나 몇 번 주고받아야 하는 회의 같은 질문이면 스레드 제목(80자 이내)을 적는다. 봇이 스레드를 열어 그 안에서 이어 간다. 간단한 질문은 null
 
 ## 출력
 
 아래 JSON 스키마에 맞는 JSON 객체 하나만 출력한다. 앞뒤에 설명 문장을 붙이지 않는다. 한국어로 쓴다.
 
-{"$defs": {"Handoff": {"additionalProperties": false, "properties": {"agent": {"pattern": "^[a-z][a-z0-9]{0,19}$", "title": "Agent", "type": "string"}, "question": {"maxLength": 500, "minLength": 1, "title": "Question", "type": "string"}}, "required": ["agent", "question"], "title": "Handoff", "type": "object"}}, "additionalProperties": false, "properties": {"answer": {"maxLength": 1500, "minLength": 1, "title": "Answer", "type": "string"}, "handoff": {"items": {"$ref": "#/$defs/Handoff"}, "maxItems": 3, "title": "Handoff", "type": "array"}, "thread_title": {"anyOf": [{"maxLength": 80, "minLength": 1, "pattern": "^[^\\n]+$", "type": "string"}, {"type": "null"}], "default": null, "title": "Thread Title"}}, "required": ["answer"], "title": "DeptAnswer", "type": "object"}
+{"$defs": {"Handoff": {"additionalProperties": false, "properties": {"agent": {"pattern": "^[a-z][a-z0-9]{0,19}$", "title": "Agent", "type": "string"}, "question": {"maxLength": 500, "minLength": 1, "title": "Question", "type": "string"}}, "required": ["agent", "question"], "title": "Handoff", "type": "object"}, "ResearchRequest": {"additionalProperties": false, "description": "웹에서 새로 찾아봐야 하는 질문이면 조사 보고로 넘긴다 (ADR-018). 봇이 담당을 부른다.", "properties": {"topic": {"maxLength": 500, "minLength": 1, "title": "Topic", "type": "string"}, "agent": {"anyOf": [{"pattern": "^[a-z][a-z0-9]{0,19}$", "type": "string"}, {"type": "null"}], "default": null, "title": "Agent"}}, "required": ["topic"], "title": "ResearchRequest", "type": "object"}}, "additionalProperties": false, "properties": {"answer": {"maxLength": 1500, "minLength": 1, "title": "Answer", "type": "string"}, "handoff": {"items": {"$ref": "#/$defs/Handoff"}, "maxItems": 3, "title": "Handoff", "type": "array"}, "research": {"anyOf": [{"$ref": "#/$defs/ResearchRequest"}, {"type": "null"}], "default": null}, "thread_title": {"anyOf": [{"maxLength": 80, "minLength": 1, "pattern": "^[^\\n]+$", "type": "string"}, {"type": "null"}], "default": null, "title": "Thread Title"}}, "required": ["answer"], "title": "DeptAnswer", "type": "object"}
 
 ## 금지
 
