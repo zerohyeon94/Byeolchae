@@ -376,7 +376,7 @@ def test_stage_index_from_state():
 
 def test_legacy_pipeline_resumes_old_tasks():
     legacy = legacy_pipeline(DEFAULT_ORG)
-    assert legacy.first_of(StageKind.REVIEW).agent == "delta"
+    assert legacy.first_of(StageKind.REVIEW).agent == "mizar"
     resumed = transition(
         Task(TaskState.NEEDS_HUMAN, prev_state=TaskState.TESTING),
         Command(CommandName.RESUME),

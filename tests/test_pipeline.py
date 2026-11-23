@@ -17,12 +17,12 @@ name: 기능 개발
 command: /task feature
 triggers: [discord_task]
 stages:
-  - {id: plan, kind: plan, agent: beta}
+  - {id: plan, kind: plan, agent: arcturus}
   - {id: approve, kind: gate}
-  - {id: design, kind: design, agent: alpha}
-  - {id: implement, kind: implement, agent: alpha}
+  - {id: design, kind: design, agent: rigel}
+  - {id: implement, kind: implement, agent: rigel}
   - {id: test, kind: test, retries: 2}
-  - {id: review, kind: review, agent: delta, rounds: 3}
+  - {id: review, kind: review, agent: mizar, rounds: 3}
   - {id: merge, kind: merge_gate}
 budget: {max_calls: 25, max_minutes: 240}
 """
@@ -45,15 +45,15 @@ def test_defaults_follow_adr_007():
         StageKind.UI_DESIGN,
         StageKind.GATE,
     ]
-    assert feature.first_of(StageKind.REVIEW).agent == "delta"
+    assert feature.first_of(StageKind.REVIEW).agent == "mizar"
     # 팀원이 실행하고 팀장이 확인한다 (ADR-008)
     implement = feature.first_of(StageKind.IMPLEMENT)
-    assert (implement.agent, implement.check) == ("epsilon", "alpha")
+    assert (implement.agent, implement.check) == ("alnitak", "rigel")
     diagnose = pipelines["bugfix"].first_of(StageKind.DIAGNOSE)
-    assert (diagnose.agent, diagnose.check) == ("zeta", "delta")
-    assert pipelines["bugfix"].implementer == "epsilon"
+    assert (diagnose.agent, diagnose.check) == ("shaula", "mizar")
+    assert pipelines["bugfix"].implementer == "alnitak"
     nightly = pipelines["nightly-test"].first_of(StageKind.DIAGNOSE)
-    assert (nightly.agent, nightly.check) == ("zeta", "delta")
+    assert (nightly.agent, nightly.check) == ("shaula", "mizar")
     assert pipelines["bugfix"].priority_rank < pipelines["release"].priority_rank
     assert pipelines["nightly-test"].schedule == "0 3 * * *"
 
@@ -74,23 +74,23 @@ def test_load_from_company_folder(tmp_path):
     [
         ("  - {id: approve, kind: gate}\n", "", "R2"),
         ("  - {id: merge, kind: merge_gate}\n", "", "R3"),
-        ("agent: delta, rounds: 3", "agent: alpha, rounds: 3", "R1"),
-        ("agent: delta, rounds: 3", "agent: beta, rounds: 3", "R1"),
-        ("{id: design, kind: design, agent: alpha}", "{id: design, kind: design, agent: omega}", "R4"),  # noqa: E501
-        ("{id: test, kind: test, retries: 2}", "{id: test, kind: test, agent: alpha}", "agent를 두지"),  # noqa: E501
-        ("{id: plan, kind: plan, agent: beta}", "{id: plan, kind: plan}", "agent가 없다"),
+        ("agent: mizar, rounds: 3", "agent: rigel, rounds: 3", "R1"),
+        ("agent: mizar, rounds: 3", "agent: arcturus, rounds: 3", "R1"),
+        ("{id: design, kind: design, agent: rigel}", "{id: design, kind: design, agent: omega}", "R4"),  # noqa: E501
+        ("{id: test, kind: test, retries: 2}", "{id: test, kind: test, agent: rigel}", "agent를 두지"),  # noqa: E501
+        ("{id: plan, kind: plan, agent: arcturus}", "{id: plan, kind: plan}", "agent가 없다"),
         ("triggers: [discord_task]", "triggers: [schedule]", "schedule"),
         ("triggers: [discord_task]", "triggers: [slack]", "triggers"),
         ("  - {id: approve, kind: gate}\n", "  - {id: approve, kind: gate}\n  - {id: again, kind: gate}\n", "gate는"),  # noqa: E501
         ("id: review,", "id: test,", "겹친다"),
         # 팀장 확인 (R6, ADR-008)
-        ("agent: alpha}\n  - {id: test", "agent: epsilon, check: delta}\n  - {id: test", "R6"),
-        ("agent: alpha}\n  - {id: test", "agent: alpha, check: alpha}\n  - {id: test", "R6"),
-        ("agent: alpha}\n  - {id: test", "agent: epsilon, check: omega}\n  - {id: test", "R4"),
-        ("{id: plan, kind: plan, agent: beta}", "{id: plan, kind: plan, agent: beta, check: alpha}", "R6"),  # noqa: E501
-        ("agent: alpha}\n  - {id: test", "agent: epsilon, check_rounds: 2}\n  - {id: test", "check_rounds"),  # noqa: E501
+        ("agent: rigel}\n  - {id: test", "agent: alnitak, check: mizar}\n  - {id: test", "R6"),
+        ("agent: rigel}\n  - {id: test", "agent: rigel, check: rigel}\n  - {id: test", "R6"),
+        ("agent: rigel}\n  - {id: test", "agent: alnitak, check: omega}\n  - {id: test", "R4"),
+        ("{id: plan, kind: plan, agent: arcturus}", "{id: plan, kind: plan, agent: arcturus, check: rigel}", "R6"),  # noqa: E501
+        ("agent: rigel}\n  - {id: test", "agent: alnitak, check_rounds: 2}\n  - {id: test", "check_rounds"),  # noqa: E501
         # 구현을 확인한 팀장은 작성 담당이므로 리뷰를 맡지 못한다
-        ("agent: alpha}\n  - {id: test", "agent: zeta, check: delta}\n  - {id: test", "R1"),
+        ("agent: rigel}\n  - {id: test", "agent: shaula, check: mizar}\n  - {id: test", "R1"),
     ],
 )  # fmt: skip
 def test_rule_violations(tmp_path, old, new, message):
@@ -101,8 +101,8 @@ def test_rule_violations(tmp_path, old, new, message):
 
 def test_codex_agent_may_take_writing_stage(tmp_path):
     # 세 엔진 모두 모든 단계를 맡는다 (ADR-017)
-    codex_alpha = DEFAULT_ORG.agents["alpha"].model_copy(update={"engine": "codex"})
-    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "alpha": codex_alpha}})
+    codex_alpha = DEFAULT_ORG.agents["rigel"].model_copy(update={"engine": "codex"})
+    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "rigel": codex_alpha}})
     assert load_pipelines(write(tmp_path), org)
 
 
@@ -120,7 +120,7 @@ def test_legacy_pipeline_needs_default_names():
 
     from bot.pipeline import legacy_pipeline
 
-    assert legacy_pipeline(DEFAULT_ORG).first_of(StageKind.REVIEW).agent == "delta"
+    assert legacy_pipeline(DEFAULT_ORG).first_of(StageKind.REVIEW).agent == "mizar"
     assert legacy_pipeline(LEGACY_ORG) is None
 
 
@@ -142,9 +142,9 @@ def test_example_company_pipelines_match_defaults():
 
 
 def test_codex_agent_may_implement(tmp_path):
-    codex_epsilon = DEFAULT_ORG.agents["epsilon"].model_copy(update={"engine": "codex"})
+    codex_epsilon = DEFAULT_ORG.agents["alnitak"].model_copy(update={"engine": "codex"})
     org = DEFAULT_ORG.model_copy(
-        update={"agents": {**DEFAULT_ORG.agents, "epsilon": codex_epsilon}}
+        update={"agents": {**DEFAULT_ORG.agents, "alnitak": codex_epsilon}}
     )
     assert load_pipelines(write(tmp_path), org)
 
@@ -157,6 +157,6 @@ def test_gemini_agent_may_take_all_stages_subject_to_r1(tmp_path):
     org = DEFAULT_ORG.model_copy(update={"agents": gemini_agents})
     assert load_pipelines(write(tmp_path), org)
     # R1(작성자와 리뷰어 분리)은 Gemini 엔진에도 그대로 적용된다
-    bad = FEATURE.replace("agent: delta, rounds: 3", "agent: alpha, rounds: 3")
+    bad = FEATURE.replace("agent: mizar, rounds: 3", "agent: rigel, rounds: 3")
     with pytest.raises(PipelineError, match="R1"):
         load_pipelines(write(tmp_path, bad), org)

@@ -155,7 +155,7 @@ class EducationConfig(_Model):
 
     # Zero의 학습 볼트 루트 (AGENTS.md, Daily/, Schedule/가 있는 폴더)
     vault: ExpandedPath
-    agent: str = "eta"
+    agent: str = "thuban"
     schedule: str = "30 7 * * *"  # 매일 07:30, 아침 보고(08:00) 전
     weekly: str = "0 20 * * 0"  # 주간 학습 보고와 주간 문제. 일요일 20:00
     # #교육 채널. 없으면 #대표실(없으면 운영 채널)에 알린다
@@ -180,7 +180,7 @@ class SecretaryConfig(_Model):
 
     # Daily 파일을 쓰는 볼트 루트 (Daily/YYYY-MM/YYYY-MM-DD.md)
     vault: ExpandedPath
-    agent: str = "theta"
+    agent: str = "polaris"
     schedule: str = "30 23 * * *"  # 매일 23:30. 놓치면 다음에 켜질 때(아침) 그날 것을 한 번 쓴다
     # #비서 채널. 없으면 #대표실(없으면 운영 채널)
     channel_id: DiscordId | None = None

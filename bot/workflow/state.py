@@ -27,8 +27,8 @@ class Roster:
     opinions: 아무도 부르지 않았을 때 답하는 팀장. callable: `@이름`으로 부를 수 있는 에이전트.
     """
 
-    opinions: tuple[AgentName, ...] = ("beta", "alpha")
-    callable: tuple[AgentName, ...] = ("beta", "gamma", "alpha", "delta")
+    opinions: tuple[AgentName, ...] = ("arcturus", "rigel")
+    callable: tuple[AgentName, ...] = ("arcturus", "albireo", "rigel", "mizar")
 
 
 DEFAULT_ROSTER = Roster()

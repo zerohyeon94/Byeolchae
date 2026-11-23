@@ -116,9 +116,9 @@ def test_example_file_is_valid(monkeypatch, tmp_path):
     environ = {key: "1" for key in ENV}
     config = load_config(EXAMPLE, Path("/nonexistent/.env"), environ)
     assert {k: p.owner for k, p in config.projects.items()} == {
-        "gagaessi": "kappa",
-        "jday": "lambda",
-        "orot": "mu",
+        "gagaessi": "aldebaran",
+        "jday": "pollux",
+        "orot": "sirius",
     }
     assert config.projects["orot"].test is None
 
@@ -311,33 +311,33 @@ def test_rejects_bad_cli_models(tmp_path, extra, match):
 def test_org_defaults_when_company_dir_has_no_org(tmp_path):
     config = load(tmp_path)
     assert config.paths.company.as_posix() == "/nonexistent/zerosync-company"
-    assert config.org.roles.review == "delta"
+    assert config.org.roles.review == "mizar"
 
 
 def test_org_is_loaded_from_company_dir(tmp_path):
     company = tmp_path / "company"
     company.mkdir()
     (company / "org.yaml").write_text(
-        "teams:\n  dev: {name: 개발, lead: alpha}\n  qa: {name: QA, lead: delta}\n"
+        "teams:\n  dev: {name: 개발, lead: rigel}\n  qa: {name: QA, lead: mizar}\n"
         "agents:\n"
-        "  alpha: {display: Alpha, team: dev, perspective: p, basic_question: q}\n"
-        "  delta: {display: Delta, team: qa, perspective: p, basic_question: q}\n"
-        "roles: {opinions: [alpha], design: alpha, implement: alpha, review: delta,"
-        " doc_sync: alpha}\n",
+        "  rigel: {display: 리겔, team: dev, perspective: p, basic_question: q}\n"
+        "  mizar: {display: 미자르, team: qa, perspective: p, basic_question: q}\n"
+        "roles: {opinions: [rigel], design: rigel, implement: rigel, review: mizar,"
+        " doc_sync: rigel}\n",
         encoding="utf-8",
     )
     (company / "pipelines").mkdir()
     (company / "pipelines" / "fix.yaml").write_text(
         "name: 수정\ncommand: /task bug\ntriggers: [discord_task]\nstages:\n"
-        "  - {id: d, kind: diagnose, agent: delta}\n  - {id: a, kind: gate}\n"
-        "  - {id: i, kind: implement, agent: alpha}\n  - {id: t, kind: test}\n"
-        "  - {id: r, kind: review, agent: delta}\n  - {id: m, kind: merge_gate}\n"
+        "  - {id: d, kind: diagnose, agent: mizar}\n  - {id: a, kind: gate}\n"
+        "  - {id: i, kind: implement, agent: rigel}\n  - {id: t, kind: test}\n"
+        "  - {id: r, kind: review, agent: mizar}\n  - {id: m, kind: merge_gate}\n"
         "budget: {max_calls: 9, max_minutes: 60}\n",
         encoding="utf-8",
     )
     text = yaml_text().replace("/nonexistent/zerosync-company", str(company))
     config = load(tmp_path, text)
-    assert config.org.agent_names == ("alpha", "delta")
+    assert config.org.agent_names == ("rigel", "mizar")
     assert list(config.pipelines) == ["fix"]
 
 
@@ -346,12 +346,12 @@ def test_default_pipelines_need_default_agents(tmp_path):
     company = tmp_path / "company"
     company.mkdir()
     (company / "org.yaml").write_text(
-        "teams:\n  dev: {name: 개발, lead: alpha}\n  qa: {name: QA, lead: delta}\n"
+        "teams:\n  dev: {name: 개발, lead: rigel}\n  qa: {name: QA, lead: mizar}\n"
         "agents:\n"
-        "  alpha: {display: Alpha, team: dev, perspective: p, basic_question: q}\n"
-        "  delta: {display: Delta, team: qa, perspective: p, basic_question: q}\n"
-        "roles: {opinions: [alpha], design: alpha, implement: alpha, review: delta,"
-        " doc_sync: alpha}\n",
+        "  rigel: {display: 리겔, team: dev, perspective: p, basic_question: q}\n"
+        "  mizar: {display: 미자르, team: qa, perspective: p, basic_question: q}\n"
+        "roles: {opinions: [rigel], design: rigel, implement: rigel, review: mizar,"
+        " doc_sync: rigel}\n",
         encoding="utf-8",
     )
     text = yaml_text().replace("/nonexistent/zerosync-company", str(company))
@@ -380,16 +380,18 @@ def test_education_section_is_optional_and_validated(tmp_path):
     education = config.education
     assert education.vault == Path.home() / "vault"
     assert (education.agent, education.schedule, education.channel_id) == (
-        "eta",
+        "thuban",
         "30 7 * * *",
         "555",
     )
     assert education.illustrator is None  # 그림은 설정해야 넣는다
     assert education.codex_images == Path.home() / ".codex/generated_images"
-    config = load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: iota\n"))
-    assert config.education.illustrator == "iota"
+    config = load(
+        tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: betelgeuse\n")
+    )
+    assert config.education.illustrator == "betelgeuse"
     with pytest.raises(ConfigError, match="Codex 엔진"):
-        load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: eta\n"))
+        load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: thuban\n"))
     with pytest.raises(ConfigError, match="omega"):
         load(tmp_path, yaml_text(extra="education:\n  vault: ~/vault\n  illustrator: omega\n"))
     with pytest.raises(ConfigError, match="omega"):
@@ -408,7 +410,7 @@ def test_secretary_section_is_optional_and_validated(tmp_path):
         Path.home() / ".codex" / "sessions",
     )
     assert (secretary.agent, secretary.schedule, secretary.channel_id) == (
-        "theta",
+        "polaris",
         "30 23 * * *",
         "777",
     )
@@ -418,7 +420,7 @@ def test_secretary_section_is_optional_and_validated(tmp_path):
         load(tmp_path, yaml_text(extra='secretary:\n  vault: ~/vault\n  schedule: "x"\n'))
 
 
-@pytest.mark.parametrize("owner", ["없는사람", "beta", "zeta"])
+@pytest.mark.parametrize("owner", ["없는사람", "arcturus", "shaula"])
 def test_project_owner_must_be_a_planning_member(tmp_path, owner):
     with pytest.raises(ConfigError, match="projects.gagaessi.owner"):
         load(tmp_path, yaml_text(PROJECT + f"    owner: {owner}\n"))

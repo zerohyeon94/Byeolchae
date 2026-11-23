@@ -332,7 +332,7 @@ def _persona():
     from bot.org import DEFAULT_ORG
     from bot.prompts import persona_for
 
-    return persona_for(DEFAULT_ORG, "eta")
+    return persona_for(DEFAULT_ORG, "thuban")
 
 
 def make_vault(tmp_path):
@@ -414,8 +414,8 @@ class Desk:
                     engine or FakeEngine(NOTE),
                     vault,
                     self.root,
-                    "eta",
-                    "Eta",
+                    "thuban",
+                    "투반",
                     notify,
                     clock,
                     repo=Repository(conn, clock),
@@ -455,7 +455,7 @@ def test_new_day_writes_note_and_queue_but_no_daily(tmp_path):
 
     assert result.created and result.label == "엣지-중앙 서버 구조"
     scope, agent, stage, prompt = engine.calls[0]
-    assert (scope, agent, stage) == ("education", "eta", "concept_note")
+    assert (scope, agent, stage) == ("education", "thuban", "concept_note")
     assert "주제: 엣지-중앙 서버 구조" in prompt and "구성 요소: 전체" in prompt
     text = (desk.root / "Learning/개념/2026-11-02 엣지-중앙 서버 구조.md").read_text("utf-8")
     assert text.startswith("# 엣지-중앙 서버 구조\n\n> 2026-11-02 · 이번 달 주제: ")
@@ -500,12 +500,12 @@ def drawer(folder):
 
 def test_figures_are_drawn_by_iota_and_put_above_their_sections(tmp_path):
     desk = Desk(tmp_path)
-    desk.illustrator = "iota"
+    desk.illustrator = "betelgeuse"
     engine, vault = FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)), FakeVault()
     result = desk.daily(date(2026, 11, 2), engine, vault)
 
     scope, agent, stage, prompt = engine.calls[1]
-    assert (scope, agent, stage) == ("education", "iota", "concept_image")
+    assert (scope, agent, stage) == ("education", "betelgeuse", "concept_image")
     assert FIGURE.brief in prompt and "- 중앙 서버\n- 엣지 장비\n- 설정 배포" in prompt
     assert FIGURE2.brief in engine.calls[2][3]
     assert [call[2] for call in engine.calls] == ["concept_note", "concept_image", "concept_image"]
@@ -535,7 +535,7 @@ def test_figures_are_drawn_by_iota_and_put_above_their_sections(tmp_path):
 
 def test_missing_label_is_redrawn_once(tmp_path):
     desk = Desk(tmp_path)
-    desk.illustrator = "iota"
+    desk.illustrator = "betelgeuse"
     desk.readings = [
         ["중앙 서버", "엣지 장비"],
         ["중앙 서버", "엣지 장비", "설정 • 배포"],
@@ -551,7 +551,7 @@ def test_missing_label_is_redrawn_once(tmp_path):
 
 def test_labels_still_wrong_after_redraw_leaves_that_figure_out(tmp_path):
     desk = Desk(tmp_path)
-    desk.illustrator = "iota"
+    desk.illustrator = "betelgeuse"
     desk.readings = [["중앙 서버"], ["중앙 서버"], ALL_LABELS]
     result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)))
 
@@ -565,7 +565,7 @@ def test_labels_still_wrong_after_redraw_leaves_that_figure_out(tmp_path):
 
 def test_unreadable_text_check_keeps_the_figure(tmp_path):
     desk = Desk(tmp_path)
-    desk.illustrator = "iota"
+    desk.illustrator = "betelgeuse"
     desk.readings = [OSError("swift 없음")]
     result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE, draw=drawer(desk.images)))
     assert result.files  # 확인을 못 해도 그림은 넣는다
@@ -573,7 +573,7 @@ def test_unreadable_text_check_keeps_the_figure(tmp_path):
 
 def test_failed_drawing_still_sends_the_note_without_figure(tmp_path):
     desk = Desk(tmp_path)
-    desk.illustrator = "iota"
+    desk.illustrator = "betelgeuse"
     vault = FakeVault()
     result = desk.daily(date(2026, 11, 2), FakeEngine(NOTE_WITH_FIGURE), vault)
 
@@ -704,7 +704,7 @@ def test_agent_failure_writes_nothing_and_mentions(tmp_path):
     result = desk.daily(date(2026, 11, 2), FakeEngine(None), vault)
     assert not result.created and vault.commits == [] and desk.dones == []
     assert not (desk.root / "Learning").exists()
-    assert desk.notes == [("Eta가 개념 노트를 쓰지 못했다.", True)]
+    assert desk.notes == [("투반가 개념 노트를 쓰지 못했다.", True)]
     assert desk.daily(date(2026, 11, 2)).created  # 기록이 없으니 다시 낼 수 있다
 
 
@@ -811,15 +811,15 @@ def test_render_weekly_lists_facts_score_and_comment():
         parse_queue(QUEUE),
         studied={"2026-11-02"},
     )
-    text = render_weekly(facts, QuizScore(6, 5, 4), ["다음 주에 이어 간다"], "Eta · 교육팀장")
+    text = render_weekly(facts, QuizScore(6, 5, 4), ["다음 주에 이어 간다"], "투반 · 교육팀장")
     assert text.splitlines()[:4] == [
         "**주간 학습 보고** (11-02 ~ 11-08)",
         "- 학습: 7일 중 1일 · 끝낸 개념 1개",
         "- 2026-11 대기열: 3개 중 0개 완료",
         "- 지난주 문제: 6문제 중 5개 풂, 4개 맞힘",
     ]
-    assert "- [x] 엣지" in text and "**Eta · 교육팀장의 한마디**\n- 다음 주에 이어 간다" in text
-    unanswered = render_weekly(facts, QuizScore(6, 0, 0), [], "Eta")
+    assert "- [x] 엣지" in text and "**투반 · 교육팀장의 한마디**\n- 다음 주에 이어 간다" in text
+    unanswered = render_weekly(facts, QuizScore(6, 0, 0), [], "투반")
     assert "6문제, 풀지 않음" in unanswered and "한마디" not in unanswered
 
 
@@ -864,7 +864,7 @@ def test_weekly_asks_eta_posts_quiz_and_scores_next_week(tmp_path):
     assert "`Learning/개념/2026-11-02 엣지-중앙 서버 구조.md`" in prompt
     assert "끝낸 개념 0개" in prompt
     assert desk.posts == [(2, "주간 문제", [1, 2, 3, 4, 5], 5)]
-    assert desk.notes[-1] == (text, False) and "Eta의 한마디" in text
+    assert desk.notes[-1] == (text, False) and "투반의 한마디" in text
     assert "이번 주 매일 문제(복습 포함): 3문제 중 1개 풂, 1개 맞힘" in text
 
     day = date(2026, 11, 8)
@@ -891,5 +891,5 @@ def test_weekly_without_concepts_skips_eta_and_failure_mentions(tmp_path):
     desk.daily(date(2026, 11, 2))
     desk.posts.clear()
     text = desk.weekly(date(2026, 11, 8), FakeEngine())
-    assert desk.posts == [] and text.endswith("Eta가 주간 문제를 만들지 못했다.")
+    assert desk.posts == [] and text.endswith("투반가 주간 문제를 만들지 못했다.")
     assert desk.notes[-1][1] is True

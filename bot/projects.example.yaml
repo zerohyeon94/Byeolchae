@@ -4,7 +4,7 @@
 
 projects:
   gagaessi:                                  # 프로젝트 키: 영문 소문자·숫자·-, 40자 이내
-    owner: kappa
+    owner: aldebaran
     forum_channel_id: "000000000000000000"   # 포럼 채널 ID (따옴표로 감싼 숫자)
     chat_channel_id: "000000000000000001"    # 제품 채팅 채널 ID (ADR-007). 생략하면 채팅을 받지 않는다
     repo: ~/Developer/GagaeSsi               # 앱 저장소 로컬 경로
@@ -17,7 +17,7 @@ projects:
     vault_slug: gagaessi
     design_system_url: null                  # 제품의 Claude 디자인 시스템 링크 (화면 디자인 단계가 참고)
   jday:
-    owner: lambda
+    owner: pollux
     forum_channel_id: "000000000000000002"
     chat_channel_id: "000000000000000003"
     repo: ~/Developer/Jday
@@ -29,7 +29,7 @@ projects:
     vault_tag: brain/jday
     vault_slug: jday
   orot:
-    owner: mu
+    owner: sirius
     forum_channel_id: "000000000000000004"
     chat_channel_id: "000000000000000005"
     repo: ~/Developer/FocusSense
@@ -54,16 +54,16 @@ paths:
 # 교육 부서 Daily (ADR-009). 생략하면 교육 일정을 돌리지 않는다
 education:
   vault: ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/my-vault
-  agent: eta                # 교육팀장 (org.yaml의 에이전트)
+  agent: thuban             # 교육팀장 (org.yaml의 에이전트)
   schedule: "30 7 * * *"    # 매일 07:30
   weekly: "0 20 * * 0"      # 주간 학습 보고와 주간 문제, 일요일 20:00
   channel_id: "123456789012345684"   # #교육. 생략하면 #대표실에 알린다
-  illustrator: iota         # 개념 노트 그림을 그리는 Codex 팀원. 생략하면 그림 없이 낸다
+  illustrator: betelgeuse   # 개념 노트 그림을 그리는 Codex 팀원. 생략하면 그림 없이 낸다
 
 # 비서 부서 (ADR-010). 없으면 아침 보고는 #대표실에 그대로 간다
 secretary:
   vault: ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/my-vault   # Daily/를 쓰는 볼트
-  agent: theta              # 비서팀장 (org.yaml의 에이전트)
+  agent: polaris            # 비서실장 (org.yaml의 에이전트)
   schedule: "30 23 * * *"   # 매일 23:30 하루 정리. 놓치면 다음에 켜질 때 그날 몫을 쓴다
   channel_id: "123456789012345685"   # #비서. 생략하면 #대표실에 알린다
   # 토큰 기록 위치 (기본값)

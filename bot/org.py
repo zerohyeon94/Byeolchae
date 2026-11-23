@@ -1,7 +1,7 @@
 """회사 조직 설정: `org.yaml`과 인격 파일 (SPEC 9.1-1, Q12, ADR-006, ADR-007).
 
 - 조직(부서, 팀, 에이전트)과 단계별 담당은 비공개 회사 저장소(`paths.company`)의 `org.yaml`에 둔다
-- 에이전트 이름(beta, alpha …)은 엔진(claude, codex, gemini)과 분리한다.
+- 에이전트 이름(arcturus, rigel …, 별 이름. ADR-012)은 엔진(claude, codex, gemini)과 분리한다.
   엔진은 에이전트마다 설정으로 정한다
 - 인격·역량 전문은 `agents/<이름>.md`에 두고 프롬프트에 그대로 넣는다
 - org.yaml이 없으면 ADR-007의 기본 조직(모두 Claude)을 쓴다. 이름과 직책은 공개해도 되는 값이다
@@ -83,11 +83,11 @@ class TeamSpec(_Model):
 class Roles(_Model):
     """기능 개발 흐름의 단계별 담당. Phase 5에서 파이프라인 선언으로 옮긴다."""
 
-    opinions: tuple[str, ...] = ("beta", "alpha")  # 아무도 부르지 않았을 때 답하는 팀장
-    design: str = "alpha"
-    implement: str = "alpha"
-    review: str = "delta"
-    doc_sync: str = "beta"
+    opinions: tuple[str, ...] = ("arcturus", "rigel")  # 아무도 부르지 않았을 때 답하는 팀장
+    design: str = "rigel"
+    implement: str = "rigel"
+    review: str = "mizar"
+    doc_sync: str = "arcturus"
 
     @property
     def assigned(self) -> dict[str, Stage]:
@@ -165,7 +165,7 @@ class Org(_Model):
         return self.current(agent) in self.agents or agent in LEGACY_AGENTS
 
     def display(self, agent: str) -> str:
-        """표시 이름 `이름 · 직책` (SPEC Q16). 예: Beta · 기획팀장."""
+        """표시 이름 `이름 · 직책` (SPEC Q16). 예: 아르크투루스 · 기획팀장."""
         agent = self.current(agent)
         if agent in self.agents:
             spec = self.agents[agent]
@@ -208,16 +208,16 @@ def _default_org() -> Org:
     """
     return Org(
         teams={
-            "planning": TeamSpec(name="기획", lead="beta"),
-            "design": TeamSpec(name="디자인", lead="gamma"),
-            "dev": TeamSpec(name="개발", lead="alpha"),
-            "qa": TeamSpec(name="QA", lead="delta"),
-            "education": TeamSpec(name="교육", lead="eta", department="education"),
-            "secretary": TeamSpec(name="비서", lead="theta", department="secretary"),
+            "planning": TeamSpec(name="기획", lead="arcturus"),
+            "design": TeamSpec(name="디자인", lead="albireo"),
+            "dev": TeamSpec(name="개발", lead="rigel"),
+            "qa": TeamSpec(name="QA", lead="mizar"),
+            "education": TeamSpec(name="교육", lead="thuban", department="education"),
+            "secretary": TeamSpec(name="비서", lead="polaris", department="secretary"),
         },
         agents={
-            "beta": AgentSpec(
-                display="Beta",
+            "arcturus": AgentSpec(
+                display="아르크투루스",
                 team="planning",
                 mbti="INFJ",
                 perspective=(
@@ -226,36 +226,40 @@ def _default_org() -> Org:
                 basic_question="이것을 써야 하는가, 어디까지 할 것인가",
                 hired="2026-10-26",
                 reason="초기 구성 (ADR-006)",
+                former=("beta",),
             ),
-            "gamma": AgentSpec(
-                display="Gamma",
+            "albireo": AgentSpec(
+                display="알비레오",
                 team="design",
                 mbti="ISFP",
                 perspective="화면 구성, 빈 화면·로딩·오류·큰 글씨 상태, 디자인 시스템과의 일관성",
                 basic_question="사용자가 화면에서 헤매지 않는가",
                 hired="2026-10-28",
                 reason="화면 디자인 담당 (ADR-007)",
+                former=("gamma",),
             ),
-            "alpha": AgentSpec(
-                display="Alpha",
+            "rigel": AgentSpec(
+                display="리겔",
                 team="dev",
                 mbti="INTJ",
                 perspective="구조와 변경 범위, 구현 난이도, 실행 위험, 엣지 케이스, 테스트 방법",
                 basic_question="만들 수 있는가, 왜 실패할 수 있나, 더 작게 할 수 있나",
                 hired="2026-10-26",
                 reason="초기 구성 (ADR-006)",
+                former=("alpha",),
             ),
-            "delta": AgentSpec(
-                display="Delta",
+            "mizar": AgentSpec(
+                display="미자르",
                 team="qa",
                 mbti="ISTJ",
                 perspective="확인 기준, 빠진 경우, 회귀 위험, 코드 품질(동시성·메모리·오류 처리)",
                 basic_question="무엇을 보면 됐다고 할 수 있나",
                 hired="2026-10-28",
                 reason="검증과 테스트 진단 (ADR-007)",
+                former=("delta",),
             ),
-            "epsilon": AgentSpec(
-                display="Epsilon",
+            "alnitak": AgentSpec(
+                display="알니탁",
                 team="dev",
                 title="팀원",
                 mbti="ISTP",
@@ -263,9 +267,10 @@ def _default_org() -> Org:
                 basic_question="설계대로 동작하는가, 테스트로 보여 줄 수 있는가",
                 hired="2026-10-28",
                 reason="구현·수정 실행 (ADR-008)",
+                former=("epsilon",),
             ),
-            "zeta": AgentSpec(
-                display="Zeta",
+            "shaula": AgentSpec(
+                display="샤울라",
                 team="qa",
                 title="팀원",
                 mbti="INTP",
@@ -273,9 +278,10 @@ def _default_org() -> Org:
                 basic_question="왜 실패하는가, 다시 일으킬 수 있는가",
                 hired="2026-10-28",
                 reason="버그·정기 테스트 실패 진단 (ADR-008)",
+                former=("zeta",),
             ),
-            "eta": AgentSpec(
-                display="Eta",
+            "thuban": AgentSpec(
+                display="투반",
                 team="education",
                 mbti="ENFJ",
                 perspective=(
@@ -285,9 +291,10 @@ def _default_org() -> Org:
                 basic_question="오늘 이것 하나로 무엇을 알게 되는가",
                 hired="2026-10-29",
                 reason="교육 부서 Daily 개념 노트 (ADR-009)",
+                former=("eta",),
             ),
-            "iota": AgentSpec(
-                display="Iota",
+            "betelgeuse": AgentSpec(
+                display="베텔게우스",
                 team="education",
                 title="팀원",
                 engine="codex",
@@ -298,18 +305,21 @@ def _default_org() -> Org:
                 basic_question="이 그림 한 장으로 흐름이 보이는가",
                 hired="2026-11-03",
                 reason="개념 노트 그림 (Codex 이미지 생성, ADR-009)",
+                former=("iota",),
             ),
-            "theta": AgentSpec(
-                display="Theta",
+            "polaris": AgentSpec(
+                display="폴라리스",
+                title="실장",
                 team="secretary",
                 mbti="ESTJ",
                 perspective="하루에 실제로 일어난 일, 숫자와 사실, Zero가 오늘 결정할 것, 짧게",
                 basic_question="Zero가 이것만 읽고 하루를 알 수 있는가",
                 hired="2026-11-02",
                 reason="비서 부서 저녁 Daily와 아침 보고 (ADR-010)",
+                former=("theta",),
             ),
-            "kappa": AgentSpec(
-                display="Kappa",
+            "aldebaran": AgentSpec(
+                display="알데바란",
                 team="planning",
                 title="팀원",
                 mbti="ISTJ",
@@ -319,9 +329,10 @@ def _default_org() -> Org:
                 daily_calls=12,
                 hired="2026-11-06",
                 reason="가게씨 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
+                former=("kappa",),
             ),
-            "lambda": AgentSpec(
-                display="Lambda",
+            "pollux": AgentSpec(
+                display="폴룩스",
                 team="planning",
                 title="팀원",
                 mbti="ISFJ",
@@ -331,9 +342,10 @@ def _default_org() -> Org:
                 daily_calls=12,
                 hired="2026-11-06",
                 reason="제이데이 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
+                former=("lambda",),
             ),
-            "mu": AgentSpec(
-                display="Mu",
+            "sirius": AgentSpec(
+                display="시리우스",
                 team="planning",
                 title="팀원",
                 mbti="INTP",
@@ -343,6 +355,7 @@ def _default_org() -> Org:
                 daily_calls=12,
                 hired="2026-11-06",
                 reason="오롯 프로젝트 진행·막힘 보고 (Zero 직접 채용)",
+                former=("mu",),
             ),
         },
     )

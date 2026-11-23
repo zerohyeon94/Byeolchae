@@ -425,7 +425,7 @@ def test_rename_agents_moves_old_names_once():
     async def scenario():
         conn, repo = await open_repo()
         await repo.start_agent_run("r1", task_id=None, agent="beta", stage=Stage.OPINION)
-        await repo.start_agent_run("r2", task_id=None, agent="delta", stage=Stage.REVIEW)
+        await repo.start_agent_run("r2", task_id=None, agent="mizar", stage=Stage.REVIEW)
         first = await repo.rename_agents({"beta": "arcturus"})
         again = await repo.rename_agents({"beta": "arcturus"})
         agents = [
@@ -434,4 +434,4 @@ def test_rename_agents_moves_old_names_once():
         await conn.close()
         return first, again, sorted(agents)
 
-    assert run(scenario()) == (1, 0, ["arcturus", "delta"])
+    assert run(scenario()) == (1, 0, ["arcturus", "mizar"])

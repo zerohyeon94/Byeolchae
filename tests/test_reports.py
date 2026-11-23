@@ -34,9 +34,9 @@ async def seed(repo, clock):
             event=NewEvent(Actor.ZERO, EventKind.MESSAGE, {"text": "x"}),
         )
         created.append(task)
-    await repo.start_agent_run("r1", task_id=1, agent="alpha", stage=Stage.DESIGN, engine="claude")
+    await repo.start_agent_run("r1", task_id=1, agent="rigel", stage=Stage.DESIGN, engine="claude")
     await repo.finish_agent_run("r1", status="ok", exit_code=0, log_path=None)
-    await repo.start_agent_run("r2", task_id=1, agent="delta", stage=Stage.REVIEW, engine="claude")
+    await repo.start_agent_run("r2", task_id=1, agent="mizar", stage=Stage.REVIEW, engine="claude")
     await repo.finish_agent_run("r2", status="invalid_output", exit_code=0, log_path=None)
     return created
 
@@ -68,7 +68,7 @@ def test_morning_report_lists_what_zero_must_do():
     )
     assert "(대기 12시간)" in text
     assert "**진행 중** (1)" in text and "#2" in text
-    assert "Alpha · 개발팀장 1회" in text and "Delta · QA팀장 1회 (실패 1)" in text
+    assert "리겔 · 개발팀장 1회" in text and "미자르 · QA팀장 1회 (실패 1)" in text
 
 
 def test_morning_report_without_waiting_work_is_silent():
@@ -91,7 +91,7 @@ def test_weekly_report_counts_per_product_and_metrics():
     async def body(repo):
         await repo.add_hiring_proposal(
             task_id=1,
-            proposed_by="beta",
+            proposed_by="arcturus",
             payload={"team": "운영팀", "role": "운영팀장"},
             evidence={},
         )
@@ -102,7 +102,7 @@ def test_weekly_report_counts_per_product_and_metrics():
     assert "- gagaessi: 4 / 1 / 1 / 0" in text
     assert "- jday: 0 / 0 / 0 / 0" in text
     assert "도달 4 / 채택 1 / 자동 제외 1" in text
-    assert "#1 Beta · 기획팀장: 운영팀 운영팀장" in text
+    assert "#1 아르크투루스 · 기획팀장: 운영팀 운영팀장" in text
     assert report.mention is True
 
 

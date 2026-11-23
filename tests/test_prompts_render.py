@@ -49,13 +49,13 @@ def make_opinion(**overrides):
     return Opinion.model_validate(data)
 
 
-BETA = persona_for(DEFAULT_ORG, "beta")
-ALPHA = persona_for(DEFAULT_ORG, "alpha")
+BETA = persona_for(DEFAULT_ORG, "arcturus")
+ALPHA = persona_for(DEFAULT_ORG, "rigel")
 
 HISTORY = [
-    HistoryEntry("Beta · 기획팀장", "**찬성** — 배너로 충분하다"),
-    HistoryEntry("Alpha · 개발팀장", "**반대** — 푸시 알림이 더 단순하다"),
-    HistoryEntry("Zero", "@alpha 푸시 권한이 없으면?"),
+    HistoryEntry("아르크투루스 · 기획팀장", "**찬성** — 배너로 충분하다"),
+    HistoryEntry("리겔 · 개발팀장", "**반대** — 푸시 알림이 더 단순하다"),
+    HistoryEntry("Zero", "@rigel 푸시 권한이 없으면?"),
 ]
 
 
@@ -67,7 +67,7 @@ def test_first_opinion_prompt_snapshot():
     assert "지금까지의 흐름" not in prompt
     for name in ("persona", "perspective", "profile", "title", "post", "history", "request"):
         assert f"${name}" not in prompt
-    check_snapshot("opinion_first_beta", prompt)
+    check_snapshot("opinion_first_arcturus", prompt)
 
 
 def test_follow_up_prompt_snapshot():
@@ -78,8 +78,8 @@ def test_follow_up_prompt_snapshot():
         question="푸시 권한이 없으면?",
         history=HISTORY,
     )
-    assert "[Alpha · 개발팀장]" in prompt and "[Zero]" in prompt
-    check_snapshot("opinion_follow_up_alpha", prompt)
+    assert "[리겔 · 개발팀장]" in prompt and "[Zero]" in prompt
+    check_snapshot("opinion_follow_up_rigel", prompt)
 
 
 def test_debate_prompt_snapshot():
@@ -88,17 +88,17 @@ def test_debate_prompt_snapshot():
         title="예산 배너",
         post="예산을 넘으면 배너를 띄우자",
         own="**찬성** — 배너로 충분하다",
-        other_name="Alpha · 개발팀장",
+        other_name="리겔 · 개발팀장",
         other="**반대** — 푸시 알림이 더 단순하다",
         history=HISTORY,
     )
-    check_snapshot("debate_beta", prompt)
+    check_snapshot("debate_arcturus", prompt)
 
 
 def test_lead_check_prompt_snapshot():
     prompt = lead_check_prompt(
         ALPHA,
-        member="Epsilon · 개발팀원",
+        member="알니탁 · 개발팀원",
         label="구현",
         title="예산 배너",
         decision="예산을 넘으면 배너를 띄운다",
@@ -108,23 +108,23 @@ def test_lead_check_prompt_snapshot():
         subject="**구현** — 배너를 추가했다",
         previous_required="1. [필수] HomeView.swift:3 — 경계값",
     )
-    check_snapshot("lead_check_alpha", prompt)
+    check_snapshot("lead_check_rigel", prompt)
 
 
 def test_personas_come_from_org():
-    beta = opinion_prompt(BETA, title="t", post="p")
-    alpha = opinion_prompt(ALPHA, title="t", post="p")
-    assert "Beta · 기획팀장 (INFJ)" in beta and "사용 흐름" in beta
-    assert "Alpha · 개발팀장 (INTJ)" in alpha and "엣지 케이스" in alpha
+    arcturus = opinion_prompt(BETA, title="t", post="p")
+    rigel = opinion_prompt(ALPHA, title="t", post="p")
+    assert "아르크투루스 · 기획팀장 (INFJ)" in arcturus and "사용 흐름" in arcturus
+    assert "리겔 · 개발팀장 (INTJ)" in rigel and "엣지 케이스" in rigel
     # 엔진 이름은 프롬프트에 드러나지 않는다 (SPEC Q16)
-    assert "Claude" not in beta and "Codex" not in alpha
+    assert "Claude" not in arcturus and "Codex" not in rigel
 
 
 def test_profile_file_text_goes_into_prompt():
     org = DEFAULT_ORG.model_copy(
-        update={"profiles": {"delta": "역량: 기준 대조\n위험: 기준 밖 문제"}}
+        update={"profiles": {"mizar": "역량: 기준 대조\n위험: 기준 밖 문제"}}
     )
-    prompt = opinion_prompt(persona_for(org, "delta"), title="t", post="p")
+    prompt = opinion_prompt(persona_for(org, "mizar"), title="t", post="p")
     assert "## 인격과 역량" in prompt and "기준 밖 문제" in prompt
     assert "## 인격과 역량" not in opinion_prompt(BETA, title="t", post="p")
 
@@ -228,7 +228,7 @@ def test_action_required_covers_only_listed_moments():
 
 def test_concept_note_prompt_snapshot():
     prompt = concept_note_prompt(
-        persona_for(DEFAULT_ORG, "eta"),
+        persona_for(DEFAULT_ORG, "thuban"),
         day="2026-11-01",
         label="엣지-중앙 서버 구조",
         item="엣지-중앙 서버 구조: 장비 안의 AI 엔진·에이전트와 중앙 서버의 역할 나누기",
@@ -237,58 +237,58 @@ def test_concept_note_prompt_snapshot():
     )
     assert "회사/" in prompt  # 금지 안내
     assert "figures" in prompt and "labels: 그림 안에 그대로 넣을 한글 이름표" in prompt
-    check_snapshot("concept_note_eta", prompt)
+    check_snapshot("concept_note_thuban", prompt)
 
 
 def test_concept_image_prompt_snapshot():
     prompt = concept_image_prompt(
-        persona_for(DEFAULT_ORG, "iota"),
+        persona_for(DEFAULT_ORG, "betelgeuse"),
         day="2026-11-01",
         label="엣지-중앙 서버 구조",
         brief="위에 서버 랙('중앙 서버'), 아래에 산업용 컴퓨터 셋('엣지 장비')",
         labels=["중앙 서버", "엣지 장비"],
     )
-    assert "Iota · 교육팀원" in prompt and "image_path" in prompt
+    assert "베텔게우스 · 교육팀원" in prompt and "image_path" in prompt
     assert "- 중앙 서버\n- 엣지 장비" in prompt and "글자 하나 바꾸지 않고" in prompt
     assert "사람, 캐릭터, 만화체" in prompt
-    check_snapshot("concept_image_iota", prompt)
+    check_snapshot("concept_image_betelgeuse", prompt)
 
 
 def test_weekly_quiz_prompt_snapshot():
     prompt = weekly_quiz_prompt(
-        persona_for(DEFAULT_ORG, "eta"),
+        persona_for(DEFAULT_ORG, "thuban"),
         facts="**주간 학습 보고** (11-02 ~ 11-08)\n- Daily: 7일 중 5일 · 끝낸 개념 3개",
         notes=["Learning/개념/2026-11-02 엣지-중앙 서버 구조", "Learning/개념/2026-11-04 gRPC"],
     )
     assert "5~8문제" in prompt and "`Learning/개념/2026-11-04 gRPC.md`" in prompt
-    check_snapshot("weekly_quiz_eta", prompt)
+    check_snapshot("weekly_quiz_thuban", prompt)
 
 
 def test_secretary_daily_prompt_snapshot():
     prompt = secretary_daily_prompt(
-        persona_for(DEFAULT_ORG, "theta"),
+        persona_for(DEFAULT_ORG, "polaris"),
         day="2026-11-02",
         facts="## 결정할 것\n\n- [gagaessi] #19 카테고리 추가 — AWAIT_PLAN_APPROVAL (대기 9시간)",
     )
-    assert "Theta" in prompt and "#19 카테고리 추가" in prompt and "한 줄 요약" in prompt
-    check_snapshot("secretary_daily_theta", prompt)
+    assert "폴라리스" in prompt and "#19 카테고리 추가" in prompt and "한 줄 요약" in prompt
+    check_snapshot("secretary_daily_polaris", prompt)
 
 
 def test_dept_chat_prompt_snapshot():
     prompt = dept_chat_prompt(
-        persona_for(DEFAULT_ORG, "theta"),
+        persona_for(DEFAULT_ORG, "polaris"),
         channel="비서",
         question="  카테고리 추가는 어떻게 결정된 건가요?  ",
         folders=[("비서 볼트 (Daily)", "/vault/study"), ("gagaessi 저장소", "/repos/gagaessi")],
         records="### 작업 19 [gagaessi] 카테고리 추가\n- 상태: AWAIT_PLAN_APPROVAL",
         history=[HistoryEntry("Zero", "오늘 보고 고마워요")],
-        candidates=[("beta", "Beta · 기획팀장"), ("alpha", "Alpha · 개발팀장")],
+        candidates=[("arcturus", "아르크투루스 · 기획팀장"), ("rigel", "리겔 · 개발팀장")],
     )
     assert "`#비서`" in prompt and "카테고리 추가는 어떻게 결정된 건가요?" in prompt
-    assert "`beta`: Beta · 기획팀장" in prompt and "최대 3명" in prompt
+    assert "`arcturus`: 아르크투루스 · 기획팀장" in prompt and "최대 3명" in prompt
     assert "thread_title: 여러 직원이" in prompt
     assert "`/repos/gagaessi`" in prompt and "작업 19" in prompt and "오늘 보고 고마워요" in prompt
-    check_snapshot("dept_chat_theta", prompt)
+    check_snapshot("dept_chat_polaris", prompt)
 
 
 def test_dept_chat_handoff_prompt_snapshot():
@@ -298,14 +298,14 @@ def test_dept_chat_handoff_prompt_snapshot():
         question="카테고리 범위를 왜 줄였나요?",
         folders=[("gagaessi 저장소", "/repos/gagaessi")],
         records="",
-        handoff_from="Theta · 비서팀장",
+        handoff_from="폴라리스 · 비서실장",
         original="카테고리 추가는 어떻게 결정된 건가요?",
         # 넘겨받은 직원에게는 넘길 사람 목록을 주지 않는다
-        candidates=[("alpha", "Alpha · 개발팀장")],
+        candidates=[("rigel", "리겔 · 개발팀장")],
         in_thread=True,
     )
-    assert "Theta · 비서팀장가 Zero의 질문 중" in prompt
+    assert "폴라리스 · 비서실장가 Zero의 질문 중" in prompt
     assert "카테고리 추가는 어떻게 결정된 건가요?" in prompt and "왜 줄였나요?" in prompt
-    assert "다시 넘기지 않는다" in prompt and "`alpha`" not in prompt
+    assert "다시 넘기지 않는다" in prompt and "`rigel`" not in prompt
     assert "thread_title: 여러 직원이" not in prompt  # 스레드를 다시 열지 않는다
-    check_snapshot("dept_chat_handoff_beta", prompt)
+    check_snapshot("dept_chat_handoff_arcturus", prompt)

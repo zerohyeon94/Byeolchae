@@ -174,7 +174,7 @@ class CertificateExpiry(BaseModel):
 
 
 class ReleasePrep(BaseModel):
-    """출시 준비물 (배포 겸임 Beta). 외부로 나가는 글이므로 출시 승인으로 함께 승인된다."""
+    """출시 준비물 (배포 겸임 기획팀장). 외부로 나가는 글이므로 출시 승인으로 함께 승인된다."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

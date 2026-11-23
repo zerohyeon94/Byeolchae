@@ -6,174 +6,186 @@
 # bot_avatar: https://...png
 
 teams:
-  planning: {name: 기획, lead: beta}
-  design: {name: 디자인, lead: gamma}
-  dev: {name: 개발, lead: alpha}
-  qa: {name: QA, lead: delta}
+  planning: {name: 기획, lead: arcturus}
+  design: {name: 디자인, lead: albireo}
+  dev: {name: 개발, lead: rigel}
+  qa: {name: QA, lead: mizar}
   # 교육 부서 (ADR-009). Zero와 1대1, 팀장 한 명
-  education: {name: 교육, lead: eta, department: education}
+  education: {name: 교육, lead: thuban, department: education}
   # 비서 부서 (ADR-010). 저녁 하루 정리와 아침 보고, 팀장 한 명
-  secretary: {name: 비서, lead: theta, department: secretary}
+  secretary: {name: 비서, lead: polaris, department: secretary}
 
 agents:
-  beta:
-    display: Beta
+  arcturus:
+    display: 아르크투루스
     team: planning
-    title: 팀장                # 표시 이름 [Beta · 기획팀장]
+    title: 팀장                # 표시 이름 [아르크투루스 · 기획팀장]
     engine: claude             # claude | codex | gemini (모두 모든 단계, ADR-017)
     mbti: INFJ
     perspective: 누구의 어떤 문제인가, 사용 흐름, 범위와 우선순위, 기존 기능·용어와의 일관성
     basic_question: 이것을 써야 하는가, 어디까지 할 것인가
-    persona: agents/beta.md
+    persona: agents/arcturus.md
     # avatar: https://...png  # 웹훅 게시 프로필 사진 (ADR-015). 비우면 웹훅 기본 사진
     models: {opinion: opus, doc_sync: sonnet}
     daily_calls: 30
     hired: 2026-10-26
     reason: 초기 구성 (ADR-006)
-  gamma:
-    display: Gamma
+    former: [beta]             # 예전 이름 (ADR-012)
+  albireo:
+    display: 알비레오
     team: design
     engine: claude
     mbti: ISFP
     perspective: 화면 구성, 빈 화면·로딩·오류·큰 글씨 상태, 디자인 시스템과의 일관성
     basic_question: 사용자가 화면에서 헤매지 않는가
-    persona: agents/gamma.md
+    persona: agents/albireo.md
     models: {opinion: opus}
     daily_calls: 30
     hired: 2026-10-28
     reason: 화면 디자인 담당 (ADR-007)
-  alpha:
-    display: Alpha
+    former: [gamma]            # 예전 이름 (ADR-012)
+  rigel:
+    display: 리겔
     team: dev
     engine: claude
     mbti: INTJ
     perspective: 구조와 변경 범위, 구현 난이도, 실행 위험, 엣지 케이스, 테스트 방법
     basic_question: 만들 수 있는가, 왜 실패할 수 있나, 더 작게 할 수 있나
-    persona: agents/alpha.md
+    persona: agents/rigel.md
     models: {opinion: opus, design: opus, lead_check: opus}
     daily_calls: 30
     hired: 2026-10-26
     reason: 초기 구성 (ADR-006)
-  delta:
-    display: Delta
+    former: [alpha]            # 예전 이름 (ADR-012)
+  mizar:
+    display: 미자르
     team: qa
     engine: claude
     mbti: ISTJ
     perspective: 확인 기준, 빠진 경우, 회귀 위험, 코드 품질(동시성·메모리·오류 처리)
     basic_question: 무엇을 보면 됐다고 할 수 있나
-    persona: agents/delta.md
+    persona: agents/mizar.md
     models: {opinion: opus, review: opus, lead_check: opus}
     daily_calls: 30
     hired: 2026-10-28
     reason: 검증과 테스트 진단 (ADR-007)
+    former: [delta]            # 예전 이름 (ADR-012)
   # 팀원: 팀장이 정한 방향대로 실행하고, 결과는 팀장이 확인한다 (ADR-008)
-  epsilon:
-    display: Epsilon
+  alnitak:
+    display: 알니탁
     team: dev
-    title: 팀원                # 표시 이름 [Epsilon · 개발팀원]
+    title: 팀원                # 표시 이름 [알니탁 · 개발팀원]
     engine: claude
     mbti: ISTP
     perspective: 승인된 설계를 그대로 작게 구현하기, 동작하는 코드, 빠진 테스트
     basic_question: 설계대로 동작하는가, 테스트로 보여 줄 수 있는가
-    persona: agents/epsilon.md
+    persona: agents/alnitak.md
     models: {implement: sonnet, fix: sonnet}
     daily_calls: 30
     hired: 2026-10-28
     reason: 구현·수정 실행 (ADR-008)
-  zeta:
-    display: Zeta
+    former: [epsilon]          # 예전 이름 (ADR-012)
+  shaula:
+    display: 샤울라
     team: qa
     title: 팀원
     engine: claude
     mbti: INTP
     perspective: 재현 조건, 원인을 끝까지 좁히기, 근거 위치(파일:줄, 로그)
     basic_question: 왜 실패하는가, 다시 일으킬 수 있는가
-    persona: agents/zeta.md
+    persona: agents/shaula.md
     models: {diagnose: sonnet}
     daily_calls: 30
     hired: 2026-10-28
     reason: 버그·정기 테스트 실패 진단 (ADR-008)
-  eta:
-    display: Eta
+    former: [zeta]             # 예전 이름 (ADR-012)
+  thuban:
+    display: 투반
     team: education
     title: 팀장
     engine: claude             # 사실 확인에 웹 검색을 쓴다
     mbti: ENFJ
     perspective: 처음 듣는 사람도 따라오는 설명, 확인된 사실만, 하루 20~30분 분량, 끊기지 않게 이어 가기
     basic_question: 오늘 이것 하나로 무엇을 알게 되는가
-    persona: agents/eta.md
+    persona: agents/thuban.md
     daily_calls: 5             # 하루 개념 노트 1개 (형식 오류 재요청 포함)
     hired: 2026-10-29
     reason: 교육 부서 Daily 개념 노트 (ADR-009)
-  iota:
-    display: Iota
+    former: [eta]              # 예전 이름 (ADR-012)
+  betelgeuse:
+    display: 베텔게우스
     team: education
     title: 팀원
     engine: codex              # 이미지 생성. 그림 파일은 봇이 볼트로 옮긴다 (읽기 전용)
     mbti: ISFP
     perspective: 실제 장비 모양과 한글 이름표로 한눈에 보이는 흐름, 노트의 설명과 어긋나지 않게
     basic_question: 이 그림 한 장으로 흐름이 보이는가
-    persona: agents/iota.md
+    persona: agents/betelgeuse.md
     daily_calls: 2             # 하루 그림 1장 (형식 오류 재요청 포함)
     hired: 2026-11-03
     reason: 개념 노트 그림 (Codex 이미지 생성, ADR-009)
-  theta:
-    display: Theta
+    former: [iota]             # 예전 이름 (ADR-012)
+  polaris:
+    display: 폴라리스
     team: secretary
-    title: 팀장
+    title: 실장
     engine: claude
     mbti: ESTJ
     perspective: 하루에 실제로 일어난 일, 숫자와 사실, Zero가 오늘 결정할 것, 짧게
     basic_question: Zero가 이것만 읽고 하루를 알 수 있는가
-    persona: agents/theta.md
+    persona: agents/polaris.md
     models: {secretary_daily: sonnet}
     daily_calls: 3             # 하루 정리 요약 1개 (형식 오류 재요청 포함)
     hired: 2026-11-02
     reason: 비서 부서 저녁 Daily와 아침 보고 (ADR-010)
-  kappa:
-    display: Kappa
+    former: [theta]            # 예전 이름 (ADR-012)
+  aldebaran:
+    display: 알데바란
     team: planning
     title: 팀원
     engine: claude
     mbti: ISTJ
     perspective: 첫 출시까지 남은 작업과 출시를 막는 문제
     basic_question: 첫 출시에 필요한 일 중 무엇이 남았는가
-    persona: agents/kappa.md
+    persona: agents/aldebaran.md
     models: {project_report: sonnet}
     daily_calls: 12
     hired: 2026-11-06
     reason: 가게씨 프로젝트 진행·막힘 보고 (Zero 직접 채용)
-  lambda:
-    display: Lambda
+    former: [kappa]            # 예전 이름 (ADR-012)
+  pollux:
+    display: 폴룩스
     team: planning
     title: 팀원
     engine: claude
     mbti: ISFJ
     perspective: 운영 중인 제품의 버그와 다음 업데이트 후보
     basic_question: 사용자에게 영향을 주는 문제와 다음 업데이트 후보는 무엇인가
-    persona: agents/lambda.md
+    persona: agents/pollux.md
     models: {project_report: sonnet}
     daily_calls: 12
     hired: 2026-11-06
     reason: 제이데이 프로젝트 진행·막힘 보고 (Zero 직접 채용)
-  mu:
-    display: Mu
+    former: [lambda]           # 예전 이름 (ADR-012)
+  sirius:
+    display: 시리우스
     team: planning
     title: 팀원
     engine: claude
     mbti: INTP
     perspective: 개선 아이디어와 이를 검토할 근거
     basic_question: 어떤 개선을 다음에 검토할 근거가 있는가
-    persona: agents/mu.md
+    persona: agents/sirius.md
     models: {project_report: sonnet}
     daily_calls: 12
     hired: 2026-11-06
     reason: 오롯 프로젝트 진행·막힘 보고 (Zero 직접 채용)
+    former: [mu]               # 예전 이름 (ADR-012)
 
 # 기능 개발 흐름의 단계별 담당 (Phase 5에서 pipelines/*.yaml로 옮긴다)
 roles:
-  opinions: [beta, alpha]      # 아무도 부르지 않았을 때 답하는 팀장
-  design: alpha
-  implement: alpha
-  review: delta                # 설계·구현 담당과 달라야 한다 (R1)
-  doc_sync: beta
+  opinions: [arcturus, rigel]  # 아무도 부르지 않았을 때 답하는 팀장
+  design: rigel
+  implement: rigel
+  review: mizar                # 설계·구현 담당과 달라야 한다 (R1)
+  doc_sync: arcturus

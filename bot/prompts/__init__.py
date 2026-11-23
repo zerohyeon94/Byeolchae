@@ -43,7 +43,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent
 class Persona:
     """프롬프트에 넣는 인격. 회사 설정(org.yaml, agents/<이름>.md)에서 만든다 (SPEC 5.3)."""
 
-    name: str  # 예: Beta · 기획팀장 (INFJ)
+    name: str  # 예: 아르크투루스 · 기획팀장 (INFJ)
     perspective: str
     basic_question: str
     profile: str = ""  # 인격 파일 전문 (역량, 위험과 보완)
@@ -65,7 +65,7 @@ HIRING_GUIDE = (
 
 @dataclass(frozen=True)
 class HistoryEntry:
-    """게시글 흐름의 한 줄. speaker는 표시 이름(예: Zero, Beta · 기획팀장)이다."""
+    """게시글 흐름의 한 줄. speaker는 표시 이름(예: Zero, 아르크투루스 · 기획팀장)이다."""
 
     speaker: str
     text: str

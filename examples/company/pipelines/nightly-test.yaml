@@ -9,8 +9,8 @@ stages:
   kind: test
 - id: diagnose
   kind: diagnose
-  agent: zeta
-  check: delta
+  agent: shaula
+  check: mizar
   when: test_failed
 - id: report
   kind: report

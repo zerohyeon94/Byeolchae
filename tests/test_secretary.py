@@ -515,7 +515,7 @@ def run_desk(tmp_path, work, engine, vault=None, now=None):
                 engine,
                 vault,
                 tmp_path / "vault",
-                "theta",
+                "polaris",
                 notify,
                 repo=repo,
                 org=DEFAULT_ORG,
@@ -588,11 +588,11 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     async def work(desk, repo, clock):
         await seed(repo, clock)
         await repo.start_agent_run(
-            "r1", task_id=None, agent="delta", stage=Stage.REVIEW, engine="codex"
+            "r1", task_id=None, agent="mizar", stage=Stage.REVIEW, engine="codex"
         )
         await repo.finish_agent_run("r1", status="ok", exit_code=0, log_path=str(log))
         await repo.start_agent_run(
-            "r2", task_id=None, agent="beta", stage=Stage.OPINION, engine="gemini"
+            "r2", task_id=None, agent="arcturus", stage=Stage.OPINION, engine="gemini"
         )
         await repo.finish_agent_run("r2", status="ok", exit_code=0, log_path=str(gemini_log))
         return await desk.run_evening(DAY)
@@ -630,8 +630,8 @@ def test_evening_writes_daily_commits_and_posts(tmp_path):
     assert notes == [(text, False)] and text.startswith("**하루 정리** (11-02)")
     assert vault.pushes == 1 and text.endswith("\n볼트 GitHub 백업: 커밋 3개")
     scope, agent, stage, prompt = engine.calls[0]
-    assert (scope, agent, stage) == ("secretary", "theta", Stage.SECRETARY_DAILY)
-    assert "PLANNING → AWAIT_PLAN_APPROVAL" in prompt and "Theta" in prompt
+    assert (scope, agent, stage) == ("secretary", "polaris", Stage.SECRETARY_DAILY)
+    assert "PLANNING → AWAIT_PLAN_APPROVAL" in prompt and "폴라리스" in prompt
 
 
 class RecordingEngine(FakeEngine):
@@ -644,26 +644,26 @@ class RecordingEngine(FakeEngine):
     async def ask_outside_task(self, scope, agent, stage, build_prompt, *, model, cwd):
         repo = self.repo_box[0]
         await repo.start_agent_run(
-            "theta-1", task_id=None, agent=agent, stage=stage, engine="claude"
+            "polaris-1", task_id=None, agent=agent, stage=stage, engine="claude"
         )
-        await repo.finish_agent_run("theta-1", status="ok", exit_code=0, log_path=str(self.log))
+        await repo.finish_agent_run("polaris-1", status="ok", exit_code=0, log_path=str(self.log))
         return await super().ask_outside_task(
             scope, agent, stage, build_prompt, model=model, cwd=cwd
         )
 
 
 def test_evening_reads_claude_weekly_limit_from_bot_run_logs(tmp_path):
-    before, theta = tmp_path / "before.log", tmp_path / "theta.log"
+    before, polaris = tmp_path / "before.log", tmp_path / "polaris.log"
     before.write_text(limit_line(0.03) + "\n", encoding="utf-8")
-    theta.write_text(limit_line(0.05) + "\n", encoding="utf-8")
+    polaris.write_text(limit_line(0.05) + "\n", encoding="utf-8")
     repo_box = []
-    engine = RecordingEngine(DailySummary(summary="요약"), repo_box, theta)
+    engine = RecordingEngine(DailySummary(summary="요약"), repo_box, polaris)
 
     async def work(desk, repo, clock):
         repo_box.append(repo)
         clock.advance(timedelta(hours=-38))  # 전날 09:30 (오늘 증가분을 셀 기준 표본)
         await repo.start_agent_run(
-            "r0", task_id=None, agent="beta", stage=Stage.OPINION, engine="claude"
+            "r0", task_id=None, agent="arcturus", stage=Stage.OPINION, engine="claude"
         )
         await repo.finish_agent_run("r0", status="ok", exit_code=0, log_path=str(before))
         clock.advance(timedelta(hours=38))

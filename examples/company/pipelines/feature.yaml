@@ -7,33 +7,33 @@ priority: feature
 stages:
 - id: plan
   kind: plan
-  agent: beta
+  agent: arcturus
 - id: approve
   kind: gate
 - id: ui
   kind: ui_design
-  agent: gamma
+  agent: albireo
   when: has_ui_change
 - id: approve_ui
   kind: gate
   when: has_ui_change
 - id: design
   kind: design
-  agent: alpha
+  agent: rigel
 - id: implement
   kind: implement
-  agent: epsilon
-  check: alpha               # 팀원 결과를 팀장이 확인한다 (ADR-008)
+  agent: alnitak
+  check: rigel               # 팀원 결과를 팀장이 확인한다 (ADR-008)
 - id: test
   kind: test
 - id: review
   kind: review
-  agent: delta
+  agent: mizar
 - id: merge
   kind: merge_gate
 - id: docs
   kind: doc_sync
-  agent: beta
+  agent: arcturus
 budget:
   max_calls: 35
   max_minutes: 300

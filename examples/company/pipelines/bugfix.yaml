@@ -7,19 +7,19 @@ priority: bugfix
 stages:
 - id: diagnose
   kind: diagnose
-  agent: zeta
-  check: delta               # 팀원 결과를 팀장이 확인한다 (ADR-008)
+  agent: shaula
+  check: mizar               # 팀원 결과를 팀장이 확인한다 (ADR-008)
 - id: approve
   kind: gate
 - id: implement
   kind: implement
-  agent: epsilon
-  check: alpha
+  agent: alnitak
+  check: rigel
 - id: test
   kind: test
 - id: review
   kind: review
-  agent: delta
+  agent: mizar
 - id: merge
   kind: merge_gate
 budget:

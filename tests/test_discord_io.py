@@ -124,11 +124,13 @@ def test_split_text():
 
 def test_author_names_follow_operating_rules():
     # 표시 이름은 `[이름 · 직책]` (운영 규약 1.2, SPEC Q16). 엔진은 드러나지 않는다
-    assert [author_name(DEFAULT_ORG, a) for a in ("beta", "gamma", "alpha", "delta", "bot")] == [
-        "[Beta · 기획팀장]",
-        "[Gamma · 디자인팀장]",
-        "[Alpha · 개발팀장]",
-        "[Delta · QA팀장]",
+    assert [
+        author_name(DEFAULT_ORG, a) for a in ("arcturus", "albireo", "rigel", "mizar", "bot")
+    ] == [
+        "[아르크투루스 · 기획팀장]",
+        "[알비레오 · 디자인팀장]",
+        "[리겔 · 개발팀장]",
+        "[미자르 · QA팀장]",
         "[별채]",
     ]
     # ADR-005 기준 기록의 행위자
@@ -164,12 +166,12 @@ def make_chat():
 
 def test_post_silent_without_mention():
     chat, webhook, _, asked = make_chat()
-    message_id = run(chat.post("500", "alpha", "의견"))
+    message_id = run(chat.post("500", "rigel", "의견"))
     assert message_id == "1001"
     assert asked == [500]
     ((content, kwargs),) = webhook.calls
     assert content == "의견"
-    assert kwargs["username"] == "[Alpha · 개발팀장]"
+    assert kwargs["username"] == "[리겔 · 개발팀장]"
     assert kwargs["thread"].id == 500
     assert kwargs["silent"] is True
     assert kwargs["wait"] is True
@@ -179,7 +181,7 @@ def test_post_silent_without_mention():
 
 def test_post_without_avatar_leaves_webhook_default():
     chat, webhook, _, _ = make_chat()
-    run(chat.post("500", "alpha", "의견"))
+    run(chat.post("500", "rigel", "의견"))
     ((_, kwargs),) = webhook.calls
     assert kwargs["avatar_url"] is discord.utils.MISSING
 
@@ -189,8 +191,8 @@ def test_posts_use_agent_and_bot_avatars():
         update={
             "agents": {
                 **DEFAULT_ORG.agents,
-                "alpha": DEFAULT_ORG.agents["alpha"].model_copy(
-                    update={"avatar": "https://img.example/alpha.png"}
+                "rigel": DEFAULT_ORG.agents["rigel"].model_copy(
+                    update={"avatar": "https://img.example/rigel.png"}
                 ),
             },
             "bot_avatar": "https://img.example/bot.png",
@@ -211,16 +213,16 @@ def test_posts_use_agent_and_bot_avatars():
         forum_webhook=webhook,
         dept_webhook=webhook,
     )
-    run(chat.post("500", "alpha", "의견"))
-    run(chat.chat("gagae", "alpha", "답"))
-    run(chat.dept_chat("secretary", "beta", "답"))
+    run(chat.post("500", "rigel", "의견"))
+    run(chat.chat("gagae", "rigel", "답"))
+    run(chat.dept_chat("secretary", "arcturus", "답"))
     sender.send = AsyncMock(return_value=SimpleNamespace(channel=SimpleNamespace(id=900)))
     run(chat.create_post("gagae", "제목", "\n".join(["가" * 1000] * 2)))
     avatars = [kwargs["avatar_url"] for _, kwargs in sender_calls]
     assert avatars == [
-        "https://img.example/alpha.png",
-        "https://img.example/alpha.png",
-        discord.utils.MISSING,  # beta는 사진을 정하지 않았다
+        "https://img.example/rigel.png",
+        "https://img.example/rigel.png",
+        discord.utils.MISSING,  # arcturus는 사진을 정하지 않았다
     ]
     assert [c.kwargs["avatar_url"] for c in sender.send.await_args_list] == [
         "https://img.example/bot.png",
@@ -228,7 +230,7 @@ def test_posts_use_agent_and_bot_avatars():
     ]
 
 
-def chat_with_channel_webhooks(*, has_webhook=True, report_author="theta"):
+def chat_with_channel_webhooks(*, has_webhook=True, report_author="polaris"):
     """#대표실·운영 채널 웹훅이 있는 DiscordChat (ADR-016)."""
     hooks, channels = {}, {"report": FakeSender(), "ops": FakeSender()}
 
@@ -260,7 +262,7 @@ def test_report_and_ops_post_as_staff_through_channel_webhooks():
     run(chat.notify_ops("오류"))
     ((content, kwargs),) = hooks[id(channels["report"])].calls
     assert content == f"<@{ZERO}>\n**아침 보고**"
-    assert kwargs["username"] == "[Theta · 비서팀장]"  # #대표실은 비서실장 (ADR-016)
+    assert kwargs["username"] == "[폴라리스 · 비서실장]"  # #대표실은 비서실장 (ADR-016)
     assert kwargs["silent"] is False and kwargs["wait"] is True
     ((_, kwargs),) = hooks[id(channels["ops"])].calls
     assert kwargs["username"] == "[별채]" and kwargs["silent"] is True  # 운영 채널은 [별채]
@@ -272,9 +274,9 @@ def test_send_puts_author_and_view_on_last_chunk():
     chat, channels, hooks = chat_with_channel_webhooks()
     view = discord.ui.View(timeout=None)
     channel = channels["report"]
-    run(chat.send(channel, "\n".join(["가" * 1000] * 2), author="eta", view=view))
+    run(chat.send(channel, "\n".join(["가" * 1000] * 2), author="thuban", view=view))
     first, last = (kwargs for _, kwargs in hooks[id(channel)].calls)
-    assert first["username"] == last["username"] == "[Eta · 교육팀장]"
+    assert first["username"] == last["username"] == "[투반 · 교육팀장]"
     assert "view" not in first and last["view"] is view
 
 
@@ -323,7 +325,7 @@ def test_post_with_mention_splits_and_attaches_on_last():
     chat, webhook, _, _ = make_chat()
     text = "\n".join(["가" * 1000] * 3)
     message_id = run(
-        chat.post("500", "beta", text, mention=True, attachments=[Attachment("a.md", "전문")])
+        chat.post("500", "arcturus", text, mention=True, attachments=[Attachment("a.md", "전문")])
     )
     assert message_id == "1001"
     assert len(webhook.calls) == 3
@@ -364,10 +366,10 @@ def test_dept_chat_posts_to_department_webhook():
     chat = DiscordChat(
         zero_user_id=ZERO, webhook_for=unused, ops_channel=unused, dept_webhook=dept_webhook
     )
-    assert run(chat.dept_chat("secretary", "beta", "답", mention=True)) == "1001"
+    assert run(chat.dept_chat("secretary", "arcturus", "답", mention=True)) == "1001"
     ((content, kwargs),) = sender.calls
     assert asked == ["secretary"]
-    assert content == f"<@{ZERO}>\n답" and kwargs["username"] == "[Beta · 기획팀장]"
+    assert content == f"<@{ZERO}>\n답" and kwargs["username"] == "[아르크투루스 · 기획팀장]"
     assert "thread" not in kwargs and kwargs["silent"] is False
 
 
@@ -928,7 +930,7 @@ def test_secretary_catches_up_missed_evening_and_takes_morning_report(bot, tmp_p
     assert first == ["secretary_evening"] and days == ["2026-11-02"]
     assert morning == ["morning_report"] and reports == []
     # 비서 이름은 본문 머리가 아니라 웹훅 게시자로 붙인다 (ADR-016)
-    assert sent == [("#대표실", "theta", "**아침 보고** (11-03)")]
+    assert sent == [("#대표실", "polaris", "**아침 보고** (11-03)")]
 
 
 def text_channel(channel_id, name):

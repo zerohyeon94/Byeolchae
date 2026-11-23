@@ -3,9 +3,10 @@
 에이전트(FakeAgentRunner), 채팅(FakeChatIO), GitHub(FakeGitHub), git(FakeGit), 테스트 실행,
 저장소(메모리 SQLite), 시각(FixedClock)을 가짜로 두고 흐름을 시뮬레이션한다.
 
-TEST_ORG: Beta·Gamma·Alpha와 팀원(Epsilon, Zeta)은 claude 러너, Delta(리뷰·팀장 확인, 읽기 전용)는
-codex 러너로 실행한다. claude 러너 응답은 기획 → 화면 디자인 → 설계 → 구현 → Alpha의 팀장 확인
-순서이고, codex 러너는 Delta 몫이다.
+TEST_ORG: 아르크투루스·알비레오·리겔과 팀원(알니탁, 샤울라)은 claude 러너,
+미자르(리뷰·팀장 확인, 읽기 전용)는 codex 러너로 실행한다.
+claude 러너 응답은 기획 → 화면 디자인 → 설계 → 구현 → 리겔의 팀장 확인 순서이고,
+codex 러너는 미자르 몫이다.
 """
 
 import asyncio
@@ -33,8 +34,8 @@ T0 = datetime(2026, 10, 28, 1, 0, tzinfo=UTC)
 REPO = Path("/repos/gagaessi")
 P = "gagaessi"
 
-_delta = DEFAULT_ORG.agents["delta"].model_copy(update={"engine": "codex"})
-TEST_ORG = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "delta": _delta}})
+_delta = DEFAULT_ORG.agents["mizar"].model_copy(update={"engine": "codex"})
+TEST_ORG = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "mizar": _delta}})
 
 
 class _Git:
@@ -330,37 +331,40 @@ def scenario(claude=(), codex=(), gemini=(), tests=(), org=TEST_ORG, owners=None
 
 
 def test_chat_message_gets_answers_from_both_leads():
-    @scenario(claude=[opinion("Beta 의견"), opinion("Alpha 의견", "oppose")])
+    @scenario(claude=[opinion("아르크투루스 의견"), opinion("리겔 의견", "oppose")])
     async def _(h):
         await h.engine.on_chat(P, "예산 초과 배너를 띄우자", message_id="m1")
-        beta, alpha = h.claude.requests
-        assert beta.stage is Stage.OPINION and beta.mode == "read_only"
-        assert "Beta · 기획팀장 (INFJ)" in beta.prompt and "Alpha · 개발팀장" in alpha.prompt
+        arcturus, rigel = h.claude.requests
+        assert arcturus.stage is Stage.OPINION and arcturus.mode == "read_only"
+        assert (
+            "아르크투루스 · 기획팀장 (INFJ)" in arcturus.prompt
+            and "리겔 · 개발팀장" in rigel.prompt
+        )
         # 함께 답할 때는 서로의 답을 보지 않는다
-        assert "Beta 의견" not in alpha.prompt
+        assert "아르크투루스 의견" not in rigel.prompt
         assert [(c.thread, c.author, c.mention) for c in h.chat.chats] == [
-            (P, "beta", False),
-            (P, "alpha", True),
+            (P, "arcturus", False),
+            (P, "rigel", True),
         ]
         turns = await h.repo.recent_chat_turns(P)
-        assert [t["actor"] for t in turns] == ["zero", "beta", "alpha"]
+        assert [t["actor"] for t in turns] == ["zero", "arcturus", "rigel"]
         assert await h.repo.list_tasks() == []  # 대화는 작업이 아니다
         runs = await h.runs()
         assert {(agent, stage) for agent, stage, _ in runs} == {
-            ("beta", "opinion"),
-            ("alpha", "opinion"),
+            ("arcturus", "opinion"),
+            ("rigel", "opinion"),
         }
 
 
 def test_mention_calls_only_that_agent_and_history_is_passed():
-    @scenario(claude=[opinion("a"), opinion("b")], codex=[opinion("Delta 의견")])
+    @scenario(claude=[opinion("a"), opinion("b")], codex=[opinion("미자르 의견")])
     async def _(h):
         await h.engine.on_chat(P, "배너?")
-        await h.engine.on_chat(P, "@delta 확인 기준은?")
-        (delta,) = h.codex.requests
-        assert "Delta · QA팀장" in delta.prompt
-        assert "확인 기준은?" in delta.prompt and "Beta · 기획팀장" in delta.prompt
-        assert h.chat.chats[-1].author == "delta"
+        await h.engine.on_chat(P, "@mizar 확인 기준은?")
+        (mizar,) = h.codex.requests
+        assert "미자르 · QA팀장" in mizar.prompt
+        assert "확인 기준은?" in mizar.prompt and "아르크투루스 · 기획팀장" in mizar.prompt
+        assert h.chat.chats[-1].author == "mizar"
 
 
 def test_debate_needs_two_answers_and_sends_opponent():
@@ -371,7 +375,7 @@ def test_debate_needs_two_answers_and_sends_opponent():
         assert await h.engine.debate(P) == ""
         beta_debate = h.claude.requests[2]
         assert beta_debate.stage is Stage.DEBATE
-        assert "Alpha · 개발팀장" in beta_debate.prompt
+        assert "리겔 · 개발팀장" in beta_debate.prompt
         assert len(h.chat.chats) == 4
 
 
@@ -380,7 +384,7 @@ def test_cli_failure_in_chat_posts_notice_and_alerts_ops():
     async def _(h):
         await h.engine.on_chat(P, "배너?")
         notice = h.chat.chats[-1]
-        assert notice.author == "bot" and "Alpha · 개발팀장" in notice.text
+        assert notice.author == "bot" and "리겔 · 개발팀장" in notice.text
         assert any("실행 실패" in text for text, _ in h.chat.ops)
 
 
@@ -398,13 +402,13 @@ def test_idea_is_recorded():
 def test_feature_cycle_from_chat_to_docs():
     @scenario(
         claude=[
-            opinion("Beta 의견"),
-            opinion("Alpha 의견"),
+            opinion("아르크투루스 의견"),
+            opinion("리겔 의견"),
             plan_reply(),
             ui_reply(),
             design_reply(),
             work_reply(),
-            review_reply(),  # Alpha의 팀장 확인
+            review_reply(),  # 리겔의 팀장 확인
             doc_reply(),
         ],
         codex=[review_reply()],
@@ -414,7 +418,7 @@ def test_feature_cycle_from_chat_to_docs():
         await h.engine.task_from_chat(P, "/task feature", "예산 배너")
         # 포럼에 포스트를 열고 채팅 의견을 옮겼다
         (created,) = h.chat.created
-        assert created[0] == P and created[1] == "예산 배너" and "Beta 의견" in created[2]
+        assert created[0] == P and created[1] == "예산 배너" and "아르크투루스 의견" in created[2]
         assert await h.repo.recent_chat_turns(P) == []  # 대화가 작업에 붙었다
         task = await h.task()
         assert task.state is TaskState.AWAIT_PLAN_APPROVAL
@@ -422,7 +426,7 @@ def test_feature_cycle_from_chat_to_docs():
         assert task.branch == "feat/42-budget-banner" and task.flag_set == {"has_ui_change"}
         plan_request = h.claude.requests[2]
         assert plan_request.stage is Stage.PLAN and plan_request.mode == "write_worktree"
-        assert "Beta 의견" in plan_request.prompt
+        assert "아르크투루스 의견" in plan_request.prompt
         assert h.chat.posts[-1].mention and "/approve" in h.chat.posts[-1].text
 
         task = await h.command(CommandName.APPROVE)
@@ -436,14 +440,14 @@ def test_feature_cycle_from_chat_to_docs():
         design_request, implement_request = h.claude.requests[4:6]
         assert design_request.stage is Stage.DESIGN
         assert implement_request.stage is Stage.IMPLEMENT
-        assert "Epsilon · 개발팀원" in implement_request.prompt
+        assert "알니탁 · 개발팀원" in implement_request.prompt
         assert "docs/디자인/42" in implement_request.prompt
         check = h.claude.requests[6]
-        assert check.stage is Stage.LEAD_CHECK and "Alpha · 개발팀장" in check.prompt
+        assert check.stage is Stage.LEAD_CHECK and "리겔 · 개발팀장" in check.prompt
         assert "배너를 추가했다" in check.prompt  # 팀원의 구현 보고를 본다
         (review,) = h.codex.requests
-        assert review.stage is Stage.REVIEW and "Delta · QA팀장" in review.prompt
-        assert "Epsilon · 개발팀원" in review.prompt  # 구현 담당은 팀원이다
+        assert review.stage is Stage.REVIEW and "미자르 · QA팀장" in review.prompt
+        assert "알니탁 · 개발팀원" in review.prompt  # 구현 담당은 팀원이다
         (pr,) = h.github.named("create_pr")
         assert pr[1:4] == (43, "develop", "feat/42-budget-banner")
         assert pr[4] == "feat(budget): 월 예산 초과 시 홈 화면 배너 표시"
@@ -578,11 +582,11 @@ def test_lead_check_changes_are_fixed_by_member_then_rechecked():
         stages = [r.stage for r in h.claude.requests[2:]]
         assert stages == [Stage.IMPLEMENT, Stage.LEAD_CHECK, Stage.FIX, Stage.LEAD_CHECK]
         fix, recheck = h.claude.requests[4:6]
-        assert "Alpha · 개발팀장(팀장)의 확인 [필수] 지적" in fix.prompt and "필수 1" in fix.prompt
+        assert "리겔 · 개발팀장(팀장)의 확인 [필수] 지적" in fix.prompt and "필수 1" in fix.prompt
         assert "지난 확인의 [필수] 지적" in recheck.prompt
         checks = await h.repo.list_events(1, {EventKind.LEAD_CHECK})
         assert [e.payload["round"] for e in checks] == [1, 2]
-        assert [e.actor for e in checks] == ["alpha", "alpha"]
+        assert [e.actor for e in checks] == ["rigel", "rigel"]
         fixes = await h.repo.list_events(1, {EventKind.FIX})
         assert [e.payload["source"] for e in fixes] == ["lead_check"]
         assert any("구현 팀장 확인 1회: 수정 요청" in post.text for post in h.chat.posts)
@@ -614,9 +618,9 @@ def test_bugfix_flow_creates_branch_from_diagnosis():
         await h.engine.task_from_chat(P, "/task bug", "날짜 테스트")
         task = await h.task()
         assert task.state is TaskState.AWAIT_FIX_APPROVAL and task.branch is None
-        # Zeta가 진단하고 Delta가 확인한다. 승인 안내는 확인을 통과한 뒤에 붙는다
+        # 샤울라가 진단하고 미자르가 확인한다. 승인 안내는 확인을 통과한 뒤에 붙는다
         diagnose = h.claude.requests[0]
-        assert diagnose.stage is Stage.DIAGNOSE and "Zeta · QA팀원" in diagnose.prompt
+        assert diagnose.stage is Stage.DIAGNOSE and "샤울라 · QA팀원" in diagnose.prompt
         check = h.codex.requests[0]
         assert check.stage is Stage.LEAD_CHECK and "날짜 의존 테스트" in check.prompt
         member_post = next(p for p in h.chat.posts if "날짜 의존 테스트" in p.text)
@@ -648,7 +652,7 @@ def test_diagnosis_lead_check_changes_rerun_diagnosis():
         assert (await h.task()).state is TaskState.AWAIT_FIX_APPROVAL
         again = h.claude.requests[1]
         assert again.stage is Stage.DIAGNOSE
-        assert "Delta · QA팀장(팀장)의 확인 [필수] 지적" in again.prompt
+        assert "미자르 · QA팀장(팀장)의 확인 [필수] 지적" in again.prompt
         assert len(await h.repo.list_events(1, {EventKind.DIAGNOSIS})) == 2
 
 
@@ -729,7 +733,7 @@ def test_nightly_diagnosis_must_decide_action():
         assert task.state is TaskState.DONE
         assert len(h.claude.requests) == 2
         assert "action" in h.claude.requests[1].prompt
-        (check,) = h.codex.requests  # Delta가 판정까지 확인한다
+        (check,) = h.codex.requests  # 미자르가 판정까지 확인한다
         assert "정기 테스트 판정: 개선 필요" in check.prompt
         assert len(h.chat.created) == 1
 
@@ -873,8 +877,8 @@ def test_restart_opens_post_for_scheduled_task_stuck_without_one():
 
 
 def limited_org(daily_calls):
-    beta = TEST_ORG.agents["beta"].model_copy(update={"daily_calls": daily_calls})
-    return TEST_ORG.model_copy(update={"agents": {**TEST_ORG.agents, "beta": beta}})
+    arcturus = TEST_ORG.agents["arcturus"].model_copy(update={"daily_calls": daily_calls})
+    return TEST_ORG.model_copy(update={"agents": {**TEST_ORG.agents, "arcturus": arcturus}})
 
 
 def test_daily_budget_blocks_agent():
@@ -883,11 +887,11 @@ def test_daily_budget_blocks_agent():
     async def _(h):
         await h.engine.on_chat(P, "질문")
         await h.engine.on_chat(P, "한 번 더")
-        # Beta는 오늘 1회를 썼다. 두 번째 질문에서는 Alpha만 CLI를 부른다
+        # 아르크투루스는 오늘 1회를 썼다. 두 번째 질문에서는 리겔만 CLI를 부른다
         assert len(h.claude.requests) == 3
-        assert any(c.author == "bot" and "Beta" in c.text for c in h.chat.chats)
+        assert any(c.author == "bot" and "아르크투루스" in c.text for c in h.chat.chats)
         h.clock.advance(timedelta(days=1))
-        await h.engine.on_chat(P, "@beta 다음 날")
+        await h.engine.on_chat(P, "@arcturus 다음 날")
         assert len(h.claude.requests) == 4
 
 
@@ -916,7 +920,7 @@ def test_usage_limit_pauses_queue_and_retries_once():
         assert len(h.claude.requests) == 3
         assert sum(h.slept) >= 3600
         assert any("한도" in text for text, _ in h.chat.ops)
-        assert sorted(c.author for c in h.chat.chats) == ["alpha", "beta"]
+        assert sorted(c.author for c in h.chat.chats) == ["arcturus", "rigel"]
 
 
 # 채용 제안 (운영 규약 1.12)
@@ -939,7 +943,7 @@ def test_hiring_proposal_is_raised_and_decided():
     async def _(h):
         await h.engine.on_chat(P, "질문")
         (proposal,) = await h.repo.list_hiring_proposals()
-        assert proposal.proposed_by == "beta" and proposal.task_id is None
+        assert proposal.proposed_by == "arcturus" and proposal.task_id is None
         text, mention = h.chat.reports[-1]
         assert mention and "/hire" in text
         assert "거절" in await h.engine.decide_hiring(1, accept=False, note="아직 이르다")
@@ -1007,7 +1011,7 @@ def test_restart_marks_running_agent_runs_failed():
     @scenario(claude=[plan_reply()])
     async def _(h):
         await h.engine.task_from_chat(P, "/task feature", "예산 배너")
-        await h.repo.start_agent_run("left", task_id=1, agent="beta", stage=Stage.PLAN)
+        await h.repo.start_agent_run("left", task_id=1, agent="arcturus", stage=Stage.PLAN)
         await h.engine.recover_interrupted()
         assert (await h.repo.get_agent_run("left")).status == "error"
 
@@ -1045,10 +1049,10 @@ def test_legacy_task_resumes_with_new_roles():
         task = await h.task()
         assert task.state is TaskState.AWAIT_MERGE
         assert h.codex.requests[0].stage is Stage.REVIEW
-        assert "Delta · QA팀장" in h.codex.requests[0].prompt
+        assert "미자르 · QA팀장" in h.codex.requests[0].prompt
 
 
-PROJECT_OWNERS = {"gagaessi": "kappa", "jday": "lambda", "orot": "mu"}
+PROJECT_OWNERS = {"gagaessi": "aldebaran", "jday": "pollux", "orot": "sirius"}
 
 
 def owner_reply(done, blockers=()):
@@ -1070,22 +1074,22 @@ def test_owners_report_their_own_chat_to_beta_and_projects_stay_separate():
         assert len(reports) == 3
         for (project, owner), request in zip(PROJECT_OWNERS.items(), reports, strict=True):
             assert request.stage is Stage.PROJECT_REPORT and request.mode == "read_only"
-            assert f"-{owner}-" in request.run_id and "Beta · 기획팀장" in request.prompt
+            assert f"-{owner}-" in request.run_id and "아르크투루스 · 기획팀장" in request.prompt
             assert f"{project} 검토 결과" in request.prompt
-            (receipt,) = await h.repo.project_report_inbox(project, "beta")
+            (receipt,) = await h.repo.project_report_inbox(project, "arcturus")
             assert receipt["owner"] == owner and receipt["body"]["done"] == [
                 f"{project} 후보를 정리했다"
             ]
-            assert not await h.repo.project_report_inbox(project, "alpha")
+            assert not await h.repo.project_report_inbox(project, "rigel")
         h.claude.add_response(opinion("검토했다"))
-        await h.engine.on_chat("orot", "@beta 어떤 보고가 왔어?")
+        await h.engine.on_chat("orot", "@arcturus 어떤 보고가 왔어?")
         prompt = h.claude.requests[-1].prompt
         assert "orot 후보를 정리했다" in prompt and "jday 후보를 정리했다" not in prompt
         assert all(not c.mention for c in h.chat.chats if "에게 보고" in c.text)
 
 
 def test_done_is_reported_once_even_if_worker_runs_again_after_recovery():
-    @scenario(owners={P: "kappa"}, claude=[owner_reply("정기 테스트 통과를 확인했다")])
+    @scenario(owners={P: "aldebaran"}, claude=[owner_reply("정기 테스트 통과를 확인했다")])
     async def _(h):
         task = await h.engine.start_scheduled(P, "nightly-test")
         assert task.state is TaskState.DONE
@@ -1095,12 +1099,12 @@ def test_done_is_reported_once_even_if_worker_runs_again_after_recovery():
         await h.engine.process_project_reports()
         assert len(h.claude.requests) == 1
         assert '"passed": true' in h.claude.requests[0].prompt
-        assert len(await h.repo.project_report_inbox(P, "beta")) == 1
+        assert len(await h.repo.project_report_inbox(P, "arcturus")) == 1
         assert h.chat.created == [] and h.chat.posts == []
 
 
 def test_blocked_report_retries_independently_and_keeps_original_evidence():
-    @scenario(owners={P: "kappa"}, tests=[make_report(False, ["출시 점검"])])
+    @scenario(owners={P: "aldebaran"}, tests=[make_report(False, ["출시 점검"])])
     async def _(h):
         await h.engine.task_from_chat(P, "/release", "1.0")
         task = await h.task()
@@ -1110,7 +1114,7 @@ def test_blocked_report_retries_independently_and_keeps_original_evidence():
         )
         h.claude.add_response(failed())
         await h.engine.process_project_reports()
-        assert not await h.repo.project_report_inbox(P, "beta")
+        assert not await h.repo.project_report_inbox(P, "arcturus")
         await h.engine.process_project_reports()
         assert len(h.claude.requests) == 1
         h.clock.advance(timedelta(hours=1))
@@ -1124,11 +1128,13 @@ def test_blocked_report_retries_independently_and_keeps_original_evidence():
         await h.command(CommandName.STOP)
         await h.command(CommandName.STOP)
         await h.engine.process_project_reports()
-        assert len(await h.repo.project_report_inbox(P, "beta")) == 2
+        assert len(await h.repo.project_report_inbox(P, "arcturus")) == 2
 
 
 def test_restart_queues_a_single_report_for_an_interrupted_stage():
-    @scenario(owners={P: "kappa"}, claude=[owner_reply("재시작 기록을 확인했다", ["구현 중단"])])
+    @scenario(
+        owners={P: "aldebaran"}, claude=[owner_reply("재시작 기록을 확인했다", ["구현 중단"])]
+    )
     async def _(h):
         await h.repo.create_task(
             project=P,
@@ -1141,12 +1147,12 @@ def test_restart_queues_a_single_report_for_an_interrupted_stage():
         await h.engine.recover_interrupted()
         await h.engine.recover_interrupted()
         await h.engine.process_project_reports()
-        (receipt,) = await h.repo.project_report_inbox(P, "beta")
+        (receipt,) = await h.repo.project_report_inbox(P, "arcturus")
         assert "재시작" in receipt["subject"] and "IMPLEMENTING" in receipt["subject"]
 
 
 def test_new_owner_picks_up_an_existing_blocker_once():
-    @scenario(owners={P: "kappa"}, claude=[owner_reply("기존 기록을 확인했다", ["빌드 실패"])])
+    @scenario(owners={P: "aldebaran"}, claude=[owner_reply("기존 기록을 확인했다", ["빌드 실패"])])
     async def _(h):
         task = await h.repo.create_task(
             project=P,
@@ -1165,14 +1171,14 @@ def test_new_owner_picks_up_an_existing_blocker_once():
 
 
 def test_gemini_engine_agent_runs_chat_and_plan_stages():
-    beta_gemini = DEFAULT_ORG.agents["beta"].model_copy(update={"engine": "gemini"})
-    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "beta": beta_gemini}})
+    beta_gemini = DEFAULT_ORG.agents["arcturus"].model_copy(update={"engine": "gemini"})
+    org = DEFAULT_ORG.model_copy(update={"agents": {**DEFAULT_ORG.agents, "arcturus": beta_gemini}})
 
     @scenario(gemini=[opinion("Gemini 의견"), plan_reply()], org=org)
     async def _(h):
-        await h.engine.on_chat(P, "@beta 의견")
+        await h.engine.on_chat(P, "@arcturus 의견")
         assert len(h.gemini.requests) == 1
-        assert h.chat.chats[-1].author == "beta"
+        assert h.chat.chats[-1].author == "arcturus"
 
         await h.engine.task_from_chat(P, "/task feature", "예산 배너")
         assert len(h.gemini.requests) == 2
@@ -1182,8 +1188,8 @@ def test_gemini_engine_agent_runs_chat_and_plan_stages():
             "SELECT agent, engine, stage, status FROM agent_runs ORDER BY started_at"
         )
         assert [tuple(row) for row in rows] == [
-            ("beta", "gemini", "opinion", "ok"),
-            ("beta", "gemini", "plan", "ok"),
+            ("arcturus", "gemini", "opinion", "ok"),
+            ("arcturus", "gemini", "plan", "ok"),
         ]
 
 

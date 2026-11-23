@@ -10,7 +10,7 @@ stages:
   scope: full
 - id: prepare
   kind: release_prep
-  agent: beta
+  agent: arcturus
 - id: approve
   kind: gate
 budget:
