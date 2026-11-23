@@ -6,8 +6,8 @@
 남지 않게). agy 1.5.14의 `-p`는 바로 뒤 인자를 프롬프트로 받고 stdin을 읽지 않으므로, stdin을 읽는
 stream-json 입력을 쓴다 (2026-11-22 실제 호출로 확인). 전체 스트림은 실행 로그(`.log`)에 남는다.
 
-웹 검색 도구(`search_web`)는 권한 규칙으로 막히지 않는다. 그래서 개념 노트 외 단계는 `tools`에서
-`search_web`을 뺀 전용 에이전트(`byeolchae`)로 돌린다. 에이전트 파일은 실행 폴더의
+웹 검색 도구(`search_web`)는 권한 규칙으로 막히지 않는다. 그래서 개념 노트·조사 보고 외 단계는
+`tools`에서 `search_web`을 뺀 전용 에이전트(`byeolchae`)로 돌린다. 에이전트 파일은 실행 폴더의
 `antigravity/.agents/agents/`에 러너가 쓰고 `--add-dir`로 넘긴다. `--agent`는 파일 경로를 받지 않고
 작업 폴더나 더한 폴더의 `.agents/`에서만 찾는다. 구조화 출력은 `finish` 도구로 내므로 `tools`에
 반드시 넣는다 (2026-11-22 실제 호출로 확인, ADR-017).
@@ -25,6 +25,7 @@ Antigravity 권한 평가 순서는 `Deny > Ask > Allow`다. agy 1.5.14 실제 �
 - PLAN·UI_DESIGN·DESIGN: 기본 모드 + 자기 문서 폴더와 `.git` `write_file(...)`, 로컬 git 명령
 - IMPLEMENT·FIX: `--mode accept-edits` + 작업 폴더 편집과 로컬 git 명령만 허용
 - CONCEPT_NOTE: `--mode plan` + `read_file(*)`와 `read_url(*)` 허용. 볼트의 `회사/`는 읽지 않는다
+- RESEARCH: CONCEPT_NOTE와 같다. 부서 대화에서 맡긴 조사 보고 (ADR-018)
 - DEPT_CHAT: `--mode plan` + `read_file(*)`와 git 기록 읽기. `read_dirs`를 `--add-dir`로 더한다
 - 공통 금지(`deny`): push·원격 git 명령, `.env` 접근, 볼트의 `회사/` 읽기, 사용자 MCP 서버(`mcp(*)`)
 """
@@ -34,7 +35,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bot.agents.base import DOC_STAGE_DIRS, AgentRequest, AgentResult, EngineName, RunStatus, Stage
+from bot.agents.base import (
+    DOC_STAGE_DIRS,
+    WEB_STAGES,
+    AgentRequest,
+    AgentResult,
+    EngineName,
+    RunStatus,
+    Stage,
+)
 from bot.agents.codex import git_common_dir
 from bot.agents.process import ProcessResult, ProcessRunner
 
@@ -75,9 +84,9 @@ NON_GIT_COMMANDS = (
     "command(regex:git[^ ].*)",
 )
 
-RESEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE, Stage.DEPT_CHAT})
+RESEARCH_STAGES = frozenset({*WEB_STAGES, Stage.DEPT_CHAT})
 # 웹 검색을 쓰는 단계. 나머지는 search_web이 없는 전용 에이전트로 돌린다
-WEB_SEARCH_STAGES = frozenset({Stage.CONCEPT_NOTE})
+WEB_SEARCH_STAGES = WEB_STAGES
 
 AGENT_NAME = "byeolchae"
 AGENT_FILE = f"""---
@@ -194,7 +203,7 @@ def build_settings(request: AgentRequest) -> dict[str, Any]:
     allow: list[str] = ["read_file(*)"]
     deny: list[str] = [*DENIED_RULES, *_private_paths(request)]
 
-    if request.stage is Stage.CONCEPT_NOTE:
+    if request.stage in WEB_STAGES:
         allow.append("read_url(*)")
         deny += ["write_file(*)", "command(*)", "execute_url(*)"]
     elif request.stage is Stage.DEPT_CHAT:

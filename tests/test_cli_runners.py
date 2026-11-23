@@ -306,10 +306,11 @@ def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
     assert value_after(argv, "--add-dir") == str(common.resolve())
 
 
-def test_codex_concept_note_turns_on_web_search(tmp_path, process):
+@pytest.mark.parametrize("stage", [Stage.CONCEPT_NOTE, Stage.RESEARCH])
+def test_codex_web_stages_turn_on_web_search(tmp_path, process, stage):
     # --search는 최상위 옵션이라 exec 앞에 둔다. 다른 단계는 웹 검색이 없다 (Claude와 같다)
     runner = CodexCliRunner(process)
-    argv = runner.build_argv(request(tmp_path, Stage.CONCEPT_NOTE))
+    argv = runner.build_argv(request(tmp_path, stage))
     assert argv[:3] == ["codex", "--search", "exec"]
     assert value_after(argv, "--sandbox") == "read-only"
     assert 'web_search="disabled"' not in argv
@@ -397,8 +398,9 @@ def test_codex_without_last_message_falls_back_to_stdout(tmp_path, process):
     assert result.stdout == "부분 출력\n"
 
 
-def test_claude_concept_note_reads_and_searches_web_only(tmp_path, process):
-    argv = ClaudeCliRunner(process).build_argv(request(tmp_path, Stage.CONCEPT_NOTE, "read_only"))
+@pytest.mark.parametrize("stage", [Stage.CONCEPT_NOTE, Stage.RESEARCH])
+def test_claude_web_stages_read_and_search_web_only(tmp_path, process, stage):
+    argv = ClaudeCliRunner(process).build_argv(request(tmp_path, stage, "read_only"))
     assert value_after(argv, "--permission-mode") == "dontAsk"
     assert values_after(argv, "--allowedTools") == ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
     assert "Read(회사/**)" in values_after(argv, "--disallowedTools")
@@ -506,8 +508,9 @@ def test_gemini_implement_and_fix_use_accept_edits_and_local_git(tmp_path, proce
     assert not any("push" in rule for rule in perms["allow"])
 
 
-def test_gemini_concept_note_reads_and_searches_web_only(tmp_path, process):
-    req = request(tmp_path, Stage.CONCEPT_NOTE, "read_only")
+@pytest.mark.parametrize("stage", [Stage.CONCEPT_NOTE, Stage.RESEARCH])
+def test_gemini_web_stages_read_and_search_web_only(tmp_path, process, stage):
+    req = request(tmp_path, stage, "read_only")
     argv = GeminiCliRunner(process).build_argv(req)
     assert value_after(argv, "--mode") == "plan"
     assert "--agent" not in argv

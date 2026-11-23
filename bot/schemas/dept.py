@@ -24,11 +24,22 @@ class Handoff(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
+class ResearchRequest(BaseModel):
+    """웹에서 새로 찾아봐야 하는 질문이면 조사 보고로 넘긴다 (ADR-018). 봇이 담당을 부른다."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    topic: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    # org.yaml의 이름 키. 비우면 기본 담당(리서치팀 데네브)이 맡는다
+    agent: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]{0,19}$")] | None = None
+
+
 class DeptAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     answer: AnswerText
     handoff: list[Handoff] = Field(default_factory=list, max_length=MAX_HANDOFF)
+    research: ResearchRequest | None = None
     # 회의가 필요하면 스레드 제목. 봇이 Zero 메시지에 스레드를 열고 그 안에서 이어 간다
     thread_title: (
         Annotated[

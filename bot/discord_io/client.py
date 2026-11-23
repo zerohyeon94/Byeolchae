@@ -66,6 +66,7 @@ from bot.workflow.education import EducationDesk
 from bot.workflow.engine import PAUSE_KEY, Engine, ProjectContext
 from bot.workflow.gate import AgentGate
 from bot.workflow.mentions import Moment, should_mention
+from bot.workflow.research import ResearchDesk
 from bot.workflow.secretary import SecretaryDesk
 from bot.workflow.state import CommandName, Limits, TaskState
 
@@ -229,6 +230,19 @@ class ZeroSyncBot(discord.Client):
                 gemini_dirs=config.secretary.gemini_conversations,
                 workdir=config.paths.runs.parent / "secretary",
             )
+        # 조사 보고는 비서 볼트의 조사/에 쓴다. 비서 부서가 없으면 맡기지 않는다 (ADR-018)
+        research = None
+        if config.secretary is not None:
+            research = ResearchDesk(
+                self.engine,
+                VaultGit(),
+                config.secretary.vault,
+                config.org,
+                self.clock,
+                self.chat,
+                workdir=config.paths.runs.parent / "research",
+                folders=dept_folders(config),
+            )
         self.dept_chat = DeptChat(
             self.engine,
             self.chat,
@@ -237,6 +251,7 @@ class ZeroSyncBot(discord.Client):
             dept_specs(config),
             workdir=config.paths.runs.parent / "dept",
             folders=dept_folders(config),
+            research=research,
         )
         self._webhooks: dict[int, discord.Webhook] = {}
         self._background: set[asyncio.Task[None]] = set()

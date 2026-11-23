@@ -18,12 +18,14 @@ from bot.prompts import (
     lead_check_prompt,
     opinion_prompt,
     persona_for,
+    research_check_prompt,
+    research_prompt,
     secretary_daily_prompt,
     weekly_quiz_prompt,
     with_format_error,
 )
 from bot.render import MAX_POST_LENGTH, render_format_error, render_notice, render_opinion_post
-from bot.schemas import Opinion
+from bot.schemas import Opinion, ResearchReport
 from bot.workflow.mentions import ACTION_REQUIRED, Moment, should_mention
 from bot.workflow.state import NoticeCode
 
@@ -283,7 +285,9 @@ def test_dept_chat_prompt_snapshot():
         records="### 작업 19 [gagaessi] 카테고리 추가\n- 상태: AWAIT_PLAN_APPROVAL",
         history=[HistoryEntry("Zero", "오늘 보고 고마워요")],
         candidates=[("beta", "Beta · 기획팀장"), ("alpha", "Alpha · 개발팀장")],
+        research=True,
     )
+    assert "- research: 웹에서" in prompt
     assert "`#비서`" in prompt and "카테고리 추가는 어떻게 결정된 건가요?" in prompt
     assert "`beta`: Beta · 기획팀장" in prompt and "최대 3명" in prompt
     assert "thread_title: 여러 직원이" in prompt
@@ -309,3 +313,54 @@ def test_dept_chat_handoff_prompt_snapshot():
     assert "다시 넘기지 않는다" in prompt and "`alpha`" not in prompt
     assert "thread_title: 여러 직원이" not in prompt  # 스레드를 다시 열지 않는다
     check_snapshot("dept_chat_handoff_beta", prompt)
+
+
+RESEARCH_REPORT = ResearchReport(
+    title="AI 유튜브 채널 분석",
+    summary="결론: 세 채널이 앞선다",
+    body="## 채널\n\n- **채널 A:** 구독자 10만 (2026-11-23 확인)",
+    sources=[{"title": "채널 A", "url": "https://www.youtube.com/@a"}],
+    unverified=["채널 B 조회수"],
+)
+
+
+def test_research_prompt_snapshot():
+    prompt = research_prompt(
+        persona_for(DEFAULT_ORG, "iota"),
+        channel="비서",
+        day="2026-11-23",
+        requester="Theta · 비서팀장",
+        topic="AI 유튜브 채널 분석",
+        question="유튜브에서 AI 다루는 채널들 분석해서 보고해줘",
+        folders=[("비서 볼트 (Daily)", "/vault/study")],
+    )
+    assert "`#비서`" in prompt and "팀장 확인의" not in prompt
+    check_snapshot("research_iota", prompt)
+
+
+def test_research_revision_prompt_includes_required_and_previous():
+    prompt = research_prompt(
+        persona_for(DEFAULT_ORG, "iota"),
+        channel="비서",
+        day="2026-11-23",
+        requester="Theta · 비서팀장",
+        topic="AI 유튜브 채널 분석",
+        question="분석해줘",
+        folders=[],
+        previous=RESEARCH_REPORT,
+        required="- 구독자 숫자 근거 — 출처를 붙인다",
+    )
+    assert "## 팀장 확인의 [필수] 지적" in prompt
+    assert "- 채널 A: https://www.youtube.com/@a" in prompt
+
+
+def test_research_check_prompt_snapshot():
+    prompt = research_check_prompt(
+        persona_for(DEFAULT_ORG, "eta"),
+        member="Iota · 교육팀원",
+        topic="AI 유튜브 채널 분석",
+        question="유튜브에서 AI 다루는 채널들 분석해서 보고해줘",
+        report=RESEARCH_REPORT,
+    )
+    assert "Iota · 교육팀원" in prompt and "확인하지 못함:\n- 채널 B 조회수" in prompt
+    check_snapshot("research_check_eta", prompt)

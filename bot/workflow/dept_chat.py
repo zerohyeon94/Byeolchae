@@ -3,6 +3,7 @@
 Zero가 부서 채널에 쓴 메시지에 그 부서 팀장(또는 `@이름`으로 부른 직원)이 답한다.
 답하는 직원은 읽기 전용으로 볼트와 제품 저장소를 읽고, 봇이 DB에서 모은 최근 작업 기록을 받는다.
 다른 팀장이 답할 질문이면 답의 handoff대로 그 팀장을 바로 불러 답을 잇는다. 한 번만 넘긴다.
+웹에서 새로 찾아봐야 하는 일이면 답의 research대로 조사 보고를 맡긴다 (ADR-018).
 대화에는 상태가 없다. 기록은 chat_turns에 부서 키로 남긴다.
 """
 
@@ -22,6 +23,7 @@ from bot.schemas import DeptAnswer
 from bot.store import Actor, EventKind, Repository
 from bot.workflow.chat import ChatIO
 from bot.workflow.mentions import Moment, should_mention
+from bot.workflow.research import ResearchDesk, research_agent
 from bot.workflow.state import NoticeCode
 
 log = logging.getLogger(__name__)
@@ -73,14 +75,20 @@ def render_answer(org: Org, answer: DeptAnswer) -> str:
             f"→ **{org.display(item.agent)}**에게 넘긴다: {item.question}"
             for item in answer.handoff
         ]
+    if answer.research is not None:
+        who = org.display(answer.research.agent) if answer.research.agent else "리서치팀"
+        lines += ["", f"→ **{who}**에게 조사 보고를 맡긴다: {answer.research.topic}"]
     return "\n".join(lines)
 
 
 async def _no_handoff(answer: DeptAnswer) -> list[str]:
     """넘겨받은 직원은 다시 넘기지 않는다 (호출이 꼬리를 무는 것 방지)."""
-    return (
-        ["넘겨받은 질문은 다시 넘기지 않는다. handoff는 빈 목록으로 둔다"] if answer.handoff else []
-    )
+    problems = []
+    if answer.handoff:
+        problems.append("넘겨받은 질문은 다시 넘기지 않는다. handoff는 빈 목록으로 둔다")
+    if answer.research is not None:
+        problems.append("넘겨받은 질문에서는 조사를 맡기지 않는다. research는 null로 둔다")
+    return problems
 
 
 @dataclass(frozen=True)
@@ -106,6 +114,7 @@ class DeptChat:
         *,
         workdir: Path,
         folders: Sequence[tuple[str, Path]],
+        research: ResearchDesk | None = None,
     ):
         self._engine = engine
         self._chat = chat
@@ -114,6 +123,7 @@ class DeptChat:
         self._depts = dict(depts)
         self._workdir = workdir  # 실행 폴더. 파일은 read_dirs로 읽는다
         self._folders = tuple(folders)
+        self._research = research  # 없으면 조사 보고를 맡기지 않는다
 
     async def on_message(
         self,
@@ -139,7 +149,7 @@ class DeptChat:
             question,
             history,
             records,
-            verify=self._handoff_problems(agent),
+            verify=self._answer_problems(agent),
             candidates=candidates,
             in_thread=thread is not None,
         )
@@ -149,10 +159,39 @@ class DeptChat:
         # Zero 메시지는 답이 올라갈 곳(채널 또는 새 스레드)의 기록에 남긴다
         await self._repo.add_chat_turn(place.key, Actor.ZERO, "message", {"text": text}, message_id)
         handoffs = answer.result.handoff if answer.result is not None else []
+        request = answer.result.research if answer.result is not None else None
         last = should_mention(Moment.OPINIONS_READY)
-        await self._publish(place, answer, mention=last and not handoffs)
-        if not handoffs:
-            return
+        await self._publish(place, answer, mention=last and not handoffs and request is None)
+        if handoffs:
+            # 조사 보고가 뒤따르면 Zero 호출은 보고를 올릴 때 한다
+            mention = last and request is None
+            await self._hand_off(
+                place, agent, question, history, records, answer, handoffs, mention
+            )
+        if request is not None and self._research is not None:
+            outcome = await self._research.run(
+                channel=spec.channel,
+                agent=research_agent(self._org, request, agent),
+                topic=request.topic,
+                question=question,
+                requester=agent,
+            )
+            await self._post(
+                place, outcome.author, outcome.text, outcome.kind, outcome.payload, last
+            )
+
+    async def _hand_off(
+        self,
+        place: "_Place",
+        agent: AgentName,
+        question: str,
+        history: Sequence[HistoryEntry],
+        records: str,
+        answer: Any,
+        handoffs: Sequence[Any],
+        last: bool,
+    ) -> None:
+        spec = place.spec
         # 넘겨받은 직원은 서로의 답을 보지 않고 독립 작성한다 (운영 규약 1.6)
         passer = self._org.display(agent)
         context = [
@@ -215,6 +254,7 @@ class DeptChat:
                 folders=[(label, str(path)) for label, path in self._folders],
                 records=records,
                 history=history,
+                research=self._research is not None,
                 **prompt,
             ),
             model=DeptAnswer,
@@ -223,8 +263,10 @@ class DeptChat:
             read_dirs=[path for _, path in self._folders if path.is_dir()],
         )
 
-    def _handoff_problems(self, agent: AgentName) -> Callable[[DeptAnswer], Awaitable[list[str]]]:
-        """넘길 담당자가 조직에 있고, 자기 자신이 아니며, 겹치지 않는지 (ADR-013)."""
+    def _answer_problems(self, agent: AgentName) -> Callable[[DeptAnswer], Awaitable[list[str]]]:
+        """넘길 담당자가 조직에 있고, 자기 자신이 아니며, 겹치지 않는지 (ADR-013).
+        조사를 맡기면 담당이 조직에 있는지도 본다 (ADR-018).
+        """
 
         async def check(answer: DeptAnswer) -> list[str]:
             problems = []
@@ -237,6 +279,13 @@ class DeptChat:
                 elif item.agent in seen:
                     problems.append(f"handoff에 {item.agent!r}가 두 번 있다")
                 seen.add(item.agent)
+            if answer.research is not None:
+                if self._research is None:
+                    problems.append("조사 보고를 맡길 수 없는 설정이다. research는 null로 둔다")
+                elif answer.research.agent and answer.research.agent not in self._org.agents:
+                    problems.append(
+                        f"research.agent {answer.research.agent!r}는 조직에 없는 이름이다"
+                    )
             return problems
 
         return check
@@ -261,8 +310,19 @@ class DeptChat:
                     f"로그: {answer.log_path}",
                     mention=should_mention(Moment.BOT_ERROR),
                 )
+        await self._post(place, author, text, kind, payload, mention)
+
+    async def _post(
+        self,
+        place: "_Place",
+        author: str,
+        text: str,
+        kind: str,
+        payload: dict[str, Any],
+        mention: bool,
+    ) -> None:
         if place.thread is None:
-            message_id = await self._chat.dept_chat(spec.key, author, text, mention=mention)
+            message_id = await self._chat.dept_chat(place.spec.key, author, text, mention=mention)
         else:
             message_id = await self._chat.post(place.thread, author, text, mention=mention)
         actor = Actor.BOT if author == "bot" else author
@@ -274,7 +334,7 @@ class DeptChat:
             payload = turn["payload"]
             if turn["kind"] == "dept_answer":
                 text = render_answer(self._org, DeptAnswer.model_validate(payload["answer"]))
-            elif turn["kind"] == "message":
+            elif turn["kind"] in ("message", "research"):
                 text = str(payload.get("text", ""))
             else:
                 continue
