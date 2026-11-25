@@ -276,6 +276,8 @@ def test_codex_args(tmp_path, process):
     assert value_after(argv, "--cd") == str(tmp_path)
     assert value_after(argv, "--sandbox") == "read-only"
     assert {"--ephemeral", "--ignore-user-config"} <= set(argv)
+    # 읽기 전용은 git 밖 실행 폴더(부서 대화·대표실)에서도 돈다
+    assert "--skip-git-repo-check" in argv
     assert value_after(argv, "--output-last-message") == str(tmp_path / "runs" / "x1.last.txt")
     assert value_after(argv, "--model") == "gpt-x"
     assert "--output-schema" not in argv
@@ -303,6 +305,7 @@ def test_codex_writes_worktree_and_its_git_dir(tmp_path, process, stage):
         request(worktree, stage, "write_worktree", run_id="w")
     )
     assert value_after(argv, "--sandbox") == "workspace-write"
+    assert "--skip-git-repo-check" not in argv  # 쓰기 단계는 git 확인을 그대로 둔다
     assert value_after(argv, "--add-dir") == str(common.resolve())
 
 
