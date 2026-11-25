@@ -66,7 +66,9 @@ class CodexCliRunner:
 
     def build_argv(self, request: AgentRequest) -> list[str]:
         if request.mode == "read_only":
-            sandbox = ["--sandbox", "read-only"]
+            # 부서 대화·대표실·조사는 git 저장소가 아닌 실행 폴더에서 돈다. codex는 git 밖이면
+            # 실행을 거부하므로 건너뛴다. 읽기 전용 샌드박스라 git 확인이 지킬 것이 없다
+            sandbox = ["--sandbox", "read-only", "--skip-git-repo-check"]
         elif request.stage in WRITE_STAGES:
             sandbox = ["--sandbox", "workspace-write"]
             # worktree의 커밋은 원래 저장소의 .git에 쓰인다. 그곳도 쓸 수 있게 연다
