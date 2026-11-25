@@ -50,3 +50,11 @@ class DeptAnswer(BaseModel):
         ]
         | None
     ) = None
+
+
+class OfficeAnswer(BaseModel):
+    """#대표실 대장의 한 마디 (ADR-019). 첫 답, 서로 대화, 정리, 인사 모두 이 형식이다."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    answer: AnswerText

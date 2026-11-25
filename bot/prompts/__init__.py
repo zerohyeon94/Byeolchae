@@ -25,6 +25,7 @@ from bot.schemas import (
     DiagnosisReport,
     DocSyncProposal,
     ImplementationReport,
+    OfficeAnswer,
     Opinion,
     PlanSummary,
     ReleasePrep,
@@ -747,4 +748,55 @@ def research_check_prompt(
         question=question.strip(),
         report=research_text(report),
         schema=_schema(Review),
+    )
+
+
+# 대표실 대화의 단계 (ADR-019)
+OFFICE_STEPS = ("answer", "single", "reply", "summary", "greeting")
+
+
+def office_prompt(
+    persona: Persona,
+    *,
+    step: str,
+    members: Sequence[str],
+    question: str = "",
+    folders: Sequence[tuple[str, str]] = (),
+    history: Sequence[HistoryEntry] = (),
+    others: Sequence[HistoryEntry] = (),
+) -> str:
+    """#대표실 대장의 한 마디 (ADR-019). members는 세 대장의 표시 이름.
+
+    answer: 셋이 같은 질문에 서로의 답을 보지 않고 먼저 답한다.
+    single: Zero가 `@이름`으로 이 대장만 불렀다.
+    reply: others(다른 대장의 첫 답)를 읽고 동의, 반박, 보완을 말한다.
+    summary: others(이번 대화 전체)를 보고 합의한 점, 갈린 점, Zero가 정할 것을 정리한다.
+    greeting: 새로 채용되어 #대표실에 처음 인사한다.
+    """
+    if step not in OFFICE_STEPS:
+        raise ValueError(f"대표실 단계가 아니다: {step}")
+    said = "\n\n".join(f"[{e.speaker}]\n{e.text.strip()}" for e in others)
+    asked = f"Zero의 글:\n{question.strip()}"
+    request = {
+        "answer": "Zero의 글에 답한다. 다른 대장도 같은 글에 따로 답하고 있다. 서로의 답은 "
+        f"다음 차례에 보게 된다. 너의 판단을 쓴다.\n\n{asked}",
+        "single": f"Zero가 너만 불렀다. 다른 대장 없이 혼자 답한다.\n\n{asked}",
+        "reply": "다른 대장의 답을 읽고 한 번 더 말한다. 동의하는 점, 다르게 보는 점, 빠진 점을 "
+        "근거와 함께 쓴다. 상대를 이름으로 부른다. 같은 말을 되풀이하지 않는다. "
+        f"새로 할 말이 없으면 짧게 동의만 한다.\n\n{asked}\n\n다른 대장의 답:\n\n{said}",
+        "summary": "대장 셋의 대화를 마치며 정리한다. 합의한 점, 갈린 점(누가 어떻게 보는지), "
+        "Zero가 정할 것을 짧은 목록으로 쓴다. 새 의견을 더하지 않는다."
+        f"\n\n{asked}\n\n이번 대화:\n\n{said}",
+        "greeting": "대표실 대장으로 새로 채용되어 #대표실에 처음 인사한다. 이름, 어떤 엔진으로 "
+        "일하는지, 대표실에서 무엇을 하는지, 성격이 드러나는 한마디를 300자 이내로 쓴다. "
+        "Zero에게 쓰는 인사다. 사실이 아닌 경험이나 실적을 지어내지 않는다."
+        + (f"\n\n먼저 인사한 대장:\n\n{said}" if said else ""),
+    }[step]
+    return _template("office").substitute(
+        _persona(persona, hiring_guide=False),
+        members=", ".join(members),
+        history=_history(history),
+        request=request,
+        folders="\n".join(f"- {label}: `{path}`" for label, path in folders) or "(없음)",
+        schema=_schema(OfficeAnswer),
     )
