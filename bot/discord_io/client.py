@@ -66,6 +66,8 @@ from bot.workflow.education import EducationDesk
 from bot.workflow.engine import PAUSE_KEY, Engine, ProjectContext
 from bot.workflow.gate import AgentGate
 from bot.workflow.mentions import Moment, should_mention
+from bot.workflow.office import TEAM as OFFICE
+from bot.workflow.office import OfficeRoom
 from bot.workflow.research import ResearchDesk
 from bot.workflow.secretary import SecretaryDesk
 from bot.workflow.state import CommandName, Limits, TaskState
@@ -162,6 +164,9 @@ class ZeroSyncBot(discord.Client):
             for key, desk in (("secretary", config.secretary), ("education", config.education))
             if desk is not None and desk.channel_id
         }
+        # #대표실은 보고 채널이면서, 대표실 팀이 있으면 대장 셋의 대화방이다 (ADR-019)
+        if self.report_channel_id and OFFICE in config.org.teams:
+            self.depts[self.report_channel_id] = OFFICE
         self.tree = app_commands.CommandTree(self)
         self.chat = DiscordChat(
             zero_user_id=self.zero_user_id,
@@ -253,6 +258,14 @@ class ZeroSyncBot(discord.Client):
             folders=dept_folders(config),
             research=research,
         )
+        self.office = OfficeRoom(
+            self.engine,
+            self.chat,
+            repo,
+            config.org,
+            workdir=config.paths.runs.parent / "office",
+            folders=dept_folders(config),
+        )
         self._webhooks: dict[int, discord.Webhook] = {}
         self._background: set[asyncio.Task[None]] = set()
         self._started = False
@@ -300,6 +313,8 @@ class ZeroSyncBot(discord.Client):
             f"조직: {', '.join(self.config.org.display(a) for a in self.config.org.agent_names)}",
             mention=should_mention(Moment.NOTICE),
         )
+        if OFFICE in self.depts.values():
+            self.spawn(self.office.greet(), "대표실 인사")
 
     def thread_url(self, thread: str) -> str:
         return f"https://discord.com/channels/{self.guild_ref.id}/{thread}"
@@ -812,6 +827,16 @@ class ZeroSyncBot(discord.Client):
             # 스레드 안이면 부모 채널이 부서, 채널 ID가 회의 스레드다
             in_thread = incoming.parent_id is not None
             dept = self.depts[incoming.parent_id if in_thread else incoming.channel_id]
+            if dept == OFFICE:
+                self.spawn(
+                    self.office.on_message(
+                        text,
+                        message_id=str(message.id),
+                        thread=str(incoming.channel_id) if in_thread else None,
+                    ),
+                    f"대표실 대화 {message.id}",
+                )
+                return
             self.spawn(
                 self.dept_chat.on_message(
                     dept,

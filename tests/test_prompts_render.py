@@ -16,6 +16,7 @@ from bot.prompts import (
     debate_prompt,
     dept_chat_prompt,
     lead_check_prompt,
+    office_prompt,
     opinion_prompt,
     persona_for,
     research_check_prompt,
@@ -322,6 +323,25 @@ RESEARCH_REPORT = ResearchReport(
     sources=[{"title": "채널 A", "url": "https://www.youtube.com/@a"}],
     unverified=["채널 B 조회수"],
 )
+
+
+def test_office_reply_prompt_snapshot():
+    prompt = office_prompt(
+        persona_for(DEFAULT_ORG, "theta"),
+        step="reply",
+        members=["알페라츠 · 대표실 대장", "미라크 · 대표실 대장", "알마크 · 대표실 대장"],
+        question="다음 분기에 무엇을 먼저 할까?",
+        folders=[("비서 볼트 (Daily)", "/vault/study")],
+        history=[HistoryEntry("Zero", "지난 질문")],
+        others=[HistoryEntry("미라크 · 대표실 대장", "가게씨 출시부터")],
+    )
+    assert "다른 대장의 답:" in prompt and "가게씨 출시부터" in prompt
+    check_snapshot("office_reply_theta", prompt)
+
+
+def test_office_prompt_rejects_unknown_step():
+    with pytest.raises(ValueError):
+        office_prompt(persona_for(DEFAULT_ORG, "theta"), step="vote", members=[])
 
 
 def test_research_prompt_snapshot():

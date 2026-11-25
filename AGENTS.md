@@ -14,7 +14,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 
 별채(Byeolchae)는 Discord 기반 멀티 에이전트 오케스트레이터(v2)이자 Zero 한 사람을 위한 회사다. 회사는 교육·비서·제품 세 부서이고, 지금은 제품 부서(가게씨, 제이데이, 오롯)를 만든다. Zero가 대표 겸 제품 부서장이고 팀장(기획팀 Beta, 디자인팀 Gamma, 개발팀 Alpha, QA팀 Delta)이 기획·디자인·설계·구현·검증을 맡으며, 봇이 파이프라인 단계를 규칙대로 진행한다. 전환 배경은 [ADR-005](docs/아키텍처%20결정/ADR-005-Discord-오케스트레이터-전환.md), 회사 구조는 [ADR-006](docs/아키텍처%20결정/ADR-006-회사형-구조.md)과 [ADR-007](docs/아키텍처%20결정/ADR-007-회사-재정의.md), 회사 재정의 문서는 [docs/회사/](docs/회사/README.md)에 있다.
 
-- 봇 안의 에이전트(15팀 41명, 별 이름. 예: 아르크투루스 기획팀장, 리겔 개발팀장, ADR-012)와 이 저장소를 개발하는 코딩 에이전트(Claude Code, Codex)는 별개다. 봇 에이전트의 이름·엔진은 회사 설정(`org.yaml`)이 정하고, 코딩 에이전트의 규칙은 이 문서와 `CLAUDE.md`가 정한다
+- 봇 안의 에이전트(16팀 46명, 별 이름. 예: 아르크투루스 기획팀장, 리겔 개발팀장, ADR-012)와 이 저장소를 개발하는 코딩 에이전트(Claude Code, Codex)는 별개다. 봇 에이전트의 이름·엔진은 회사 설정(`org.yaml`)이 정하고, 코딩 에이전트의 규칙은 이 문서와 `CLAUDE.md`가 정한다
 
 - 봇은 LLM이 아니라 결정론적 프로그램이다. 에이전트 출력의 JSON 블록을 검증해 옮길 뿐 해석하지 않는다
 - 판단(방향, 설계 승인, merge, 문서 반영)은 Zero만 한다
@@ -28,7 +28,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 | `bot/schemas/` | 에이전트 출력 스키마(의견, 리뷰 판정, 설계 요약 일부)와 JSON 추출·검증 | 구현 |
 | `bot/agents/` | 에이전트 호출 인터페이스, 자식 프로세스 실행(타임아웃·취소·실행 로그), Claude·Codex CLI 러너, 테스트용 가짜 러너 | 구현 |
 | `bot/store/` | SQLite 연결·스키마 버전 관리, tasks·events·agent_runs·chat_turns·ideas·채용 제안·교육 학습 기록과 문제·작업 단계 변화 저장소 | 구현 |
-| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 아침 학습·주간 보고 실행(`education.py`), 비서 아침판 Daily·저녁 하루 정리 실행(`secretary.py`), `#비서`·`#교육` 대화(`dept_chat.py`, ADR-013), 대화에서 맡기는 웹 조사 보고(`research.py`, ADR-018). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
+| `bot/workflow/` | 상태 enum과 전이 규칙(순수 함수), `ChatIO` 인터페이스, 멘션 규칙, 엔진(`engine.py`, 채팅 대화·예산·사용량 한도), 에이전트 실행 대기열(`gate.py`), 단계별 작업(`work.py`), 교육 아침 학습·주간 보고 실행(`education.py`), 비서 아침판 Daily·저녁 하루 정리 실행(`secretary.py`), `#비서`·`#교육` 대화(`dept_chat.py`, ADR-013), 대화에서 맡기는 웹 조사 보고(`research.py`, ADR-018), `#대표실` 대장 셋의 라운드 대화와 첫 인사(`office.py`, ADR-019). 상태 머신은 파이프라인 선언을 입력으로 받는다. discord.py를 import하지 않는다 | 구현 |
 | `bot/education/` | 교육 아침 학습 규칙(순수 함수: 이어 하기·다음 개념, 대기열, 월별 목표, 복습 문제 고르기, 대기열 쓰기), 개념 노트 형식 검사, 개념 노트 그림(새 PNG 확인, 줄이기, 노트에 넣기), 문제 형식과 Discord 표시 문구, 주간 보고 숫자 (ADR-009) | 구현 |
 | `bot/secretary/` | 비서 하루 정리 규칙: Claude·Codex·Gemini 토큰 집계(봇·Zero, 주간 비율, 구독 주간 한도), Daily 파일(아침판·저녁판)과 `#비서` 문구 (ADR-010) | 구현 |
 | `bot/github/` | push 보호·커밋 메시지 규칙, git worktree 작업(`GitOps`), `gh` 연동(`GitHubClient`), 볼트 커밋(`VaultGit`), 테스트용 가짜 | 구현 |
@@ -46,7 +46,7 @@ SPEC의 [제안]·[미결] 항목은 임의로 확정하지 않고, 구현에 �
 | `bot/discord_io/` | Discord 입출력 계층(입력 판정 규칙, 웹훅 게시, 슬래시 명령, 교육 문제 버튼, 클라이언트). 워크플로 로직은 이 계층 밖에 둔다 | 구현 (실제 서버 확인 전) |
 | `tests/` | pytest 테스트. 실제 CLI·Discord·GitHub는 호출하지 않는다. 프롬프트 스냅샷은 `tests/snapshots/` (`UPDATE_SNAPSHOTS=1`로 갱신) | 사용 중 |
 | `scripts/` | 수동 확인 스크립트 (`smoke_cli.py`: 실제 CLI로 러너 확인, 구독 사용량 소모), launchd 설치(`install_launchd.sh`), 볼트 `.git`을 iCloud 밖 `~/.zerosync/vault.git`으로 옮기는 일회성 이전(`migrate_vault_git.sh`, 봇 Mac에서 실행) | 사용 중 |
-| `assets/avatars/` | Discord 웹훅 게시용 직원 프로필 사진(41명과 별채, ADR-015). 별직원 원화(`output/characters/원화/`)에서 `scripts/make_avatars.py`로 만든다 | 사용 중 |
+| `assets/avatars/` | Discord 웹훅 게시용 직원 프로필 사진(46명과 별채, ADR-015·019). 별직원 원화(`output/characters/원화/`)에서 `scripts/make_avatars.py`로 만든다 | 사용 중 |
 | `deploy/` | launchd 상시 실행 템플릿 (`com.zerosync.orchestrator.plist`) | 사용 중 |
 | `menubar/` | v1 Swift 메뉴바 앱 (`ZeroSync/`, `ZeroSync.xcodeproj`, 테스트 타깃) | 보류 |
 | `docs/` | 봇 자체 개발 문서 | 사용 중 |
@@ -98,7 +98,7 @@ v1 메뉴바 앱을 수정할 때만 Xcode 명령을 쓴다. 저장소 루트에
 ## 문서
 
 - `docs/README.md`가 문서 인덱스다
-- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-019)
+- 중요한 기술 결정은 `docs/아키텍처 결정/`에 ADR로 남긴다 (다음 번호: ADR-020)
 - 작업한 날에는 `docs/개발 일지/YYYY-MM-DD.md`에 한 것 / 막힌 것·발견한 것 / 다음 할 것을 기록한다
 - 개발 일지는 작업 PR 안에서 함께 갱신한다. 일지만 바꾸는 PR은 따로 만들지 않는다. 이전 PR의 merge 결과는 다음 작업 PR의 일지에 적는다
 - 문제 해결 기록은 `docs/트러블슈팅/`에 남긴다

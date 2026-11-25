@@ -1,4 +1,4 @@
-"""별직원 원화로 Discord 프로필 사진 만들기 (ADR-012 15팀 41명과 별채, ADR-015).
+"""별직원 원화로 Discord 프로필 사진 만들기 (ADR-012·019 16팀 46명과 별채, ADR-015).
 
 원화(`output/characters/원화/<팀>/<이름>.png`)에서 캐릭터 영역을 찾아 가운데에 두고,
 원화 배경색으로 채운 정사각형 512px PNG를 `assets/avatars/<별 이름>.png`로 저장한다.
@@ -66,6 +66,12 @@ NAMES = {
     "사드르": "sadr",
     "코카브": "kochab",
     "알카이드": "alkaid",
+    # 2026-11-25 Zero 직접 채용 (ADR-019)
+    "메그레즈": "megrez",
+    "디프다": "diphda",
+    "알페라츠": "alpheratz",
+    "미라크": "mirach",
+    "알마크": "almach",
 }
 
 
